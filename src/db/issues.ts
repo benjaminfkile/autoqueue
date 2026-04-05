@@ -22,20 +22,25 @@ export async function getNextPendingIssue(
   db: Knex,
   repoId: number
 ): Promise<Issue | undefined> {
-  return db<Issue>("issues as i")
-    .where("i.repo_id", repoId)
-    .where("i.status", "pending")
-    .where(function () {
-      this.whereNull("i.parent_issue_number").orWhereExists(
-        db<Issue>("issues as parent")
-          .select(db.raw("1"))
-          .where("parent.repo_id", repoId)
-          .whereRaw("parent.issue_number = i.parent_issue_number")
-          .where("parent.status", "done")
-      );
-    })
-    .orderBy("i.queue_position", "asc")
-    .first();
+  // Raw SQL ensures the correlated subquery resolves correctly in PostgreSQL.
+  const result = await db.raw<{ rows: Issue[] }>(
+    `SELECT i.* FROM issues i
+     WHERE i.repo_id = ?
+       AND i.status = 'pending'
+       AND (
+         i.parent_issue_number IS NULL
+         OR EXISTS (
+           SELECT 1 FROM issues parent
+           WHERE parent.repo_id = ?
+             AND parent.issue_number = i.parent_issue_number
+             AND parent.status = 'done'
+         )
+       )
+     ORDER BY i.queue_position ASC
+     LIMIT 1`,
+    [repoId, repoId]
+  );
+  return result.rows[0];
 }
 
 export async function upsertIssue(

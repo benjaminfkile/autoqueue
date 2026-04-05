@@ -22,6 +22,22 @@ export async function advanceQueue(
     return;
   }
 
+  // Check if this is a container issue (has children in the DB).
+  // Container issues (e.g. phase trackers) are not tasks — auto-complete them
+  // so the queue moves straight to the first eligible child.
+  const childCountResult = await db("issues")
+    .where({ repo_id: repoId, parent_issue_number: issue.issue_number })
+    .count("id as count")
+    .first();
+  const hasChildren = parseInt(String(childCountResult?.count ?? "0"), 10) > 0;
+
+  if (hasChildren) {
+    console.log(`[advanceQueue] Issue #${issue.issue_number} is a container — auto-completing and advancing`);
+    await updateIssueStatus(db, issue.id, "done");
+    await advanceQueue(db, secrets, repoId);
+    return;
+  }
+
   await updateIssueStatus(db, issue.id, "active");
   console.log(`[advanceQueue] Advancing repo ${repoId} — issue #${issue.issue_number} (id=${issue.id})`);
 
