@@ -184,7 +184,7 @@ Run `npm run build` after to confirm zero TypeScript errors.
 
 ---
 
-## Issue 7 — Create issues REST router
+## ✅ Issue 7 — Create issues REST router
 
 Create `src/routers/issuesRouter.ts`. All routes protected by `protectedRoute()`.
 
