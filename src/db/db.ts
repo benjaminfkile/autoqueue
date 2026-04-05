@@ -1,3 +1,4 @@
+import path from "path";
 import knex, { Knex } from "knex";
 import { IAppSecrets, IDBSecrets } from "../interfaces";
 import health from "./health";
@@ -25,10 +26,17 @@ export async function initDb(
       port: 5432,
       ssl: { rejectUnauthorized: false },
     },
+    migrations: {
+      directory: path.join(__dirname, "migrations"),
+      extension: "js",
+    },
   });
 
   const dbHealth = await health.getDBConnectionHealth(db, true);
   console.log(dbHealth.logs);
+
+  await db.migrate.latest();
+  console.log("Database migrations applied.");
 
   return db;
 }
