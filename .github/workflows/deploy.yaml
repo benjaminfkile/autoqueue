@@ -1,0 +1,97 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: ["main", "dev"]
+    paths-ignore:
+      - "**/*.md"
+
+env:
+  IMAGE_TAG: ${{ github.ref_name == 'main' && 'latest' || 'dev' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push multi-arch Docker image
+        run: |
+          IMAGE_URI=${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
+          GIT_SHA=$(git rev-parse --short HEAD)
+
+          echo "Initializing Buildx for multi-architecture build..."
+          docker buildx create --use || true
+          docker buildx inspect --bootstrap
+
+          echo "Building and pushing Docker image..."
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg AWS_REGION=${{ secrets.AWS_REGION }} \
+            --build-arg AWS_SECRET_ARN=${{ secrets.AWS_SECRET_ARN }} \
+            --build-arg AWS_DB_SECRET_ARN=${{ secrets.AWS_DB_SECRET_ARN }} \
+            --build-arg PORT=${{ secrets.PORT }} \
+            -t $IMAGE_URI:$GIT_SHA \
+            -t $IMAGE_URI:${{ env.IMAGE_TAG }} \
+            --push .
+
+      - name: Cancel any existing instance refresh
+        run: |
+          aws autoscaling cancel-instance-refresh \
+            --auto-scaling-group-name "${{ secrets.ASG_NAME }}" || true
+
+      - name: Wait for refresh to cancel
+        run: |
+          while true; do
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "${{ secrets.ASG_NAME }}" \
+              --query 'InstanceRefreshes[0].Status' --output text)
+
+            if [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "None" ] || [ "$STATUS" = "Successful" ] || [ "$STATUS" = "Failed" ]; then
+              echo "No refresh in progress (status: $STATUS)."
+              break
+            fi
+
+            echo "Waiting for cancel... current status: $STATUS"
+            sleep 10
+          done
+
+      - name: Start new instance refresh
+        run: |
+          aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name "${{ secrets.ASG_NAME }}" \
+            --strategy Rolling \
+            --preferences '{"MinHealthyPercentage": 100, "InstanceWarmup": 400}'
