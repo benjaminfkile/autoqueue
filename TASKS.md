@@ -152,7 +152,7 @@ Run `npm run build` after to confirm zero TypeScript errors.
 
 ---
 
-## Issue 6 — Create repos REST router
+## ✅ Issue 6 — Create repos REST router
 
 Create `src/routers/reposRouter.ts`. All routes protected by the existing `protectedRoute()` middleware.
 

@@ -6,7 +6,9 @@ import express, { Express, NextFunction, Request, Response } from "express";
 //import cors from "cors";
 //import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
+import reposRouter from "./routers/reposRouter";
 import webhookRouter from "./routers/webhookRouter";
+import protectedRoute from "./middleware/protectedRoute";
 
 const app: Express = express();
 
@@ -26,6 +28,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use("/api/health", healthRouter);
+app.use("/api/repos", protectedRoute(), reposRouter);
 
 // TODO: Register additional routers here
 // app.use("/api/example", exampleRouter);

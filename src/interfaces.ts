@@ -8,6 +8,7 @@ export interface IAppSecrets {
   API_KEY_HASH: string;
   GH_PAT: string;
   WEBHOOK_SECRET: string;
+  BASE_URL: string;
   // Add additional app-level secrets here as needed
 }
 
