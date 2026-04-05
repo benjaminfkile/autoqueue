@@ -23,34 +23,45 @@ export async function advanceQueue(
   }
 
   await updateIssueStatus(db, issue.id, "active");
+  console.log(`[advanceQueue] Advancing repo ${repoId} — issue #${issue.issue_number} (id=${issue.id})`);
 
   if (issue.is_manual) {
     const repo = await getRepoById(db, repoId);
     if (repo) {
-      await assignHuman(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number,
-        repo.owner
-      );
-      await postIssueComment(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number,
-        "👋 Manual task — this requires human action and cannot be completed by the coding agent. Complete the steps above, then close this issue to advance the queue."
-      );
+      try {
+        await assignHuman(
+          secrets.GH_PAT,
+          repo.owner,
+          repo.repo_name,
+          issue.issue_number,
+          repo.owner
+        );
+        await postIssueComment(
+          secrets.GH_PAT,
+          repo.owner,
+          repo.repo_name,
+          issue.issue_number,
+          "👋 Manual task — this requires human action and cannot be completed by the coding agent. Complete the steps above, then close this issue to advance the queue."
+        );
+        console.log(`[advanceQueue] Manual issue #${issue.issue_number} assigned to ${repo.owner}`);
+      } catch (err) {
+        console.error(`[advanceQueue] Failed to assign manual issue #${issue.issue_number}:`, err);
+      }
     }
   } else {
     const repo = await getRepoById(db, repoId);
     if (repo) {
-      await assignCopilot(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number
-      );
+      try {
+        await assignCopilot(
+          secrets.GH_PAT,
+          repo.owner,
+          repo.repo_name,
+          issue.issue_number
+        );
+        console.log(`[advanceQueue] Copilot assigned to issue #${issue.issue_number}`);
+      } catch (err) {
+        console.error(`[advanceQueue] Failed to assign Copilot to issue #${issue.issue_number}:`, err);
+      }
     }
   }
 }

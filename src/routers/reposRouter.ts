@@ -10,7 +10,7 @@ import {
 } from "../db/repos";
 import { IAppSecrets } from "../interfaces";
 import { deregisterWebhook, registerWebhook } from "../services/github";
-import { backfillIssues } from "../services/queue";
+import { advanceQueue, backfillIssues } from "../services/queue";
 
 const reposRouter = express.Router();
 
@@ -142,6 +142,32 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(updated);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/repos/:id/advance — manually kick the queue for a repo
+reposRouter.post("/:id/advance", async (req: Request, res: Response) => {
+  try {
+    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
+    if (!secrets) {
+      return res.status(500).json({ error: "Secrets not loaded" });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const existing = await getRepoById(db, id);
+    if (!existing) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    await advanceQueue(db, secrets, id);
+    return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

@@ -11,7 +11,7 @@ export async function assignCopilot(
     owner,
     repo,
     issue_number: issueNumber,
-    assignees: ["app/github-copilot-for-issues"],
+    assignees: ["Copilot"],
   });
 }
 
