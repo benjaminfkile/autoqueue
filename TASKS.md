@@ -211,7 +211,7 @@ Run `npm run build` after to confirm zero TypeScript errors.
 
 ---
 
-## Issue 8 — Wire up routers, startup webhook sync, and add BASE_URL to secrets
+## ✅ Issue 8 — Wire up routers, startup webhook sync, and add BASE_URL to secrets
 
 This is the final integration task. No new modules — just wiring everything together.
 

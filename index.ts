@@ -5,7 +5,8 @@ import http from "http";
 import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
-import { initDb } from "./src/db/db";
+import { initDb, getDb } from "./src/db/db";
+import { syncWebhooks } from "./src/services/queue";
 import morgan from "morgan";
 
 process.on("uncaughtException", (err) => {
@@ -30,6 +31,7 @@ async function start() {
     const port = parseInt(appSecrets.PORT) || 8000;
 
     await initDb(dbSecrets, appSecrets);
+    await syncWebhooks(getDb(), appSecrets, appSecrets.BASE_URL);
 
     const server = http.createServer(app);
 
