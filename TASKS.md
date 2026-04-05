@@ -106,7 +106,7 @@ Run `npm run build` after to confirm zero TypeScript errors.
 
 ---
 
-## Issue 5 — Create webhook router to handle GitHub events
+## ✅ Issue 5 — Create webhook router to handle GitHub events
 
 Create `src/routers/webhookRouter.ts`.
 

@@ -6,11 +6,17 @@ import express, { Express, NextFunction, Request, Response } from "express";
 //import cors from "cors";
 //import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
+import webhookRouter from "./routers/webhookRouter";
 
 const app: Express = express();
 
 // app.use(helmet());
 // app.use(cors());
+
+// Webhook router must be registered BEFORE express.json() so signature
+// verification can access the raw request body via express.raw().
+app.use("/api/webhook", webhookRouter);
+
 app.use(express.json());
 
 app.get("/", (req: Request, res: Response) => {
