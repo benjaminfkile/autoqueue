@@ -10,6 +10,7 @@ import {
 } from "../db/repos";
 import { IAppSecrets } from "../interfaces";
 import { deregisterWebhook, registerWebhook } from "../services/github";
+import { backfillIssues } from "../services/queue";
 
 const reposRouter = express.Router();
 
@@ -63,6 +64,10 @@ reposRouter.post("/", async (req: Request, res: Response) => {
           secrets.WEBHOOK_SECRET
         );
         const updated = await updateRepo(db, repo.id, { webhook_id: webhookId });
+        // Fire-and-forget: backfill existing open issues from GitHub
+        backfillIssues(db, secrets, updated.id).catch((err) =>
+          console.error("[reposRouter] backfillIssues failed:", err)
+        );
         return res.status(201).json(updated);
       } catch (err) {
         console.error("[reposRouter] registerWebhook failed:", err);

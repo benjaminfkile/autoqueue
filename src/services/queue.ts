@@ -131,9 +131,15 @@ export async function backfillIssues(
       (l) => (typeof l === "string" ? l : l.name)?.toLowerCase() === "manual"
     );
 
+    const parentIssueUrl: string | null =
+      (ghIssue as unknown as { parent_issue_url?: string | null }).parent_issue_url ?? null;
+    const parentUrlMatch = parentIssueUrl?.match(/\/(\d+)$/);
+    const parentIssueNumber = parentUrlMatch ? parseInt(parentUrlMatch[1], 10) : null;
+
     await upsertIssue(db, {
       repo_id: repoId,
       issue_number: ghIssue.number,
+      parent_issue_number: parentIssueNumber,
       queue_position: position,
       is_manual: isManual,
     });

@@ -34,11 +34,10 @@ function verifySignature(
   }
 }
 
-function parseParentIssueNumber(body: string | null | undefined): number | null {
-  if (!body) return null;
-  const match = body.match(/parent\s*(?:issue)?\s*[:#]?\s*#(\d+)/i);
-  if (match) return parseInt(match[1], 10);
-  return null;
+function parseParentIssueUrl(url: string | null | undefined): number | null {
+  if (!url) return null;
+  const match = url.match(/\/(\d+)$/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 webhookRouter.post(
@@ -126,8 +125,9 @@ webhookRouter.post(
           (l) => l.name.toLowerCase() === "manual"
         );
 
-        const body: string | null = payload.issue?.body ?? null;
-        const parentIssueNumber = parseParentIssueNumber(body);
+        const parentIssueNumber = parseParentIssueUrl(
+          (payload.issue as { parent_issue_url?: string | null })?.parent_issue_url
+        );
 
         const allIssues = await getIssuesByRepoId(db, repo.id);
         const maxPos = allIssues.reduce(
