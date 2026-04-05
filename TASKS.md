@@ -82,7 +82,7 @@ Run `npm run build` after to confirm zero TypeScript errors.
 
 ---
 
-## Issue 4 — Create queue advancement service
+## ✅ Issue 4 — Create queue advancement service
 
 Create `src/services/queue.ts`. This is the core business logic that decides what to do next after an issue is completed.
 
