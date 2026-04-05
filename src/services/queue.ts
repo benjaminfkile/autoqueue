@@ -1,10 +1,11 @@
 import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
-import { getNextPendingIssue, updateIssueStatus } from "../db/issues";
+import { getIssuesByRepoId, getNextPendingIssue, updateIssueStatus, upsertIssue } from "../db/issues";
 import { getActiveRepos, getRepoById, updateRepo } from "../db/repos";
 import {
   assignCopilot,
   assignHuman,
+  getOpenIssues,
   postIssueComment,
   registerWebhook,
 } from "./github";
@@ -84,4 +85,65 @@ export async function syncWebhooks(
       }
     }
   }
+}
+
+export async function backfillIssues(
+  db: Knex,
+  secrets: IAppSecrets,
+  repoId: number
+): Promise<void> {
+  const repo = await getRepoById(db, repoId);
+  if (!repo) {
+    console.error(`backfillIssues: repo ${repoId} not found`);
+    return;
+  }
+
+  const ghIssues = await getOpenIssues(secrets.GH_PAT, repo.owner, repo.repo_name);
+
+  // GitHub's issues API also returns pull requests — filter them out
+  const openIssues = ghIssues.filter((i) => !i.pull_request);
+
+  if (openIssues.length === 0) {
+    console.log(`No open issues to backfill for ${repo.owner}/${repo.repo_name}`);
+    return;
+  }
+
+  // Sort ascending by issue number so queue_position reflects creation order
+  openIssues.sort((a, b) => a.number - b.number);
+
+  // Find the current max queue_position so we append after any existing entries
+  const existing = await getIssuesByRepoId(db, repoId);
+  const maxPos = existing.reduce((max, i) => Math.max(max, i.queue_position), 0);
+
+  let position = maxPos;
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const ghIssue of openIssues) {
+    const alreadyExists = existing.some((i) => i.issue_number === ghIssue.number);
+    if (alreadyExists) {
+      skipped++;
+      continue;
+    }
+
+    position++;
+    const isManual = ghIssue.labels.some(
+      (l) => (typeof l === "string" ? l : l.name)?.toLowerCase() === "manual"
+    );
+
+    await upsertIssue(db, {
+      repo_id: repoId,
+      issue_number: ghIssue.number,
+      queue_position: position,
+      is_manual: isManual,
+    });
+    inserted++;
+  }
+
+  console.log(
+    `Backfill complete for ${repo.owner}/${repo.repo_name}: ${inserted} inserted, ${skipped} already existed`
+  );
+
+  // Kick off the queue in case nothing is currently active
+  await advanceQueue(db, secrets, repoId);
 }
