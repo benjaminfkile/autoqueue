@@ -211,10 +211,26 @@ async function recoverQueue(
   repoName: string
 ): Promise<void> {
   const issues = await getIssuesByRepoId(db, repoId);
-  const activeIssue = issues.find((i) => i.status === "active");
+  const activeIssues = issues
+    .filter((i) => i.status === "active")
+    .sort((a, b) => a.queue_position - b.queue_position);
+
+  // If multiple rows are active (corrupted state from manual intervention),
+  // keep only the earliest by queue_position and reset the rest to pending.
+  if (activeIssues.length > 1) {
+    console.log(
+      `[recoverQueue] ${owner}/${repoName}: found ${activeIssues.length} active issues — resetting all but the earliest to pending`
+    );
+    for (const extra of activeIssues.slice(1)) {
+      await updateIssueStatus(db, extra.id, "pending");
+      console.log(`[recoverQueue] Reset issue #${extra.issue_number} to pending`);
+    }
+  }
+
+  const activeIssue = activeIssues[0];
 
   if (activeIssue) {
-    // Manual tasks stuck as active should be skipped — same as the new advanceQueue behavior
+    // Manual tasks stuck as active should be skipped
     if (activeIssue.is_manual) {
       console.log(
         `[recoverQueue] ${owner}/${repoName}: manual issue #${activeIssue.issue_number} stuck active — marking done and advancing`
@@ -224,8 +240,7 @@ async function recoverQueue(
       return;
     }
 
-    // For non-manual (Copilot) tasks, check if GitHub already closed the issue
-    // (handles missed PR-merged webhooks)
+    // For non-manual (Copilot) tasks, check GitHub state
     try {
       const ghState = await getGithubIssueState(
         secrets.GH_PAT,
@@ -235,15 +250,21 @@ async function recoverQueue(
       );
       if (ghState === "closed") {
         console.log(
-          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is closed on GitHub but active in DB — marking done and advancing`
+          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is closed on GitHub — marking done and advancing`
         );
         await updateIssueStatus(db, activeIssue.id, "done");
         await advanceQueue(db, secrets, repoId);
+      } else {
+        // Issue is still open — ensure Copilot is actually assigned.
+        // This handles cases where Copilot was unassigned during manual intervention.
+        console.log(
+          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is open — re-assigning Copilot`
+        );
+        await assignCopilot(secrets.GH_PAT, owner, repoName, activeIssue.issue_number);
       }
-      // else: issue still open, Copilot is probably still working — no action needed
     } catch (err) {
       console.error(
-        `[recoverQueue] ${owner}/${repoName}: failed to check GitHub state for issue #${activeIssue.issue_number}:`,
+        `[recoverQueue] ${owner}/${repoName}: failed to check/recover issue #${activeIssue.issue_number}:`,
         err
       );
     }
