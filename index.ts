@@ -6,7 +6,7 @@ import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
 import { initDb, getDb } from "./src/db/db";
-import { syncWebhooks } from "./src/services/queue";
+import { syncWebhooks, recoverQueues } from "./src/services/queue";
 import morgan from "morgan";
 
 process.on("uncaughtException", (err) => {
@@ -32,6 +32,19 @@ async function start() {
 
     await initDb(dbSecrets, appSecrets);
     await syncWebhooks(getDb(), appSecrets, appSecrets.BASE_URL);
+
+    // Recover any queues that got stuck (missed webhooks, manual tasks, etc.)
+    await recoverQueues(getDb(), appSecrets);
+
+    // Periodically re-check for stuck queues every 5 minutes
+    const RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
+    setInterval(async () => {
+      try {
+        await recoverQueues(getDb(), appSecrets);
+      } catch (err) {
+        console.error("[recoverQueues interval] Error:", err);
+      }
+    }, RECOVERY_INTERVAL_MS);
 
     const server = http.createServer(app);
 

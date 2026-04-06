@@ -156,6 +156,21 @@ export async function deregisterWebhook(
   });
 }
 
+export async function getGithubIssueState(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<"open" | "closed"> {
+  const octokit = new Octokit({ auth: pat });
+  const { data } = await octokit.issues.get({
+    owner,
+    repo,
+    issue_number: issueNumber,
+  });
+  return data.state as "open" | "closed";
+}
+
 export async function getOpenIssues(
   pat: string,
   owner: string,

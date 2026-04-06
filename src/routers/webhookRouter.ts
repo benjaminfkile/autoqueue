@@ -161,7 +161,9 @@ webhookRouter.post(
         if (!issue) {
           return res.status(200).json({ ok: true });
         }
-        if (issue.is_manual && issue.status === "active") {
+        // Advance the queue whenever an active issue is closed on GitHub,
+        // regardless of whether it's manual or automated (catch-all safety net).
+        if (issue.status === "active") {
           await updateIssueStatus(db, issue.id, "done");
           await advanceQueue(db, secrets, repo.id);
         }

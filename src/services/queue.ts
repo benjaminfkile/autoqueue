@@ -5,6 +5,7 @@ import { getActiveRepos, getRepoById, updateRepo } from "../db/repos";
 import {
   assignCopilot,
   assignHuman,
+  getGithubIssueState,
   getOpenIssues,
   postIssueComment,
   registerWebhook,
@@ -57,27 +58,31 @@ export async function advanceQueue(
           repo.owner,
           repo.repo_name,
           issue.issue_number,
-          "👋 Manual task — this requires human action and cannot be completed by the coding agent. Complete the steps above, then close this issue to advance the queue."
+          "👋 Manual task — this requires human action and cannot be completed by the coding agent. Complete the steps above when you're ready — the automated queue has already moved on to the next task."
         );
-        console.log(`[advanceQueue] Manual issue #${issue.issue_number} assigned to ${repo.owner}`);
+        console.log(`[advanceQueue] Manual issue #${issue.issue_number} — notified and skipping automatically`);
       } catch (err) {
-        console.error(`[advanceQueue] Failed to assign manual issue #${issue.issue_number}:`, err);
+        console.error(`[advanceQueue] Failed to notify manual issue #${issue.issue_number}:`, err);
       }
     }
-  } else {
-    const repo = await getRepoById(db, repoId);
-    if (repo) {
-      try {
-        await assignCopilot(
-          secrets.GH_PAT,
-          repo.owner,
-          repo.repo_name,
-          issue.issue_number
-        );
-        console.log(`[advanceQueue] Copilot assigned to issue #${issue.issue_number}`);
-      } catch (err) {
-        console.error(`[advanceQueue] Failed to assign Copilot to issue #${issue.issue_number}:`, err);
-      }
+    // Don't block the queue on manual tasks — mark done immediately and advance
+    await updateIssueStatus(db, issue.id, "done");
+    await advanceQueue(db, secrets, repoId);
+    return;
+  }
+
+  const repo = await getRepoById(db, repoId);
+  if (repo) {
+    try {
+      await assignCopilot(
+        secrets.GH_PAT,
+        repo.owner,
+        repo.repo_name,
+        issue.issue_number
+      );
+      console.log(`[advanceQueue] Copilot assigned to issue #${issue.issue_number}`);
+    } catch (err) {
+      console.error(`[advanceQueue] Failed to assign Copilot to issue #${issue.issue_number}:`, err);
     }
   }
 }
@@ -179,4 +184,78 @@ export async function backfillIssues(
 
   // Kick off the queue in case nothing is currently active
   await advanceQueue(db, secrets, repoId);
+}
+
+export async function recoverQueues(
+  db: Knex,
+  secrets: IAppSecrets
+): Promise<void> {
+  const repos = await getActiveRepos(db);
+  for (const repo of repos) {
+    try {
+      await recoverQueue(db, secrets, repo.id, repo.owner, repo.repo_name);
+    } catch (err) {
+      console.error(
+        `[recoverQueues] Error recovering repo ${repo.owner}/${repo.repo_name}:`,
+        err
+      );
+    }
+  }
+}
+
+async function recoverQueue(
+  db: Knex,
+  secrets: IAppSecrets,
+  repoId: number,
+  owner: string,
+  repoName: string
+): Promise<void> {
+  const issues = await getIssuesByRepoId(db, repoId);
+  const activeIssue = issues.find((i) => i.status === "active");
+
+  if (activeIssue) {
+    // Manual tasks stuck as active should be skipped — same as the new advanceQueue behavior
+    if (activeIssue.is_manual) {
+      console.log(
+        `[recoverQueue] ${owner}/${repoName}: manual issue #${activeIssue.issue_number} stuck active — marking done and advancing`
+      );
+      await updateIssueStatus(db, activeIssue.id, "done");
+      await advanceQueue(db, secrets, repoId);
+      return;
+    }
+
+    // For non-manual (Copilot) tasks, check if GitHub already closed the issue
+    // (handles missed PR-merged webhooks)
+    try {
+      const ghState = await getGithubIssueState(
+        secrets.GH_PAT,
+        owner,
+        repoName,
+        activeIssue.issue_number
+      );
+      if (ghState === "closed") {
+        console.log(
+          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is closed on GitHub but active in DB — marking done and advancing`
+        );
+        await updateIssueStatus(db, activeIssue.id, "done");
+        await advanceQueue(db, secrets, repoId);
+      }
+      // else: issue still open, Copilot is probably still working — no action needed
+    } catch (err) {
+      console.error(
+        `[recoverQueue] ${owner}/${repoName}: failed to check GitHub state for issue #${activeIssue.issue_number}:`,
+        err
+      );
+    }
+    return;
+  }
+
+  // No active issue — kick the queue if there are pending issues waiting
+  const hasPending = issues.some((i) => i.status === "pending");
+  if (hasPending) {
+    console.log(
+      `[recoverQueue] ${owner}/${repoName}: no active issue but pending issues exist — kicking queue`
+    );
+    await advanceQueue(db, secrets, repoId);
+  }
 }
