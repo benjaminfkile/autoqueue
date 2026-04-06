@@ -10,7 +10,7 @@ import {
 } from "../db/issues";
 import { getRepoByOwnerAndName } from "../db/repos";
 import { IAppSecrets } from "../interfaces";
-import { approvePR, mergePR, promoteDraftToReady } from "../services/github";
+import { approvePR, getGithubIssueState, mergePR, promoteDraftToReady } from "../services/github";
 import { advanceQueue } from "../services/queue";
 
 const webhookRouter = express.Router();
@@ -99,8 +99,23 @@ webhookRouter.post(
         const issues = await getIssuesByRepoId(db, repo.id);
         const activeIssue = issues.find((i) => i.status === "active");
         if (activeIssue) {
-          await updateIssueStatus(db, activeIssue.id, "done");
-          await advanceQueue(db, secrets, repo.id);
+          // Verify the active issue is actually closed on GitHub before advancing.
+          // This prevents a stale duplicate PR merge from prematurely advancing
+          // the queue to the wrong issue.
+          const issueState = await getGithubIssueState(
+            secrets.GH_PAT,
+            owner,
+            repoName,
+            activeIssue.issue_number
+          );
+          if (issueState === "closed") {
+            await updateIssueStatus(db, activeIssue.id, "done");
+            await advanceQueue(db, secrets, repo.id);
+          } else {
+            console.log(
+              `[webhook] PR #${prNumber} merged but active issue #${activeIssue.issue_number} is still open on GitHub — skipping advance`
+            );
+          }
         }
         return res.status(200).json({ ok: true });
       }
