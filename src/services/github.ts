@@ -7,11 +7,11 @@ export async function assignCopilot(
   issueNumber: number
 ): Promise<void> {
   const octokit = new Octokit({ auth: pat });
-  await octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/assignees", {
+  await octokit.issues.createComment({
     owner,
     repo,
     issue_number: issueNumber,
-    assignees: ["Copilot"],
+    body: "@copilot",
   });
 }
 
