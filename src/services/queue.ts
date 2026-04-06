@@ -255,12 +255,10 @@ async function recoverQueue(
         await updateIssueStatus(db, activeIssue.id, "done");
         await advanceQueue(db, secrets, repoId);
       } else {
-        // Issue is still open — ensure Copilot is actually assigned.
-        // This handles cases where Copilot was unassigned during manual intervention.
+        // Issue is still open — Copilot is working on it, nothing to do.
         console.log(
-          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is open — re-assigning Copilot`
+          `[recoverQueue] ${owner}/${repoName}: issue #${activeIssue.issue_number} is open and active — no action needed`
         );
-        await assignCopilot(secrets.GH_PAT, owner, repoName, activeIssue.issue_number);
       }
     } catch (err) {
       console.error(
