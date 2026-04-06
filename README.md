@@ -168,5 +168,5 @@ docker run -d --name autoqueue --network app-net -p 8000:8000 autoqueue:latest
 ```bash
 npm test
 ```
-# gateway-downstream-node-starter
+# file-manager-api
 # autoqueue
