@@ -27,6 +27,7 @@ export async function getNextPendingIssue(
     `SELECT i.* FROM issues i
      WHERE i.repo_id = ?
        AND i.status = 'pending'
+       AND i.is_manual = false
        AND (
          i.parent_issue_number IS NULL
          OR EXISTS (
