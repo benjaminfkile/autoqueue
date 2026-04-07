@@ -60,8 +60,10 @@ export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> 
     }
 
     const openNumbers = new Set(ghIssues.map((i) => i.number));
+    // Only remove pending issues that were closed/deleted on GitHub.
+    // Keep done/failed records so history is preserved for the console app.
     const toDelete = dbIssues.filter(
-      (i) => !openNumbers.has(i.issue_number) && i.status !== "active"
+      (i) => !openNumbers.has(i.issue_number) && i.status === "pending"
     );
 
     for (const issue of toDelete) {

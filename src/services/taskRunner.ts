@@ -15,6 +15,14 @@ import { runClaudeOnIssue } from "./claudeRunner";
 
 const MAX_ATTEMPTS = 3;
 
+async function tryGithubAction(fn: () => Promise<void>, description: string): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`[taskRunner] GitHub action failed (${description}):`, (err as Error).message);
+  }
+}
+
 export async function runTask(
   db: Knex,
   secrets: IAppSecrets,
@@ -38,14 +46,16 @@ export async function runTask(
 
   await updateIssueStatus(db, issue.id, "active");
 
-  await postIssueComment(
-    secrets.GH_PAT,
-    repo.owner,
-    repo.repo_name,
-    issue.issue_number,
-    `🤖 Autoqueue agent starting work on this issue.`
+  if (issue.retry_count === 0) {
+    await tryGithubAction(
+      () => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `🤖 Autoqueue agent starting work on this issue.`),
+      "post start comment"
+    );
+  }
+  await tryGithubAction(
+    () => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING),
+    "add working label"
   );
-  await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING);
 
   for (let attempt = issue.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
     await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT, repo.owner, repo.repo_name);
@@ -93,16 +103,10 @@ export async function runTask(
       );
 
       await updateIssueStatus(db, issue.id, "done");
-      await removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name);
-      await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE);
-      await postIssueComment(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number,
-        "✅ Completed by autoqueue agent."
-      );
-      await closeIssue(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number);
+      await tryGithubAction(() => removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
+      await tryGithubAction(() => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE), "add done label");
+      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by autoqueue agent."), "post done comment");
+      await tryGithubAction(() => closeIssue(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number), "close issue");
 
       return "success";
     }
@@ -111,24 +115,12 @@ export async function runTask(
 
     if (attempt < MAX_ATTEMPTS) {
       await updateIssue(db, issue.id, { retry_count: attempt });
-      await postIssueComment(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number,
-        `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`
-      );
+      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`), "post retry comment");
     } else {
       await updateIssueStatus(db, issue.id, "failed");
-      await removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name);
-      await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED);
-      await postIssueComment(
-        secrets.GH_PAT,
-        repo.owner,
-        repo.repo_name,
-        issue.issue_number,
-        `❌ Agent failed after ${MAX_ATTEMPTS} attempts. Halting queue. Manual intervention required.`
-      );
+      await tryGithubAction(() => removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
+      await tryGithubAction(() => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED), "add failed label");
+      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `❌ Agent failed after ${MAX_ATTEMPTS} attempts. Halting queue. Manual intervention required.`), "post failed comment");
       return "halted";
     }
   }
