@@ -85,6 +85,16 @@ export async function updateIssue(
   return issue;
 }
 
+export async function getActiveIssue(
+  db: Knex,
+  repoId: number
+): Promise<Issue | undefined> {
+  return db<Issue>("issues")
+    .where({ repo_id: repoId, status: "active" })
+    .orderBy("id", "asc")
+    .first();
+}
+
 export async function deleteIssue(db: Knex, id: number): Promise<void> {
   await db<Issue>("issues").where({ id }).delete();
 }
