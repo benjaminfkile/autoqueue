@@ -1,20 +1,5 @@
 import { Octokit } from "@octokit/rest";
 
-export async function assignCopilot(
-  pat: string,
-  owner: string,
-  repo: string,
-  issueNumber: number
-): Promise<void> {
-  const octokit = new Octokit({ auth: pat });
-  await octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/assignees", {
-    owner,
-    repo,
-    issue_number: issueNumber,
-    assignees: ["Copilot"],
-  });
-}
-
 export async function assignHuman(
   pat: string,
   owner: string,
@@ -44,115 +29,6 @@ export async function postIssueComment(
     repo,
     issue_number: issueNumber,
     body,
-  });
-}
-
-export async function promoteDraftToReady(
-  pat: string,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  const octokit = new Octokit({ auth: pat });
-
-  const { data: pr } = await octokit.pulls.get({
-    owner,
-    repo,
-    pull_number: prNumber,
-  });
-
-  const nodeId = pr.node_id;
-
-  await octokit.graphql(
-    `mutation($pullRequestId: ID!) {
-      markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
-        pullRequest {
-          id
-        }
-      }
-    }`,
-    { pullRequestId: nodeId }
-  );
-}
-
-export async function approvePR(
-  pat: string,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  const octokit = new Octokit({ auth: pat });
-  await octokit.pulls.createReview({
-    owner,
-    repo,
-    pull_number: prNumber,
-    event: "APPROVE",
-  });
-}
-
-export async function mergePR(
-  pat: string,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  const octokit = new Octokit({ auth: pat });
-
-  const { data: pr } = await octokit.pulls.get({
-    owner,
-    repo,
-    pull_number: prNumber,
-  });
-
-  await octokit.pulls.merge({
-    owner,
-    repo,
-    pull_number: prNumber,
-    merge_method: "squash",
-  });
-
-  if (pr.head.ref) {
-    await octokit.git.deleteRef({
-      owner,
-      repo,
-      ref: `heads/${pr.head.ref}`,
-    });
-  }
-}
-
-export async function registerWebhook(
-  pat: string,
-  owner: string,
-  repo: string,
-  webhookUrl: string,
-  secret: string
-): Promise<number> {
-  const octokit = new Octokit({ auth: pat });
-  const { data } = await octokit.repos.createWebhook({
-    owner,
-    repo,
-    config: {
-      url: webhookUrl,
-      content_type: "json",
-      secret,
-    },
-    events: ["pull_request", "issues"],
-    active: true,
-  });
-  return data.id;
-}
-
-export async function deregisterWebhook(
-  pat: string,
-  owner: string,
-  repo: string,
-  webhookId: number
-): Promise<void> {
-  const octokit = new Octokit({ auth: pat });
-  await octokit.repos.deleteWebhook({
-    owner,
-    repo,
-    hook_id: webhookId,
   });
 }
 
@@ -194,4 +70,45 @@ export async function getOpenIssues(
   }
 
   return issues;
+}
+
+export async function getIssueDetails(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<{
+  number: number;
+  title: string;
+  body: string;
+  labels: string[];
+  state: string;
+  parent_issue_number: number | null;
+}> {
+  const octokit = new Octokit({ auth: pat });
+  const { data } = await octokit.issues.get({
+    owner,
+    repo,
+    issue_number: issueNumber,
+  });
+
+  const body = data.body ?? "";
+
+  const parentMatch =
+    body.match(/Parent:\s*#(\d+)/) ??
+    body.match(/https?:\/\/[^\s]*\/issues\/(\d+)/);
+  const parent_issue_number = parentMatch ? parseInt(parentMatch[1], 10) : null;
+
+  const labels = (data.labels as Array<string | { name?: string | null }>).map(
+    (l) => (typeof l === "string" ? l : (l.name ?? ""))
+  );
+
+  return {
+    number: data.number,
+    title: data.title,
+    body,
+    labels,
+    state: data.state,
+    parent_issue_number,
+  };
 }

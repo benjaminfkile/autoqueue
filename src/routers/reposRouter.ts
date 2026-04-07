@@ -9,7 +9,6 @@ import {
   updateRepo,
 } from "../db/repos";
 import { IAppSecrets } from "../interfaces";
-import { advanceQueue, backfillIssues } from "../services/queue";
 
 const reposRouter = express.Router();
 
@@ -24,25 +23,21 @@ reposRouter.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/repos — create a repo (and register webhook if active)
+// POST /api/repos — create a repo
 reposRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-    if (!secrets) {
-      return res.status(500).json({ error: "Secrets not loaded" });
-    }
+    const db = getDb();
 
-    const { owner, repo_name, active } = req.body as {
+    const { owner, repo_name, active, base_branch } = req.body as {
       owner: string;
       repo_name: string;
       active?: boolean;
+      base_branch?: string;
     };
 
     if (!owner || !repo_name) {
       return res.status(400).json({ error: "owner and repo_name are required" });
     }
-
-    const db = getDb();
 
     const existing = await getRepoByOwnerAndName(db, owner, repo_name);
     if (existing) {
@@ -50,14 +45,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const isActive = active !== false;
-    const repo = await createRepo(db, { owner, repo_name, active: isActive });
-
-    if (isActive) {
-      // Fire-and-forget: backfill existing open issues from GitHub
-      backfillIssues(db, secrets, repo.id).catch((err) =>
-        console.error("[reposRouter] backfillIssues failed:", err)
-      );
-    }
+    const repo = await createRepo(db, { owner, repo_name, active: isActive, base_branch });
 
     return res.status(201).json(repo);
   } catch (err) {
@@ -88,6 +76,7 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       active: boolean;
       owner: string;
       repo_name: string;
+      base_branch: string;
     }>;
 
     const updated = await updateRepo(db, id, data);
@@ -98,14 +87,9 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/repos/:id/advance — manually kick the queue for a repo
+// POST /api/repos/:id/advance — manually kick the queue for a repo (stub — queue logic pending)
 reposRouter.post("/:id/advance", async (req: Request, res: Response) => {
   try {
-    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-    if (!secrets) {
-      return res.status(500).json({ error: "Secrets not loaded" });
-    }
-
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid id" });
@@ -117,14 +101,13 @@ reposRouter.post("/:id/advance", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Repo not found" });
     }
 
-    await advanceQueue(db, secrets, id);
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// DELETE /api/repos/:id — delete a repo (deregister webhook if present)
+// DELETE /api/repos/:id — delete a repo
 reposRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
     const secrets = req.app.get("secrets") as IAppSecrets | undefined;
