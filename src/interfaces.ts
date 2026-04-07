@@ -7,8 +7,9 @@ export interface IAppSecrets {
   DB_PROXY_URL: string;
   API_KEY_HASH: string;
   GH_PAT: string;
-  WEBHOOK_SECRET: string;
-  BASE_URL: string;
+  ANTHROPIC_API_KEY: string;
+  REPOS_PATH: string;
+  POLL_INTERVAL_SECONDS: string;
   // Add additional app-level secrets here as needed
 }
 
@@ -24,7 +25,7 @@ export interface Repo {
   owner: string;
   repo_name: string;
   active: boolean;
-  webhook_id: number | null;
+  base_branch: string;
   created_at: Date;
 }
 
@@ -37,6 +38,8 @@ export interface Issue {
   queue_position: number;
   status: "pending" | "active" | "done";
   is_manual: boolean;
+  retry_count: number;
+  is_container: boolean;
   created_at: Date;
 }
 

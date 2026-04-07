@@ -9,7 +9,6 @@ import {
   updateRepo,
 } from "../db/repos";
 import { IAppSecrets } from "../interfaces";
-import { deregisterWebhook, registerWebhook } from "../services/github";
 import { advanceQueue, backfillIssues } from "../services/queue";
 
 const reposRouter = express.Router();
@@ -54,25 +53,10 @@ reposRouter.post("/", async (req: Request, res: Response) => {
     const repo = await createRepo(db, { owner, repo_name, active: isActive });
 
     if (isActive) {
-      try {
-        const webhookUrl = `${secrets.BASE_URL}/api/webhook`;
-        const webhookId = await registerWebhook(
-          secrets.GH_PAT,
-          owner,
-          repo_name,
-          webhookUrl,
-          secrets.WEBHOOK_SECRET
-        );
-        const updated = await updateRepo(db, repo.id, { webhook_id: webhookId });
-        // Fire-and-forget: backfill existing open issues from GitHub
-        backfillIssues(db, secrets, updated.id).catch((err) =>
-          console.error("[reposRouter] backfillIssues failed:", err)
-        );
-        return res.status(201).json(updated);
-      } catch (err) {
-        console.error("[reposRouter] registerWebhook failed:", err);
-        return res.status(201).json(repo);
-      }
+      // Fire-and-forget: backfill existing open issues from GitHub
+      backfillIssues(db, secrets, repo.id).catch((err) =>
+        console.error("[reposRouter] backfillIssues failed:", err)
+      );
     }
 
     return res.status(201).json(repo);
@@ -106,40 +90,7 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       repo_name: string;
     }>;
 
-    let updated = await updateRepo(db, id, data);
-
-    // Handle webhook registration/deregistration based on active flag change
-    if (typeof data.active === "boolean") {
-      if (!data.active && existing.webhook_id != null) {
-        // Deregister webhook and clear webhook_id
-        try {
-          await deregisterWebhook(
-            secrets.GH_PAT,
-            updated.owner,
-            updated.repo_name,
-            existing.webhook_id
-          );
-        } catch (err) {
-          console.error("[reposRouter] deregisterWebhook failed:", err);
-        }
-        updated = await updateRepo(db, id, { webhook_id: null });
-      } else if (data.active && updated.webhook_id == null) {
-        // Register webhook and save id
-        try {
-          const webhookUrl = `${secrets.BASE_URL}/api/webhook`;
-          const webhookId = await registerWebhook(
-            secrets.GH_PAT,
-            updated.owner,
-            updated.repo_name,
-            webhookUrl,
-            secrets.WEBHOOK_SECRET
-          );
-          updated = await updateRepo(db, id, { webhook_id: webhookId });
-        } catch (err) {
-          console.error("[reposRouter] registerWebhook failed:", err);
-        }
-      }
-    }
+    const updated = await updateRepo(db, id, data);
 
     return res.status(200).json(updated);
   } catch (err) {
@@ -190,19 +141,6 @@ reposRouter.delete("/:id", async (req: Request, res: Response) => {
     const existing = await getRepoById(db, id);
     if (!existing) {
       return res.status(404).json({ error: "Repo not found" });
-    }
-
-    if (existing.webhook_id != null) {
-      try {
-        await deregisterWebhook(
-          secrets.GH_PAT,
-          existing.owner,
-          existing.repo_name,
-          existing.webhook_id
-        );
-      } catch (err) {
-        console.error("[reposRouter] deregisterWebhook failed:", err);
-      }
     }
 
     await deleteRepo(db, id);
