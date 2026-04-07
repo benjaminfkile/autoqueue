@@ -31,7 +31,7 @@ async function start() {
     const port = parseInt(appSecrets.PORT) || 8000;
 
     await initDb(dbSecrets, appSecrets);
-    await syncWebhooks(getDb(), appSecrets, appSecrets.BASE_URL);
+    await syncWebhooks();
 
     // Recover any queues that got stuck (missed webhooks, manual tasks, etc.)
     await recoverQueues(getDb(), appSecrets);

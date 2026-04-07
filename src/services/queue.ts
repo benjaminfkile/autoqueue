@@ -1,14 +1,13 @@
 import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
 import { getIssuesByRepoId, getNextPendingIssue, updateIssueStatus, upsertIssue } from "../db/issues";
-import { getActiveRepos, getRepoById, updateRepo } from "../db/repos";
+import { getActiveRepos, getRepoById } from "../db/repos";
 import {
   assignCopilot,
   assignHuman,
   getGithubIssueState,
   getOpenIssues,
   postIssueComment,
-  registerWebhook,
 } from "./github";
 
 export async function advanceQueue(
@@ -87,36 +86,8 @@ export async function advanceQueue(
   }
 }
 
-export async function syncWebhooks(
-  db: Knex,
-  secrets: IAppSecrets,
-  baseUrl: string
-): Promise<void> {
-  const repos = await getActiveRepos(db);
-
-  for (const repo of repos) {
-    if (repo.webhook_id == null) {
-      try {
-        const webhookUrl = `${baseUrl}/api/webhook`;
-        const webhookId = await registerWebhook(
-          secrets.GH_PAT,
-          repo.owner,
-          repo.repo_name,
-          webhookUrl,
-          secrets.WEBHOOK_SECRET
-        );
-        await updateRepo(db, repo.id, { webhook_id: webhookId });
-        console.log(
-          `Registered webhook ${webhookId} for ${repo.owner}/${repo.repo_name}`
-        );
-      } catch (err) {
-        console.error(
-          `Failed to register webhook for ${repo.owner}/${repo.repo_name}:`,
-          err
-        );
-      }
-    }
-  }
+export async function syncWebhooks(): Promise<void> {
+  // Webhook sync removed — polling-based approach will replace this
 }
 
 export async function backfillIssues(

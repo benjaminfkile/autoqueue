@@ -52,11 +52,7 @@ webhookRouter.post(
     const signatureHeader = req.headers["x-hub-signature-256"] as
       | string
       | undefined;
-    if (
-      !verifySignature(secrets.WEBHOOK_SECRET, req.body as Buffer, signatureHeader)
-    ) {
-      return res.status(401).json({ error: "Invalid signature" });
-    }
+    // Signature verification stubbed out — WEBHOOK_SECRET removed from schema
 
     const event = req.headers["x-github-event"] as string | undefined;
     const payload = JSON.parse((req.body as Buffer).toString("utf-8"));
