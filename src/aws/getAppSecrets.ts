@@ -16,5 +16,11 @@ export async function getAppSecrets(): Promise<IAppSecrets> {
     throw new Error("SecretString is empty in Secrets Manager response");
   }
 
-  return JSON.parse(response.SecretString) as IAppSecrets;
+  const parsed = JSON.parse(response.SecretString) as IAppSecrets;
+
+  // Allow local env vars to supplement or override secrets (e.g. CLAUDE_PATH)
+  return {
+    ...parsed,
+    ...(process.env.CLAUDE_PATH ? { CLAUDE_PATH: process.env.CLAUDE_PATH } : {}),
+  };
 }

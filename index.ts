@@ -7,6 +7,7 @@ import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
 import { initDb, getDb } from "./src/db/db";
+import { resetActiveIssues } from "./src/db/issues";
 import { startScheduler } from "./src/services/scheduler";
 import morgan from "morgan";
 
@@ -38,6 +39,12 @@ async function start() {
       fs.mkdirSync(reposPath, { recursive: true });
       console.log(`Created repos directory: ${reposPath}`);
     }
+
+    const resetCount = await resetActiveIssues(getDb());
+    if (resetCount > 0) {
+      console.log(`[startup] Reset ${resetCount} active issue(s) back to pending.`);
+    }
+
     startScheduler(getDb(), appSecrets);
 
     const server = http.createServer(app);

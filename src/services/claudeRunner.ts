@@ -11,8 +11,9 @@ export function runClaudeOnIssue(options: {
   issueTitle: string;
   issueBody: string;
   anthropicApiKey: string;
+  claudePath?: string;
 }): Promise<{ success: boolean; output: string }> {
-  const { reposPath, owner, repoName, issueNumber, issueTitle, issueBody, anthropicApiKey } =
+  const { reposPath, owner, repoName, issueNumber, issueTitle, issueBody, anthropicApiKey, claudePath } =
     options;
 
   const localPath = path.join(reposPath, owner, repoName);
@@ -34,7 +35,7 @@ Complete this task fully. Make all necessary code changes in this repository. Wh
       resolve(result);
     };
 
-    const child = spawn("claude", ["--print", "--dangerously-skip-permissions", prompt], {
+    const child = spawn(claudePath ?? "claude", ["--print", "--dangerously-skip-permissions", prompt], {
       cwd: localPath,
       env: { ...process.env, ANTHROPIC_API_KEY: anthropicApiKey },
     });

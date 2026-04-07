@@ -19,7 +19,7 @@ export async function cloneOrPull(
     fs.mkdirSync(parentDir, { recursive: true });
     await simpleGit().clone(remoteUrl, dir);
   } else {
-    await simpleGit(dir).pull();
+    await simpleGit(dir).fetch();
   }
 }
 

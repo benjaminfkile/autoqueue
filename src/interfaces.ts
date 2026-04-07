@@ -10,6 +10,7 @@ export interface IAppSecrets {
   ANTHROPIC_API_KEY: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS: string;
+  CLAUDE_PATH?: string;
   // Add additional app-level secrets here as needed
 }
 
@@ -36,7 +37,7 @@ export interface Issue {
   issue_number: number;
   parent_issue_number: number | null;
   queue_position: number;
-  status: "pending" | "active" | "done";
+  status: "pending" | "active" | "done" | "failed";
   is_manual: boolean;
   retry_count: number;
   is_container: boolean;

@@ -1,7 +1,7 @@
 import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
-import { getNextPendingIssue, updateIssueStatus } from "../db/issues";
+import { getNextPendingIssue, autoCompleteContainers } from "../db/issues";
 import { syncIssues } from "./issueSync";
 import { runTask } from "./taskRunner";
 
@@ -13,23 +13,9 @@ export async function buildWorkQueue(
   const queue: Array<{ repoId: number; issueId: number }> = [];
 
   for (const repo of repos) {
-    const visited = new Set<number>();
-    let issue = await getNextPendingIssue(db, repo.id);
-
-    while (issue) {
-      if (visited.has(issue.id)) {
-        break;
-      }
-      visited.add(issue.id);
-
-      if (issue.is_container) {
-        await updateIssueStatus(db, issue.id, "done");
-        issue = await getNextPendingIssue(db, repo.id);
-        continue;
-      }
-
+    const issue = await getNextPendingIssue(db, repo.id);
+    if (issue) {
       queue.push({ repoId: repo.id, issueId: issue.id });
-      break;
     }
   }
 
@@ -50,6 +36,12 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
     isRunning = true;
     try {
       await syncIssues(db, secrets);
+
+      const repos = await getActiveRepos(db);
+      for (const repo of repos) {
+        await autoCompleteContainers(db, repo.id);
+      }
+
       const workQueue = await buildWorkQueue(db, secrets);
 
       for (const { repoId, issueId } of workQueue) {

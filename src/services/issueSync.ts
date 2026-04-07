@@ -2,7 +2,7 @@ import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
 import { getIssuesByRepoId, upsertIssue, deleteIssue } from "../db/issues";
-import { getOpenIssues } from "./github";
+import { getOpenIssues, getSubIssueNumbers } from "./github";
 
 export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> {
   const repos = await getActiveRepos(db);
@@ -11,31 +11,41 @@ export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> 
     const ghIssues = await getOpenIssues(secrets.GH_PAT, repo.owner, repo.repo_name);
     const dbIssues = await getIssuesByRepoId(db, repo.id);
 
-    const maxQueuePosition = dbIssues.reduce(
-      (max, i) => (i.queue_position > max ? i.queue_position : max),
-      0
-    );
-    let nextPosition = maxQueuePosition + 1;
+    // Build a map of child issue_number -> parent issue_number using the GitHub sub-issues API
+    const parentMap = new Map<number, number>();
+    const containerIssues = ghIssues.filter((i) => {
+      const labels = (i.labels as Array<string | { name?: string | null }>).map((l) =>
+        typeof l === "string" ? l : (l.name ?? "")
+      );
+      return labels.some((l) => l.toLowerCase() === "container");
+    });
+    for (const container of containerIssues) {
+      const children = await getSubIssueNumbers(
+        secrets.GH_PAT,
+        repo.owner,
+        repo.repo_name,
+        container.number
+      );
+      for (const childNum of children) {
+        parentMap.set(childNum, container.number);
+      }
+    }
 
+    let nextPosition = 1;
     let upserted = 0;
 
-    for (const ghIssue of ghIssues) {
+    const sortedIssues = [...ghIssues].sort((a, b) => a.number - b.number);
+
+    for (const ghIssue of sortedIssues) {
       const labels = (
         ghIssue.labels as Array<string | { name?: string | null }>
       ).map((l) => (typeof l === "string" ? l : (l.name ?? "")));
 
       const is_container = labels.some((l) => l.toLowerCase() === "container");
       const is_manual = labels.some((l) => l.toLowerCase() === "manual");
+      const parent_issue_number = parentMap.get(ghIssue.number) ?? null;
 
-      const body = ghIssue.body ?? "";
-      const parentMatch =
-        body.match(/Part of #(\d+)/) ??
-        body.match(/Parent:\s*#(\d+)/) ??
-        body.match(/https?:\/\/[^\s]*\/issues\/(\d+)/);
-      const parent_issue_number = parentMatch ? parseInt(parentMatch[1], 10) : null;
-
-      const existing = dbIssues.find((i) => i.issue_number === ghIssue.number);
-      const queue_position = existing ? existing.queue_position : nextPosition++;
+      const queue_position = nextPosition++;
 
       await upsertIssue(db, {
         repo_id: repo.id,

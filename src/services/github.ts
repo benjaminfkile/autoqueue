@@ -47,6 +47,25 @@ export async function getGithubIssueState(
   return data.state as "open" | "closed";
 }
 
+export async function getSubIssueNumbers(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<number[]> {
+  const octokit = new Octokit({ auth: pat });
+  const { data } = await octokit.request(
+    "GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues",
+    {
+      owner,
+      repo,
+      issue_number: issueNumber,
+      headers: { "X-GitHub-Api-Version": "2022-11-28" },
+    }
+  );
+  return (data as Array<{ number: number }>).map((i) => i.number);
+}
+
 export async function getOpenIssues(
   pat: string,
   owner: string,

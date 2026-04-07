@@ -49,7 +49,7 @@ export async function runTask(
       issue.issue_number
     );
 
-    const { success } = await runClaudeOnIssue({
+    const { success, output: claudeOutput } = await runClaudeOnIssue({
       reposPath: secrets.REPOS_PATH,
       owner: repo.owner,
       repoName: repo.repo_name,
@@ -57,6 +57,7 @@ export async function runTask(
       issueTitle: title,
       issueBody: body,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
+      claudePath: secrets.CLAUDE_PATH,
     });
 
     if (success) {
@@ -94,6 +95,8 @@ export async function runTask(
       return "success";
     }
 
+    console.error(`[taskRunner] Claude failed on attempt ${attempt} for issue #${issue.issue_number}:\n${claudeOutput}`);
+
     if (attempt < MAX_ATTEMPTS) {
       await updateIssue(db, issue.id, { retry_count: attempt });
       await postIssueComment(
@@ -104,6 +107,7 @@ export async function runTask(
         `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`
       );
     } else {
+      await updateIssueStatus(db, issue.id, "failed");
       await postIssueComment(
         secrets.GH_PAT,
         repo.owner,
