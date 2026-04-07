@@ -26,6 +26,13 @@ Complete this task fully. Make all necessary code changes in this repository. Wh
 
   return new Promise((resolve) => {
     let output = "";
+    let settled = false;
+
+    const settle = (result: { success: boolean; output: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
 
     const child = spawn("claude", ["--print", "--dangerously-skip-permissions", prompt], {
       cwd: localPath,
@@ -42,22 +49,22 @@ Complete this task fully. Make all necessary code changes in this repository. Wh
 
     const timer = setTimeout(() => {
       child.kill();
-      resolve({ success: false, output: "Timed out after 30 minutes" });
+      settle({ success: false, output: "Timed out after 30 minutes" });
     }, TIMEOUT_MS);
 
     child.on("close", (code: number | null) => {
       clearTimeout(timer);
       if (code === 0) {
-        resolve({ success: true, output });
+        settle({ success: true, output });
       } else {
-        resolve({ success: false, output });
+        settle({ success: false, output });
       }
     });
 
     child.on("error", (err: Error) => {
       clearTimeout(timer);
       output += err.message;
-      resolve({ success: false, output });
+      settle({ success: false, output });
     });
   });
 }
