@@ -10,11 +10,14 @@ export function runClaudeOnIssue(options: {
   issueNumber: number;
   issueTitle: string;
   issueBody: string;
-  anthropicApiKey: string;
+  anthropicApiKey?: string;
   claudePath?: string;
 }): Promise<{ success: boolean; output: string }> {
   const { reposPath, owner, repoName, issueNumber, issueTitle, issueBody, anthropicApiKey, claudePath } =
     options;
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (anthropicApiKey) env.ANTHROPIC_API_KEY = anthropicApiKey;
 
   const localPath = path.join(reposPath, owner, repoName);
 
@@ -37,7 +40,7 @@ Complete this task fully. Make all necessary code changes in this repository. Wh
 
     const child = spawn(claudePath ?? "claude", ["--print", "--dangerously-skip-permissions", prompt], {
       cwd: localPath,
-      env: { ...process.env, ANTHROPIC_API_KEY: anthropicApiKey },
+      env,
     });
 
     child.stdout.on("data", (data: Buffer) => {

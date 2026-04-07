@@ -7,7 +7,7 @@ export interface IAppSecrets {
   DB_PROXY_URL: string;
   API_KEY_HASH: string;
   GH_PAT: string;
-  ANTHROPIC_API_KEY: string;
+  ANTHROPIC_API_KEY?: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS: string;
   CLAUDE_PATH?: string;

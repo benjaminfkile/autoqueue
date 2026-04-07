@@ -2,7 +2,7 @@ import { Knex } from "knex";
 import { IAppSecrets, Issue, Repo } from "../interfaces";
 import { getRepoById } from "../db/repos";
 import { updateIssueStatus, updateIssue } from "../db/issues";
-import { getIssueDetails, postIssueComment } from "./github";
+import { getIssueDetails, postIssueComment, closeIssue, addIssueLabel, removeIssueLabel, LABEL_WORKING, LABEL_DONE, LABEL_FAILED } from "./github";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -37,6 +37,15 @@ export async function runTask(
   );
 
   await updateIssueStatus(db, issue.id, "active");
+
+  await postIssueComment(
+    secrets.GH_PAT,
+    repo.owner,
+    repo.repo_name,
+    issue.issue_number,
+    `🤖 Autoqueue agent starting work on this issue.`
+  );
+  await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING);
 
   for (let attempt = issue.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
     await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT, repo.owner, repo.repo_name);
@@ -84,6 +93,8 @@ export async function runTask(
       );
 
       await updateIssueStatus(db, issue.id, "done");
+      await removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name);
+      await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE);
       await postIssueComment(
         secrets.GH_PAT,
         repo.owner,
@@ -91,6 +102,7 @@ export async function runTask(
         issue.issue_number,
         "✅ Completed by autoqueue agent."
       );
+      await closeIssue(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number);
 
       return "success";
     }
@@ -108,6 +120,8 @@ export async function runTask(
       );
     } else {
       await updateIssueStatus(db, issue.id, "failed");
+      await removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name);
+      await addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED);
       await postIssueComment(
         secrets.GH_PAT,
         repo.owner,

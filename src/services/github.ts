@@ -1,5 +1,51 @@
 import { Octokit } from "@octokit/rest";
 
+// Label definitions for autoqueue status visibility
+export const LABEL_WORKING = { name: "autoqueue:working", color: "fbca04", description: "Autoqueue agent is currently working on this" };
+export const LABEL_DONE    = { name: "autoqueue:done",    color: "0e8a16", description: "Completed by autoqueue agent" };
+export const LABEL_FAILED  = { name: "autoqueue:failed",  color: "d93f0b", description: "Autoqueue agent failed — needs manual attention" };
+
+async function ensureLabel(octokit: Octokit, owner: string, repo: string, label: typeof LABEL_WORKING): Promise<void> {
+  await octokit.issues.createLabel({ owner, repo, ...label }).catch(() => {
+    // 422 = already exists, ignore
+  });
+}
+
+export async function addIssueLabel(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  label: typeof LABEL_WORKING
+): Promise<void> {
+  const octokit = new Octokit({ auth: pat });
+  await ensureLabel(octokit, owner, repo, label);
+  await octokit.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [label.name] });
+}
+
+export async function removeIssueLabel(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  labelName: string
+): Promise<void> {
+  const octokit = new Octokit({ auth: pat });
+  await octokit.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: labelName }).catch(() => {
+    // 404 = label not on issue, ignore
+  });
+}
+
+export async function closeIssue(
+  pat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<void> {
+  const octokit = new Octokit({ auth: pat });
+  await octokit.issues.update({ owner, repo, issue_number: issueNumber, state: "closed", state_reason: "completed" });
+}
+
 export async function assignHuman(
   pat: string,
   owner: string,
