@@ -51,6 +51,7 @@ export async function upsertIssue(
     parent_issue_number?: number | null;
     queue_position: number;
     is_manual?: boolean;
+    is_container?: boolean;
   }
 ): Promise<Issue> {
   const [issue] = await db<Issue>("issues")
