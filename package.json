@@ -1,5 +1,5 @@
 {
-  "name": "autoqueue",
+  "name": "grunt",
   "version": "1.0.0",
   "description": "Boilerplate Node.js/Express/TypeScript API with AWS Secrets Manager, Postgres/knex, and Docker.",
   "main": "index.ts",

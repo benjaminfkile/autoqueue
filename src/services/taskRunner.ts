@@ -48,7 +48,7 @@ export async function runTask(
 
   if (issue.retry_count === 0) {
     await tryGithubAction(
-      () => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `🤖 Autoqueue agent starting work on this issue.`),
+      () => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `🤖 grunt agent starting work on this issue.`),
       "post start comment"
     );
   }
@@ -105,7 +105,7 @@ export async function runTask(
       await updateIssueStatus(db, issue.id, "done");
       await tryGithubAction(() => removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
       await tryGithubAction(() => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE), "add done label");
-      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by autoqueue agent."), "post done comment");
+      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by grunt agent."), "post done comment");
       await tryGithubAction(() => closeIssue(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number), "close issue");
 
       return "success";

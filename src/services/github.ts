@@ -1,9 +1,9 @@
 import { Octokit } from "@octokit/rest";
 
-// Label definitions for autoqueue status visibility
-export const LABEL_WORKING = { name: "autoqueue-working", color: "fbca04", description: "Autoqueue agent is currently working on this" };
-export const LABEL_DONE    = { name: "autoqueue-done",    color: "0e8a16", description: "Completed by autoqueue agent" };
-export const LABEL_FAILED  = { name: "autoqueue-failed",  color: "d93f0b", description: "Autoqueue agent failed — needs manual attention" };
+// Label definitions for grunt status visibility
+export const LABEL_WORKING = { name: "grunt-working", color: "fbca04", description: "grunt agent is currently working on this" };
+export const LABEL_DONE    = { name: "grunt-done",    color: "0e8a16", description: "Completed by grunt agent" };
+export const LABEL_FAILED  = { name: "grunt-failed",  color: "d93f0b", description: "grunt agent failed — needs manual attention" };
 
 async function ensureLabel(octokit: Octokit, owner: string, repo: string, label: typeof LABEL_WORKING): Promise<void> {
   await octokit.issues.createLabel({ owner, repo, ...label }).catch(() => {

@@ -21,14 +21,14 @@ describe("app basic routes", () => {
     app.set("secrets", { NODE_ENV: "development" });
     const res = await request(app).get("/");
     expect(res.status).toBe(200);
-    expect(res.text).toBe("autoqueue-api-dev");
+    expect(res.text).toBe("grunt-api-dev");
   });
 
   it("GET / returns service name without suffix when NODE_ENV is production", async () => {
     app.set("secrets", { NODE_ENV: "production" });
     const res = await request(app).get("/");
     expect(res.status).toBe(200);
-    expect(res.text).toBe("autoqueue-api");
+    expect(res.text).toBe("grunt-api");
   });
 
   it("GET /api/health returns 200 with ok status", async () => {

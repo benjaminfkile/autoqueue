@@ -20,7 +20,7 @@ app.use(express.json());
 app.get("/", (req: Request, res: Response) => {
   const secrets = req.app.get("secrets") as { NODE_ENV?: string } | undefined;
   const suffix = secrets?.NODE_ENV === "production" ? "" : "-dev";
-  res.send(`autoqueue-api${suffix}`);
+  res.send(`grunt-api${suffix}`);
 });
 
 app.use("/api/health", healthRouter);

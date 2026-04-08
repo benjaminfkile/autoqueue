@@ -5,7 +5,7 @@ App secrets (`AWS_SECRET_ARN`):
 {
   "NODE_ENV": "production",
   "PORT": "8000",
-  "DB_NAME": "autoqueue",
+  "DB_NAME": "grunt",
   "DB_HOST": "your-db-host",
   "API_KEY_HASH": "bcrypt-hash-of-your-api-key",
   "GH_PAT": "github_pat_...",
