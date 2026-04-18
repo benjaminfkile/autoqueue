@@ -7,7 +7,7 @@ import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
 import { initDb, getDb } from "./src/db/db";
-import { resetActiveIssues } from "./src/db/issues";
+import { resetActiveTasks } from "./src/db/tasks";
 import { startScheduler } from "./src/services/scheduler";
 import morgan from "morgan";
 
@@ -40,9 +40,9 @@ async function start() {
       console.log(`Created repos directory: ${reposPath}`);
     }
 
-    const resetCount = await resetActiveIssues(getDb());
+    const resetCount = await resetActiveTasks(getDb());
     if (resetCount > 0) {
-      console.log(`[startup] Reset ${resetCount} active issue(s) back to pending.`);
+      console.log(`[startup] Reset ${resetCount} active task(s) back to pending.`);
     }
 
     startScheduler(getDb(), appSecrets);
