@@ -9,8 +9,9 @@ export interface IAppSecrets {
   GH_PAT?: string;
   ANTHROPIC_API_KEY?: string;
   REPOS_PATH: string;
-  POLL_INTERVAL_SECONDS: string;
+  POLL_INTERVAL_SECONDS?: string;
   CLAUDE_PATH?: string;
+  IS_WORKER?: string;
   // Add additional app-level secrets here as needed
 }
 

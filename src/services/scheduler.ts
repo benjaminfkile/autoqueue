@@ -23,6 +23,10 @@ export async function buildWorkQueue(
 let isRunning = false;
 
 export function startScheduler(db: Knex, secrets: IAppSecrets): void {
+  if (secrets.IS_WORKER !== "true") {
+    console.log("[scheduler] This is not a worker — task execution disabled on this instance.");
+    return;
+  }
   const parsed = parseInt(secrets.POLL_INTERVAL_SECONDS ?? "300", 10);
   const interval = Number.isFinite(parsed) && parsed > 0 ? parsed : 300;
 
