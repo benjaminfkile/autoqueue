@@ -1,86 +1,96 @@
 import { Knex } from "knex";
-import { IAppSecrets } from "../interfaces";
-import { Issue } from "../db/issues";
+import { IAppSecrets, TaskPayload } from "../interfaces";
 import { getRepoById } from "../db/repos";
-import { updateIssueStatus, updateIssue } from "../db/issues";
-import { getIssueDetails, postIssueComment, closeIssue, addIssueLabel, removeIssueLabel, LABEL_WORKING, LABEL_DONE, LABEL_FAILED } from "./githubLegacy";
+import { getTaskById, getChildTasks, updateTask, getTasksByRepoId } from "../db/tasks";
+import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import {
   cloneOrPull,
   checkoutBaseBranch,
-  createIssueBranch,
-  commitAndPush,
-  mergeIntoBase,
+  createTaskBranch,
+  commitAndPushTask,
+  mergeTaskIntoBase,
   hasUncommittedChanges,
 } from "./git";
+import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
-import { TaskPayload } from "../interfaces";
 
 const MAX_ATTEMPTS = 3;
-
-async function tryGithubAction(fn: () => Promise<void>, description: string): Promise<void> {
-  try {
-    await fn();
-  } catch (err) {
-    console.error(`[taskRunner] GitHub action failed (${description}):`, (err as Error).message);
-  }
-}
 
 export async function runTask(
   db: Knex,
   secrets: IAppSecrets,
   repoId: number,
-  issueId: number
+  taskId: number
 ): Promise<"success" | "failed" | "halted"> {
-  const issue = await db<Issue>("issues").where({ id: issueId }).first();
+  // 1. Load task and repo
+  const task = await getTaskById(db, taskId);
   const repo = await getRepoById(db, repoId);
 
-  if (!issue || !repo) {
-    console.error(`[taskRunner] Missing issue (${issueId}) or repo (${repoId})`);
+  if (!task || !repo) {
+    console.error(`[taskRunner] Missing task (${taskId}) or repo (${repoId})`);
     return "failed";
   }
 
-  const { title, body } = await getIssueDetails(
-    secrets.GITHUB_TOKEN!,
-    repo.owner,
-    repo.repo_name,
-    issue.issue_number
-  );
+  // 2. Load acceptance criteria
+  const criteria = await getCriteriaByTaskId(db, task.id);
 
-  await updateIssueStatus(db, issue.id, "active");
+  // 3. Load parent task
+  const parent = task.parent_id != null ? await getTaskById(db, task.parent_id) : null;
 
-  if (issue.retry_count === 0) {
-    await tryGithubAction(
-      () => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `🤖 grunt agent starting work on this issue.`),
-      "post start comment"
-    );
+  // 4. Load siblings
+  let siblings;
+  if (task.parent_id != null) {
+    siblings = await getChildTasks(db, task.parent_id);
+  } else {
+    const allTasks = await getTasksByRepoId(db, repoId);
+    siblings = allTasks.filter((t) => t.parent_id == null);
   }
-  await tryGithubAction(
-    () => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING),
-    "add working label"
-  );
+  siblings = siblings.filter((t) => t.id !== task.id);
 
-  for (let attempt = issue.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // 5. Build TaskPayload
+  const taskPayload: TaskPayload = {
+    task: {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      acceptanceCriteria: criteria.map((c) => ({
+        id: c.id,
+        description: c.description,
+        met: c.met,
+      })),
+      parent: parent
+        ? { id: parent.id, title: parent.title, description: parent.description }
+        : null,
+      siblings: siblings.map((s) => ({
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        order_position: s.order_position,
+      })),
+    },
+  };
+
+  // 6. Set task status to active
+  await updateTask(db, task.id, { status: "active" });
+
+  // 7. Walk up parent chain, activate pending ancestors
+  let ancestorId = task.parent_id;
+  while (ancestorId != null) {
+    const ancestor = await getTaskById(db, ancestorId);
+    if (!ancestor) break;
+    if (ancestor.status === "pending") {
+      await updateTask(db, ancestor.id, { status: "active" });
+    }
+    ancestorId = ancestor.parent_id;
+  }
+
+  for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // 8. Git setup
     await cloneOrPull(secrets.REPOS_PATH, secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name);
     await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
-    await createIssueBranch(
-      secrets.REPOS_PATH,
-      repo.owner,
-      repo.repo_name,
-      repo.base_branch,
-      issue.issue_number
-    );
+    await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
 
-    const taskPayload: TaskPayload = {
-      task: {
-        id: issue.issue_number,
-        title,
-        description: body,
-        acceptanceCriteria: [],
-        parent: null,
-        siblings: [],
-      },
-    };
-
+    // 9. Run Claude
     const { success, output: claudeOutput } = await runClaudeOnTask({
       reposPath: secrets.REPOS_PATH,
       owner: repo.owner,
@@ -91,47 +101,59 @@ export async function runTask(
     });
 
     if (success) {
-      if (
-        await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner, repo.repo_name)
-      ) {
-        await commitAndPush(
+      // 10. On success
+      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner, repo.repo_name)) {
+        await commitAndPushTask(
           secrets.REPOS_PATH,
           secrets.GITHUB_TOKEN!,
           repo.owner,
           repo.repo_name,
-          issue.issue_number,
-          `fix: complete issue #${issue.issue_number} - ${title}`
+          task.id,
+          `feat: complete task #${task.id} - ${task.title}`
         );
       }
 
-      await mergeIntoBase(
-        secrets.REPOS_PATH,
-        secrets.GITHUB_TOKEN!,
-        repo.owner,
-        repo.repo_name,
-        repo.base_branch,
-        issue.issue_number
-      );
+      if (repo.require_pr) {
+        const token = repo.github_token ?? secrets.GITHUB_TOKEN!;
+        const criteriaList = criteria
+          .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
+          .join("\n");
+        const body = `${task.description}\n\n## Acceptance Criteria\n${criteriaList}`;
 
-      await updateIssueStatus(db, issue.id, "done");
-      await tryGithubAction(() => removeIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
-      await tryGithubAction(() => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE), "add done label");
-      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by grunt agent."), "post done comment");
-      await tryGithubAction(() => closeIssue(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number), "close issue");
+        const pr = await createPullRequest({
+          token,
+          owner: repo.owner,
+          repoName: repo.repo_name,
+          head: `task/${task.id}`,
+          base: repo.base_branch,
+          title: task.title,
+          body,
+        });
+
+        await updateTask(db, task.id, { status: "done", pr_url: pr.url });
+      } else {
+        await mergeTaskIntoBase(
+          secrets.REPOS_PATH,
+          secrets.GITHUB_TOKEN!,
+          repo.owner,
+          repo.repo_name,
+          repo.base_branch,
+          task.id
+        );
+        await updateTask(db, task.id, { status: "done" });
+      }
 
       return "success";
     }
 
-    console.error(`[taskRunner] Claude failed on attempt ${attempt} for issue #${issue.issue_number}:\n${claudeOutput}`);
+    // 11/12. On failure
+    console.error(`[taskRunner] Claude failed on attempt ${attempt} for task #${task.id}:\n${claudeOutput}`);
 
     if (attempt < MAX_ATTEMPTS) {
-      await updateIssue(db, issue.id, { retry_count: attempt });
-      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`), "post retry comment");
+      await updateTask(db, task.id, { retry_count: attempt });
+      return "failed";
     } else {
-      await updateIssueStatus(db, issue.id, "failed");
-      await tryGithubAction(() => removeIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
-      await tryGithubAction(() => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED), "add failed label");
-      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `❌ Agent failed after ${MAX_ATTEMPTS} attempts. Halting queue. Manual intervention required.`), "post failed comment");
+      await updateTask(db, task.id, { status: "failed" });
       return "halted";
     }
   }
