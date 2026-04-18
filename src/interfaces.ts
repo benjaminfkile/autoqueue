@@ -6,7 +6,7 @@ export interface IAppSecrets {
   DB_HOST: string;
   DB_PROXY_URL: string;
   API_KEY_HASH: string;
-  GITHUB_TOKEN?: string;
+  GH_PAT?: string;
   ANTHROPIC_API_KEY?: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS: string;

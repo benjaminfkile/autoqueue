@@ -86,7 +86,7 @@ export async function runTask(
 
   for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
     // 8. Git setup
-    await cloneOrPull(secrets.REPOS_PATH, secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name);
+    await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner, repo.repo_name);
     await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
     await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
 
@@ -105,7 +105,7 @@ export async function runTask(
       if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner, repo.repo_name)) {
         await commitAndPushTask(
           secrets.REPOS_PATH,
-          secrets.GITHUB_TOKEN!,
+          secrets.GH_PAT!,
           repo.owner,
           repo.repo_name,
           task.id,
@@ -114,7 +114,7 @@ export async function runTask(
       }
 
       if (repo.require_pr) {
-        const token = repo.github_token ?? secrets.GITHUB_TOKEN!;
+        const token = repo.github_token ?? secrets.GH_PAT!;
         const criteriaList = criteria
           .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
           .join("\n");
@@ -134,7 +134,7 @@ export async function runTask(
       } else {
         await mergeTaskIntoBase(
           secrets.REPOS_PATH,
-          secrets.GITHUB_TOKEN!,
+          secrets.GH_PAT!,
           repo.owner,
           repo.repo_name,
           repo.base_branch,

@@ -11,7 +11,7 @@ export async function createPullRequest(options: {
 }): Promise<{ url: string; number: number }> {
   if (!options.token) {
     throw new Error(
-      "GitHub token is required to create a pull request. Set GITHUB_TOKEN in secrets or github_token on the repo."
+      "GitHub token is required to create a pull request. Set GH_PAT in secrets or github_token on the repo."
     );
   }
 
