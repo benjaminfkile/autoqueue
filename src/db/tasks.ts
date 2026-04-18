@@ -1,19 +1,5 @@
 import { Knex } from "knex";
-
-interface Task {
-  id: number;
-  repo_id: number;
-  parent_id: number | null;
-  title: string;
-  description: string;
-  order_position: number;
-  status: "pending" | "active" | "done" | "failed";
-  retry_count: number;
-  pr_url: string | null;
-  created_at: Date;
-}
-
-export type { Task };
+import { Task } from "../interfaces";
 
 export async function getTasksByRepoId(
   db: Knex,

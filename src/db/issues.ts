@@ -1,5 +1,19 @@
 import { Knex } from "knex";
-import { Issue } from "../interfaces";
+
+interface Issue {
+  id: number;
+  repo_id: number;
+  issue_number: number;
+  parent_issue_number: number | null;
+  queue_position: number;
+  status: "pending" | "active" | "done" | "failed";
+  is_manual: boolean;
+  retry_count: number;
+  is_container: boolean;
+  created_at: Date;
+}
+
+export type { Issue };
 
 export async function getIssuesByRepoId(
   db: Knex,

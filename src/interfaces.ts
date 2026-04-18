@@ -6,7 +6,7 @@ export interface IAppSecrets {
   DB_HOST: string;
   DB_PROXY_URL: string;
   API_KEY_HASH: string;
-  GH_PAT: string;
+  GITHUB_TOKEN?: string;
   ANTHROPIC_API_KEY?: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS: string;
@@ -32,18 +32,40 @@ export interface Repo {
   created_at: Date;
 }
 
-// ---- Issues table row ----
-export interface Issue {
+// ---- Tasks table row ----
+export interface Task {
   id: number;
   repo_id: number;
-  issue_number: number;
-  parent_issue_number: number | null;
-  queue_position: number;
+  parent_id: number | null;
+  title: string;
+  description: string;
+  order_position: number;
   status: "pending" | "active" | "done" | "failed";
-  is_manual: boolean;
   retry_count: number;
-  is_container: boolean;
+  pr_url: string | null;
   created_at: Date;
+}
+
+// ---- Acceptance criteria table row ----
+export interface AcceptanceCriterion {
+  id: number;
+  task_id: number;
+  description: string;
+  order_position: number;
+  met: boolean;
+  created_at: Date;
+}
+
+// ---- Task payload for agent ----
+export interface TaskPayload {
+  task: {
+    id: number;
+    title: string;
+    description: string;
+    acceptanceCriteria: Array<{ id: number; description: string; met: boolean }>;
+    parent: { id: number; title: string; description: string } | null;
+    siblings: Array<{ id: number; title: string; status: string; order_position: number }>;
+  };
 }
 
 // ---- DB health check result ----

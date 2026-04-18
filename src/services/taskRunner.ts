@@ -1,5 +1,6 @@
 import { Knex } from "knex";
-import { IAppSecrets, Issue, Repo } from "../interfaces";
+import { IAppSecrets } from "../interfaces";
+import { Issue } from "../db/issues";
 import { getRepoById } from "../db/repos";
 import { updateIssueStatus, updateIssue } from "../db/issues";
 import { getIssueDetails, postIssueComment, closeIssue, addIssueLabel, removeIssueLabel, LABEL_WORKING, LABEL_DONE, LABEL_FAILED } from "./github";
@@ -38,7 +39,7 @@ export async function runTask(
   }
 
   const { title, body } = await getIssueDetails(
-    secrets.GH_PAT,
+    secrets.GITHUB_TOKEN!,
     repo.owner,
     repo.repo_name,
     issue.issue_number
@@ -48,17 +49,17 @@ export async function runTask(
 
   if (issue.retry_count === 0) {
     await tryGithubAction(
-      () => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `🤖 grunt agent starting work on this issue.`),
+      () => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `🤖 grunt agent starting work on this issue.`),
       "post start comment"
     );
   }
   await tryGithubAction(
-    () => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING),
+    () => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING),
     "add working label"
   );
 
   for (let attempt = issue.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT, repo.owner, repo.repo_name);
+    await cloneOrPull(secrets.REPOS_PATH, secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name);
     await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
     await createIssueBranch(
       secrets.REPOS_PATH,
@@ -85,7 +86,7 @@ export async function runTask(
       ) {
         await commitAndPush(
           secrets.REPOS_PATH,
-          secrets.GH_PAT,
+          secrets.GITHUB_TOKEN!,
           repo.owner,
           repo.repo_name,
           issue.issue_number,
@@ -95,7 +96,7 @@ export async function runTask(
 
       await mergeIntoBase(
         secrets.REPOS_PATH,
-        secrets.GH_PAT,
+        secrets.GITHUB_TOKEN!,
         repo.owner,
         repo.repo_name,
         repo.base_branch,
@@ -103,10 +104,10 @@ export async function runTask(
       );
 
       await updateIssueStatus(db, issue.id, "done");
-      await tryGithubAction(() => removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
-      await tryGithubAction(() => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE), "add done label");
-      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by grunt agent."), "post done comment");
-      await tryGithubAction(() => closeIssue(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number), "close issue");
+      await tryGithubAction(() => removeIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
+      await tryGithubAction(() => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_DONE), "add done label");
+      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, "✅ Completed by grunt agent."), "post done comment");
+      await tryGithubAction(() => closeIssue(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number), "close issue");
 
       return "success";
     }
@@ -115,12 +116,12 @@ export async function runTask(
 
     if (attempt < MAX_ATTEMPTS) {
       await updateIssue(db, issue.id, { retry_count: attempt });
-      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`), "post retry comment");
+      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `⚠️ Agent failed on attempt ${attempt} of ${MAX_ATTEMPTS}. Retrying...`), "post retry comment");
     } else {
       await updateIssueStatus(db, issue.id, "failed");
-      await tryGithubAction(() => removeIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
-      await tryGithubAction(() => addIssueLabel(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED), "add failed label");
-      await tryGithubAction(() => postIssueComment(secrets.GH_PAT, repo.owner, repo.repo_name, issue.issue_number, `❌ Agent failed after ${MAX_ATTEMPTS} attempts. Halting queue. Manual intervention required.`), "post failed comment");
+      await tryGithubAction(() => removeIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_WORKING.name), "remove working label");
+      await tryGithubAction(() => addIssueLabel(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, LABEL_FAILED), "add failed label");
+      await tryGithubAction(() => postIssueComment(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name, issue.issue_number, `❌ Agent failed after ${MAX_ATTEMPTS} attempts. Halting queue. Manual intervention required.`), "post failed comment");
       return "halted";
     }
   }
