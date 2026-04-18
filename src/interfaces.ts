@@ -27,6 +27,8 @@ export interface Repo {
   repo_name: string;
   active: boolean;
   base_branch: string;
+  require_pr: boolean;
+  github_token: string | null;
   created_at: Date;
 }
 
