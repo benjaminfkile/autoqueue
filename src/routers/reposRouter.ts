@@ -28,11 +28,13 @@ reposRouter.post("/", async (req: Request, res: Response) => {
   try {
     const db = getDb();
 
-    const { owner, repo_name, active, base_branch } = req.body as {
+    const { owner, repo_name, active, base_branch, require_pr, github_token } = req.body as {
       owner: string;
       repo_name: string;
       active?: boolean;
       base_branch?: string;
+      require_pr?: boolean;
+      github_token?: string | null;
     };
 
     if (!owner || !repo_name) {
@@ -45,7 +47,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const isActive = active !== false;
-    const repo = await createRepo(db, { owner, repo_name, active: isActive, base_branch });
+    const repo = await createRepo(db, { owner, repo_name, active: isActive, base_branch, require_pr, github_token });
 
     return res.status(201).json(repo);
   } catch (err) {
@@ -77,6 +79,8 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       owner: string;
       repo_name: string;
       base_branch: string;
+      require_pr: boolean;
+      github_token: string | null;
     }>;
 
     const updated = await updateRepo(db, id, data);
