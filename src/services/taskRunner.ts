@@ -12,7 +12,8 @@ import {
   mergeIntoBase,
   hasUncommittedChanges,
 } from "./git";
-import { runClaudeOnIssue } from "./claudeRunner";
+import { runClaudeOnTask } from "./claudeRunner";
+import { TaskPayload } from "../interfaces";
 
 const MAX_ATTEMPTS = 3;
 
@@ -69,13 +70,22 @@ export async function runTask(
       issue.issue_number
     );
 
-    const { success, output: claudeOutput } = await runClaudeOnIssue({
+    const taskPayload: TaskPayload = {
+      task: {
+        id: issue.issue_number,
+        title,
+        description: body,
+        acceptanceCriteria: [],
+        parent: null,
+        siblings: [],
+      },
+    };
+
+    const { success, output: claudeOutput } = await runClaudeOnTask({
       reposPath: secrets.REPOS_PATH,
       owner: repo.owner,
       repoName: repo.repo_name,
-      issueNumber: issue.issue_number,
-      issueTitle: title,
-      issueBody: body,
+      taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
       claudePath: secrets.CLAUDE_PATH,
     });
