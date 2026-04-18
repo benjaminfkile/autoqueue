@@ -3,7 +3,7 @@ import { IAppSecrets } from "../interfaces";
 import { Issue } from "../db/issues";
 import { getRepoById } from "../db/repos";
 import { updateIssueStatus, updateIssue } from "../db/issues";
-import { getIssueDetails, postIssueComment, closeIssue, addIssueLabel, removeIssueLabel, LABEL_WORKING, LABEL_DONE, LABEL_FAILED } from "./github";
+import { getIssueDetails, postIssueComment, closeIssue, addIssueLabel, removeIssueLabel, LABEL_WORKING, LABEL_DONE, LABEL_FAILED } from "./githubLegacy";
 import {
   cloneOrPull,
   checkoutBaseBranch,

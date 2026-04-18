@@ -2,7 +2,7 @@ import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
 import { getIssuesByRepoId, upsertIssue, deleteIssue } from "../db/issues";
-import { getOpenIssues, getSubIssueNumbers } from "./github";
+import { getOpenIssues, getSubIssueNumbers } from "./githubLegacy";
 
 export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> {
   const repos = await getActiveRepos(db);
