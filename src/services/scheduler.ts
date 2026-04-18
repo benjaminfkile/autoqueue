@@ -1,21 +1,19 @@
 import { Knex } from "knex";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
-import { getNextPendingIssue, autoCompleteContainers } from "../db/issues";
-import { syncIssues } from "./issueSync";
+import { getNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
 import { runTask } from "./taskRunner";
 
 export async function buildWorkQueue(
-  db: Knex,
-  secrets: IAppSecrets
-): Promise<Array<{ repoId: number; issueId: number }>> {
+  db: Knex
+): Promise<Array<{ repoId: number; taskId: number }>> {
   const repos = await getActiveRepos(db);
-  const queue: Array<{ repoId: number; issueId: number }> = [];
+  const queue: Array<{ repoId: number; taskId: number }> = [];
 
   for (const repo of repos) {
-    const issue = await getNextPendingIssue(db, repo.id);
-    if (issue) {
-      queue.push({ repoId: repo.id, issueId: issue.id });
+    const task = await getNextPendingLeafTask(db, repo.id);
+    if (task) {
+      queue.push({ repoId: repo.id, taskId: task.id });
     }
   }
 
@@ -35,20 +33,18 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
     }
     isRunning = true;
     try {
-      await syncIssues(db, secrets);
-
       const repos = await getActiveRepos(db);
       for (const repo of repos) {
-        await autoCompleteContainers(db, repo.id);
+        await autoCompleteParentTasks(db, repo.id);
       }
 
-      const workQueue = await buildWorkQueue(db, secrets);
+      const workQueue = await buildWorkQueue(db);
 
-      for (const { repoId, issueId } of workQueue) {
-        const result = await runTask(db, secrets, repoId, issueId);
+      for (const { repoId, taskId } of workQueue) {
+        const result = await runTask(db, secrets, repoId, taskId);
         if (result === "halted") {
           console.log(
-            `[scheduler] Task halted for repo ${repoId}, issue ${issueId}. Stopping cycle.`
+            `[scheduler] Task halted for repo ${repoId}, task ${taskId}. Stopping cycle.`
           );
           break;
         }
