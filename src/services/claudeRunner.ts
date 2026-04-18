@@ -1,19 +1,18 @@
 import { spawn } from "child_process";
 import * as path from "path";
+import { TaskPayload } from "../interfaces";
 
 const TIMEOUT_MS = 1_800_000;
 
-export function runClaudeOnIssue(options: {
+export function runClaudeOnTask(options: {
   reposPath: string;
   owner: string;
   repoName: string;
-  issueNumber: number;
-  issueTitle: string;
-  issueBody: string;
+  taskPayload: TaskPayload;
   anthropicApiKey?: string;
   claudePath?: string;
 }): Promise<{ success: boolean; output: string }> {
-  const { reposPath, owner, repoName, issueNumber, issueTitle, issueBody, anthropicApiKey, claudePath } =
+  const { reposPath, owner, repoName, taskPayload, anthropicApiKey, claudePath } =
     options;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -21,12 +20,16 @@ export function runClaudeOnIssue(options: {
 
   const localPath = path.join(reposPath, owner, repoName);
 
-  const prompt = `You are working on GitHub issue #${issueNumber}: ${issueTitle}
+  const prompt = `You are an automated coding agent. You have been assigned the following task:
 
-Issue description:
-${issueBody}
+${JSON.stringify(taskPayload, null, 2)}
 
-Complete this task fully. Make all necessary code changes in this repository. When you are done, ensure all changes are saved to disk. Do not commit anything.`;
+Instructions:
+- Complete the task described above.
+- Your work is considered complete when all acceptance criteria are met.
+- Make all necessary code changes in this repository.
+- When you are done, ensure all changes are saved to disk.
+- Do not commit anything.`;
 
   return new Promise((resolve) => {
     let output = "";
