@@ -1,15 +1,5 @@
 import { Knex } from "knex";
-
-interface AcceptanceCriterion {
-  id: number;
-  task_id: number;
-  description: string;
-  order_position: number;
-  met: boolean;
-  created_at: Date;
-}
-
-export type { AcceptanceCriterion };
+import { AcceptanceCriterion } from "../interfaces";
 
 export async function getCriteriaByTaskId(
   db: Knex,

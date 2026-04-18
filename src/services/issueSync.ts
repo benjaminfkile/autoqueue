@@ -8,7 +8,7 @@ export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> 
   const repos = await getActiveRepos(db);
 
   for (const repo of repos) {
-    const ghIssues = await getOpenIssues(secrets.GH_PAT, repo.owner, repo.repo_name);
+    const ghIssues = await getOpenIssues(secrets.GITHUB_TOKEN!, repo.owner, repo.repo_name);
     const dbIssues = await getIssuesByRepoId(db, repo.id);
 
     // Build a map of child issue_number -> parent issue_number using the GitHub sub-issues API
@@ -21,7 +21,7 @@ export async function syncIssues(db: Knex, secrets: IAppSecrets): Promise<void> 
     });
     for (const container of containerIssues) {
       const children = await getSubIssueNumbers(
-        secrets.GH_PAT,
+        secrets.GITHUB_TOKEN!,
         repo.owner,
         repo.repo_name,
         container.number
