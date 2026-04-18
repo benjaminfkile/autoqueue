@@ -89,6 +89,61 @@ export async function mergeIntoBase(
   await git.deleteLocalBranch(branchName, true);
 }
 
+export async function createTaskBranch(
+  reposPath: string,
+  owner: string,
+  repoName: string,
+  baseBranch: string,
+  taskId: number
+): Promise<void> {
+  const branchName = `task/${taskId}`;
+  const git = simpleGit(repoPath(reposPath, owner, repoName));
+
+  const branches = await git.branchLocal();
+  if (branches.all.includes(branchName)) {
+    await git.deleteLocalBranch(branchName, true);
+  }
+
+  await git.checkout(["-b", branchName, baseBranch]);
+}
+
+export async function commitAndPushTask(
+  reposPath: string,
+  pat: string,
+  owner: string,
+  repoName: string,
+  taskId: number,
+  message: string
+): Promise<void> {
+  const branchName = `task/${taskId}`;
+  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const git = simpleGit(repoPath(reposPath, owner, repoName));
+
+  await git.add("-A");
+  await git.commit(message);
+  await git.remote(["set-url", "origin", remoteUrl]);
+  await git.push(["--set-upstream", "origin", branchName]);
+}
+
+export async function mergeTaskIntoBase(
+  reposPath: string,
+  pat: string,
+  owner: string,
+  repoName: string,
+  baseBranch: string,
+  taskId: number
+): Promise<void> {
+  const branchName = `task/${taskId}`;
+  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const git = simpleGit(repoPath(reposPath, owner, repoName));
+
+  await git.checkout(baseBranch);
+  await git.merge(["--no-ff", branchName]);
+  await git.remote(["set-url", "origin", remoteUrl]);
+  await git.push();
+  await git.deleteLocalBranch(branchName, true);
+}
+
 export async function hasUncommittedChanges(
   reposPath: string,
   owner: string,
