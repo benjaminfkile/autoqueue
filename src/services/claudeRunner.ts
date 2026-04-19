@@ -31,6 +31,9 @@ Instructions:
 - When you are done, ensure all changes are saved to disk.
 - Do not commit anything.`;
 
+  // Prefer explicit arg, then .env/process env, then PATH lookup.
+  const resolvedClaudePath = claudePath ?? process.env.CLAUDE_PATH ?? "claude";
+
   return new Promise((resolve) => {
     let output = "";
     let settled = false;
@@ -41,7 +44,7 @@ Instructions:
       resolve(result);
     };
 
-    const child = spawn(claudePath ?? "claude", ["--print", "--dangerously-skip-permissions", prompt], {
+    const child = spawn(resolvedClaudePath, ["--print", "--dangerously-skip-permissions", prompt], {
       cwd: localPath,
       env,
     });
