@@ -1,4 +1,5 @@
 import { Knex } from "knex";
+import * as path from "path";
 import { IAppSecrets, TaskPayload } from "../interfaces";
 import { getRepoById } from "../db/repos";
 import { getTaskById, getChildTasks, updateTask, getTasksByRepoId } from "../db/tasks";
@@ -91,10 +92,12 @@ export async function runTask(
     await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
 
     // 9. Run Claude
+    const workDir = repo.is_local_folder
+      ? repo.local_path!
+      : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
+
     const { success, output: claudeOutput } = await runClaudeOnTask({
-      reposPath: secrets.REPOS_PATH,
-      owner: repo.owner,
-      repoName: repo.repo_name,
+      workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
       claudePath: secrets.CLAUDE_PATH,
