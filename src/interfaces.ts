@@ -24,12 +24,14 @@ export interface IDBSecrets {
 // ---- Repos table row ----
 export interface Repo {
   id: number;
-  owner: string;
-  repo_name: string;
+  owner: string | null;
+  repo_name: string | null;
   active: boolean;
   base_branch: string;
   require_pr: boolean;
   github_token: string | null;
+  is_local_folder: boolean;
+  local_path: string | null;
   created_at: Date;
 }
 
