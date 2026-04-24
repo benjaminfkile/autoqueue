@@ -123,7 +123,7 @@ export async function commitAndPushTask(
   await git.add("-A");
   await git.commit(message);
   await git.remote(["set-url", "origin", remoteUrl]);
-  await git.push(["--set-upstream", "origin", branchName]);
+  await git.push(["--set-upstream", "--force", "origin", branchName]);
 }
 
 export async function mergeTaskIntoBase(
