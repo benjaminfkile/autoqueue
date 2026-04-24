@@ -1,4 +1,5 @@
 import { Knex } from "knex";
+import * as path from "path";
 import { IAppSecrets, TaskPayload } from "../interfaces";
 import { getRepoById } from "../db/repos";
 import { getTaskById, getChildTasks, updateTask, getTasksByRepoId } from "../db/tasks";
@@ -85,16 +86,20 @@ export async function runTask(
   }
 
   for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    // 8. Git setup
-    await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner, repo.repo_name);
-    await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
-    await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
+    // 8. Git setup (skipped for local folder repos)
+    if (!repo.is_local_folder) {
+      await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
+      await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch);
+      await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+    }
 
     // 9. Run Claude
+    const workDir = repo.is_local_folder
+      ? repo.local_path!
+      : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
+
     const { success, output: claudeOutput } = await runClaudeOnTask({
-      reposPath: secrets.REPOS_PATH,
-      owner: repo.owner,
-      repoName: repo.repo_name,
+      workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
       claudePath: secrets.CLAUDE_PATH,
@@ -102,12 +107,17 @@ export async function runTask(
 
     if (success) {
       // 10. On success
-      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner, repo.repo_name)) {
+      if (repo.is_local_folder) {
+        await updateTask(db, task.id, { status: "done" });
+        return "success";
+      }
+
+      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner!, repo.repo_name!)) {
         await commitAndPushTask(
           secrets.REPOS_PATH,
           secrets.GH_PAT!,
-          repo.owner,
-          repo.repo_name,
+          repo.owner!,
+          repo.repo_name!,
           task.id,
           `feat: complete task #${task.id} - ${task.title}`
         );
@@ -122,8 +132,8 @@ export async function runTask(
 
         const pr = await createPullRequest({
           token,
-          owner: repo.owner,
-          repoName: repo.repo_name,
+          owner: repo.owner!,
+          repoName: repo.repo_name!,
           head: `task/${task.id}`,
           base: repo.base_branch,
           title: task.title,
@@ -135,8 +145,8 @@ export async function runTask(
         await mergeTaskIntoBase(
           secrets.REPOS_PATH,
           secrets.GH_PAT!,
-          repo.owner,
-          repo.repo_name,
+          repo.owner!,
+          repo.repo_name!,
           repo.base_branch,
           task.id
         );
