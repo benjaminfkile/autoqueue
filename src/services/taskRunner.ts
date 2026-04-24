@@ -86,10 +86,13 @@ export async function runTask(
   }
 
   for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    // 8. Git setup
-    await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner, repo.repo_name);
-    await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
-    const branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
+    // 8. Git setup (skipped for local folder repos)
+    let branchName = "";
+    if (!repo.is_local_folder) {
+      await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
+      await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch);
+      branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+    }
 
     // 9. Run Claude
     const workDir = repo.is_local_folder
@@ -105,12 +108,17 @@ export async function runTask(
 
     if (success) {
       // 10. On success
-      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner, repo.repo_name)) {
+      if (repo.is_local_folder) {
+        await updateTask(db, task.id, { status: "done" });
+        return "success";
+      }
+
+      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner!, repo.repo_name!)) {
         await commitAndPushTask(
           secrets.REPOS_PATH,
           secrets.GH_PAT!,
-          repo.owner,
-          repo.repo_name,
+          repo.owner!,
+          repo.repo_name!,
           branchName,
           `feat: complete task #${task.id} - ${task.title}`
         );
@@ -125,8 +133,8 @@ export async function runTask(
 
         const pr = await createPullRequest({
           token,
-          owner: repo.owner,
-          repoName: repo.repo_name,
+          owner: repo.owner!,
+          repoName: repo.repo_name!,
           head: branchName,
           base: repo.base_branch,
           title: task.title,
@@ -138,8 +146,8 @@ export async function runTask(
         await mergeTaskIntoBase(
           secrets.REPOS_PATH,
           secrets.GH_PAT!,
-          repo.owner,
-          repo.repo_name,
+          repo.owner!,
+          repo.repo_name!,
           repo.base_branch,
           branchName
         );
