@@ -26,7 +26,7 @@ export async function getRepoByOwnerAndName(
 
 export async function createRepo(
   db: Knex,
-  data: { owner: string; repo_name: string; active?: boolean; base_branch?: string; require_pr?: boolean; github_token?: string | null }
+  data: { owner?: string | null; repo_name?: string | null; active?: boolean; base_branch?: string; require_pr?: boolean; github_token?: string | null; is_local_folder?: boolean; local_path?: string | null }
 ): Promise<Repo> {
   const [repo] = await db<Repo>("repos").insert(data).returning("*");
   return repo;
