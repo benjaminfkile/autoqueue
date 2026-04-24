@@ -88,7 +88,7 @@ export async function runTask(
     // 8. Git setup
     await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner, repo.repo_name);
     await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch);
-    await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
+    const branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner, repo.repo_name, repo.base_branch, task.id);
 
     // 9. Run Claude
     const { success, output: claudeOutput } = await runClaudeOnTask({
@@ -108,7 +108,7 @@ export async function runTask(
           secrets.GH_PAT!,
           repo.owner,
           repo.repo_name,
-          task.id,
+          branchName,
           `feat: complete task #${task.id} - ${task.title}`
         );
       }
@@ -124,7 +124,7 @@ export async function runTask(
           token,
           owner: repo.owner,
           repoName: repo.repo_name,
-          head: `task/${task.id}`,
+          head: branchName,
           base: repo.base_branch,
           title: task.title,
           body,
@@ -138,7 +138,7 @@ export async function runTask(
           repo.owner,
           repo.repo_name,
           repo.base_branch,
-          task.id
+          branchName
         );
         await updateTask(db, task.id, { status: "done" });
       }

@@ -1,6 +1,7 @@
 import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
+import { randomUUID } from "crypto";
 
 function repoPath(reposPath: string, owner: string, repoName: string): string {
   return path.join(reposPath, owner, repoName);
@@ -95,8 +96,8 @@ export async function createTaskBranch(
   repoName: string,
   baseBranch: string,
   taskId: number
-): Promise<void> {
-  const branchName = `task/${taskId}`;
+): Promise<string> {
+  const branchName = `${randomUUID()}-${taskId}`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   const branches = await git.branchLocal();
@@ -105,6 +106,7 @@ export async function createTaskBranch(
   }
 
   await git.checkout(["-b", branchName, baseBranch]);
+  return branchName;
 }
 
 export async function commitAndPushTask(
@@ -112,10 +114,9 @@ export async function commitAndPushTask(
   pat: string,
   owner: string,
   repoName: string,
-  taskId: number,
+  branchName: string,
   message: string
 ): Promise<void> {
-  const branchName = `task/${taskId}`;
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
@@ -131,9 +132,8 @@ export async function mergeTaskIntoBase(
   owner: string,
   repoName: string,
   baseBranch: string,
-  taskId: number
+  branchName: string
 ): Promise<void> {
-  const branchName = `task/${taskId}`;
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
