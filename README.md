@@ -50,3 +50,30 @@ Notes:
 - The script prompts for the account password via `Get-Credential`.
 - No password or token is hardcoded.
 - The task runs `scripts\\windows\\start-grunt-api.cmd`, which starts the API and logs to `api.log`.
+
+## Applying Updates
+
+To pull changes, rebuild, and restart the service:
+
+1. Open **Administrator PowerShell**.
+2. Stop the running task:
+```powershell
+Stop-ScheduledTask -TaskName "GRUNT"
+```
+3. Pull latest changes and rebuild:
+```powershell
+cd C:\path\to\grunt
+git pull
+node .\node_modules\typescript\bin\tsc
+```
+4. Restart the task:
+```powershell
+Start-ScheduledTask -TaskName "GRUNT"
+```
+
+To verify it's running:
+```powershell
+Get-ScheduledTask -TaskName "GRUNT" | Select-Object TaskName, State
+```
+
+Logs are written to `api.log` in the project root.
