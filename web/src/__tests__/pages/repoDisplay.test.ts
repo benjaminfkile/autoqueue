@@ -37,6 +37,7 @@ function makeTask(partial: Partial<TaskSummary>): TaskSummary {
     status: "pending",
     order_position: 0,
     children_count: 0,
+    requires_approval: false,
     created_at: new Date(0).toISOString(),
     ...partial,
   };

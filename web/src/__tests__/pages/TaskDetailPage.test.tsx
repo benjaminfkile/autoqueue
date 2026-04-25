@@ -171,6 +171,7 @@ function makeDetail(partial: Partial<TaskDetail> & { id: number }): TaskDetail {
     leased_until: null,
     ordering_mode: null,
     log_path: null,
+    requires_approval: false,
     created_at: "2026-04-01T00:00:00Z",
     acceptanceCriteria: [],
     children: [],

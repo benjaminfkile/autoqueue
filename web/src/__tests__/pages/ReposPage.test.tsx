@@ -45,6 +45,7 @@ function makeTask(partial: Partial<TaskSummary> & { id: number }): TaskSummary {
     status: "pending",
     order_position: 0,
     children_count: 0,
+    requires_approval: false,
     created_at: new Date("2026-01-02T00:00:00Z").toISOString(),
     ...partial,
   };
