@@ -363,8 +363,8 @@ describe("claimNextPendingLeafTask", () => {
     expect(sql).toContain("worker_id = ?");
     expect(sql).toContain("leased_until = NOW() + (? * interval '1 second')");
     expect(sql).toContain("RETURNING tasks.*");
-    // bindings: [repoId, repoId, repoId, workerId, leaseSeconds]
-    expect(bindings).toEqual([1, 1, 1, "host:123", 1800]);
+    // bindings: [repoId, repoId, workerId, leaseSeconds]
+    expect(bindings).toEqual([1, 1, "host:123", 1800]);
   });
 
   it("returns undefined when no eligible task is available (e.g. all locked or none pending)", async () => {
@@ -383,15 +383,108 @@ describe("claimNextPendingLeafTask", () => {
     expect(result).toBeUndefined();
   });
 
-  it("retains the failed-task NOT EXISTS guard so a failed task halts the repo", async () => {
+  // -------------------------------------------------------------------------
+  // on_failure policy (task #189)
+  //
+  // The failure-guard is no longer hardcoded. It now branches on the repo's
+  // `on_failure` policy:
+  //   - 'halt_repo' (default): any failed task in the repo blocks all pickup
+  //   - 'halt_subtree': only blocks candidates that are siblings of a failed
+  //     task or ancestors of a failed task (i.e. the affected subtree)
+  //   - 'continue': never blocks — other branches keep running
+  //   - any other value (e.g. 'retry'): falls through to halt_repo behavior
+  //     so it remains the safe default until that policy is implemented.
+  // -------------------------------------------------------------------------
+  it("branches the failure-guard on r.on_failure via a CASE expression", async () => {
     const { knex } = createMockKnex();
     knex.raw.mockResolvedValueOnce({ rows: [] });
 
     await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
 
     const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    expect(sql).toMatch(/NOT EXISTS\s*\(\s*SELECT 1 FROM tasks failed/);
-    expect(sql).toContain("failed.status = 'failed'");
+    // The policy gate must dispatch on r.on_failure rather than unconditionally
+    // applying the legacy halt-on-any-failure rule.
+    expect(sql).toMatch(/CASE\s+r\.on_failure/);
+  });
+
+  it("under 'halt_repo' (default/ELSE branch), retains the legacy NOT EXISTS guard so any failed task halts the repo", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The ELSE branch (which 'halt_repo' falls into) preserves the original
+    // contract: any failed task in the repo blocks pickup. The predicate is
+    // exactly the legacy guard.
+    expect(sql).toMatch(/ELSE[\s\S]*NOT EXISTS\s*\(\s*SELECT 1 FROM tasks failed[\s\S]*?failed\.repo_id\s*=\s*t\.repo_id[\s\S]*?failed\.status\s*=\s*'failed'/);
+  });
+
+  it("under 'continue', the failure guard short-circuits to TRUE so unrelated tasks still get picked up", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // 'continue' mode means: never let a failed task gate pickup. The CASE
+    // arm must be unconditionally true so the planner can drop the predicate.
+    expect(sql).toMatch(/WHEN\s+'continue'\s+THEN\s+TRUE/);
+  });
+
+  it("under 'halt_subtree', blocks a candidate when a failed task shares its parent_id (sibling guard)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // Sibling guard: failed.parent_id IS NOT DISTINCT FROM t.parent_id so
+    // root-level (NULL parent) siblings compare correctly. This is the
+    // "siblings of the failed task are blocked" half of halt_subtree.
+    expect(sql).toMatch(/WHEN\s+'halt_subtree'\s+THEN/);
+    expect(sql).toMatch(
+      /failed\.status\s*=\s*'failed'[\s\S]*?failed\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+t\.parent_id/
+    );
+  });
+
+  it("under 'halt_subtree', blocks a candidate that is an ancestor of any failed task (ancestor guard)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The recursive task_path CTE carries an ancestor_ids array per row so the
+    // halt_subtree branch can check, for each failed task, whether the candidate
+    // sits anywhere on its path-to-root. This is the "ancestors of the failed
+    // task are blocked" half of halt_subtree.
+    expect(sql).toMatch(/ARRAY\[id\]::int\[\]\s+AS\s+ancestor_ids/);
+    expect(sql).toMatch(/tp\.ancestor_ids\s*\|\|\s*t\.id/);
+    expect(sql).toMatch(
+      /JOIN\s+tasks\s+failed\s+ON\s+failed\.id\s*=\s*failed_tp\.id[\s\S]*?failed\.status\s*=\s*'failed'[\s\S]*?t\.id\s*=\s*ANY\(failed_tp\.ancestor_ids\)/
+    );
+  });
+
+  it("under 'halt_subtree', does NOT apply the repo-wide failure guard (so unrelated subtrees keep running)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The halt_subtree arm must NOT contain the legacy repo-wide guard
+    // (failed.repo_id = t.repo_id AND failed.status = 'failed' with no
+    // sibling/ancestor scoping). If it did, halt_subtree would degrade into
+    // halt_repo and break acceptance criterion 729.
+    const haltSubtreeArm = sql.match(
+      /WHEN\s+'halt_subtree'\s+THEN([\s\S]*?)(?=WHEN\s+|ELSE\s)/
+    );
+    expect(haltSubtreeArm).not.toBeNull();
+    const armBody = haltSubtreeArm![1];
+    // Every failed-task lookup in this arm must be either sibling-scoped or
+    // ancestor-scoped — never an unscoped repo-wide check.
+    expect(armBody).toMatch(/failed\.parent_id|failed_tp\.ancestor_ids/);
   });
 
   // -------------------------------------------------------------------------

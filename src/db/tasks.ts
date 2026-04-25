@@ -124,14 +124,16 @@ export async function claimNextPendingLeafTask(
     const result = await trx.raw<{ rows: Task[] }>(
       `WITH RECURSIVE task_path AS (
         SELECT id, parent_id, order_position,
-               ARRAY[order_position] AS path
+               ARRAY[order_position] AS path,
+               ARRAY[id]::int[] AS ancestor_ids
         FROM tasks
         WHERE repo_id = ? AND parent_id IS NULL
 
         UNION ALL
 
         SELECT t.id, t.parent_id, t.order_position,
-               tp.path || t.order_position
+               tp.path || t.order_position,
+               tp.ancestor_ids || t.id
         FROM tasks t
         JOIN task_path tp ON t.parent_id = tp.id
       ),
@@ -148,11 +150,28 @@ export async function claimNextPendingLeafTask(
             WHERE child.parent_id = t.id
               AND child.status IN ('pending', 'active')
           )
-          AND NOT EXISTS (
-            SELECT 1 FROM tasks failed
-            WHERE failed.repo_id = ?
-              AND failed.status = 'failed'
-          )
+          AND CASE r.on_failure
+            WHEN 'continue' THEN TRUE
+            WHEN 'halt_subtree' THEN
+              NOT EXISTS (
+                SELECT 1 FROM tasks failed
+                WHERE failed.repo_id = t.repo_id
+                  AND failed.status = 'failed'
+                  AND failed.parent_id IS NOT DISTINCT FROM t.parent_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM task_path failed_tp
+                JOIN tasks failed ON failed.id = failed_tp.id
+                WHERE failed.status = 'failed'
+                  AND t.id = ANY(failed_tp.ancestor_ids)
+              )
+            ELSE
+              NOT EXISTS (
+                SELECT 1 FROM tasks failed
+                WHERE failed.repo_id = t.repo_id
+                  AND failed.status = 'failed'
+              )
+          END
           AND (
             COALESCE(parent.ordering_mode, r.ordering_mode) = 'parallel'
             OR NOT EXISTS (
@@ -174,7 +193,7 @@ export async function claimNextPendingLeafTask(
       FROM candidate
       WHERE tasks.id = candidate.id
       RETURNING tasks.*`,
-      [repoId, repoId, repoId, workerId, leaseSeconds]
+      [repoId, repoId, workerId, leaseSeconds]
     );
     return result.rows[0];
   });
