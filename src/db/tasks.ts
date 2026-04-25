@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import { OrderingMode, Task } from "../interfaces";
+import { OrderingMode, RepoOnParentChildFail, Task } from "../interfaces";
 
 export async function getTasksByRepoId(
   db: Knex,
@@ -195,28 +195,89 @@ export async function renewTaskLease(
 
 export async function autoCompleteParentTasks(
   db: Knex,
-  repoId: number
+  repoId: number,
+  policy: RepoOnParentChildFail = "ignore"
 ): Promise<number> {
   let totalUpdated = 0;
 
   while (true) {
-    const result = await db.raw<{ rowCount: number }>(
-      `UPDATE tasks SET status = 'done'
-       WHERE repo_id = ?
-         AND status != 'done'
-         AND EXISTS (
-           SELECT 1 FROM tasks child
-           WHERE child.parent_id = tasks.id
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM tasks child
-           WHERE child.parent_id = tasks.id
-             AND child.status NOT IN ('done', 'failed')
-         )`,
-      [repoId]
-    );
+    let count = 0;
 
-    const count = result.rowCount ?? 0;
+    if (policy === "cascade_fail") {
+      const failResult = await db.raw<{ rowCount: number }>(
+        `UPDATE tasks SET status = 'failed'
+         WHERE repo_id = ?
+           AND status NOT IN ('done', 'failed')
+           AND EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+               AND child.status NOT IN ('done', 'failed')
+           )
+           AND EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+               AND child.status = 'failed'
+           )`,
+        [repoId]
+      );
+      count += failResult.rowCount ?? 0;
+
+      const doneResult = await db.raw<{ rowCount: number }>(
+        `UPDATE tasks SET status = 'done'
+         WHERE repo_id = ?
+           AND status NOT IN ('done', 'failed')
+           AND EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+               AND child.status != 'done'
+           )`,
+        [repoId]
+      );
+      count += doneResult.rowCount ?? 0;
+    } else if (policy === "mark_partial") {
+      const result = await db.raw<{ rowCount: number }>(
+        `UPDATE tasks SET status = 'done'
+         WHERE repo_id = ?
+           AND status NOT IN ('done', 'failed')
+           AND EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+               AND child.status != 'done'
+           )`,
+        [repoId]
+      );
+      count = result.rowCount ?? 0;
+    } else {
+      const result = await db.raw<{ rowCount: number }>(
+        `UPDATE tasks SET status = 'done'
+         WHERE repo_id = ?
+           AND status NOT IN ('done', 'failed')
+           AND EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks child
+             WHERE child.parent_id = tasks.id
+               AND child.status NOT IN ('done', 'failed')
+           )`,
+        [repoId]
+      );
+      count = result.rowCount ?? 0;
+    }
+
     if (count === 0) break;
     totalUpdated += count;
   }
