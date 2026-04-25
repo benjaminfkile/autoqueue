@@ -1,6 +1,9 @@
 import type {
   AcceptanceCriterion,
   AcceptanceCriterionUpdateInput,
+  ChatMessage,
+  ChatStreamEvent,
+  MaterializedTaskTree,
   Repo,
   RepoInput,
   TaskDetail,
@@ -8,6 +11,7 @@ import type {
   TaskNote,
   TaskNoteInput,
   TaskSummary,
+  TaskTreeProposal,
   TaskUpdateInput,
   WorkerStatus,
 } from "./types";
@@ -133,6 +137,140 @@ export const notesApi = {
 
 export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
+};
+
+export interface ChatStreamOptions {
+  messages: ChatMessage[];
+  repoId?: number | null;
+  signal?: AbortSignal;
+  onEvent: (event: ChatStreamEvent) => void;
+}
+
+// Parse SSE chunks emitted by /api/chat. Each event is a `event: <name>\n
+// data: <json>\n\n` block; we keep a leftover buffer for partial frames.
+export function parseSseChunk(
+  buffer: string,
+  onEvent: (event: ChatStreamEvent) => void
+): string {
+  let remainder = buffer;
+  while (true) {
+    const sep = remainder.indexOf("\n\n");
+    if (sep === -1) return remainder;
+    const block = remainder.slice(0, sep);
+    remainder = remainder.slice(sep + 2);
+
+    let eventName: string | null = null;
+    let dataLine = "";
+    for (const rawLine of block.split("\n")) {
+      const line = rawLine.replace(/\r$/, "");
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLine += line.slice(5).trim();
+      }
+    }
+    if (!eventName) continue;
+    if (eventName === "done") {
+      onEvent({ type: "done" });
+      continue;
+    }
+    let parsed: unknown = {};
+    if (dataLine.length > 0) {
+      try {
+        parsed = JSON.parse(dataLine);
+      } catch {
+        continue;
+      }
+    }
+    if (eventName === "delta") {
+      const text =
+        parsed && typeof parsed === "object" && "text" in parsed
+          ? String((parsed as { text: unknown }).text)
+          : "";
+      onEvent({ type: "delta", text });
+    } else if (eventName === "proposal") {
+      const proposal =
+        parsed && typeof parsed === "object" && "proposal" in parsed
+          ? ((parsed as { proposal: unknown }).proposal as TaskTreeProposal)
+          : { parents: [] };
+      onEvent({ type: "proposal", proposal });
+    } else if (eventName === "proposal_error") {
+      const error =
+        parsed && typeof parsed === "object" && "error" in parsed
+          ? String((parsed as { error: unknown }).error)
+          : "Unknown proposal error";
+      onEvent({ type: "proposal_error", error });
+    } else if (eventName === "error") {
+      const error =
+        parsed && typeof parsed === "object" && "error" in parsed
+          ? String((parsed as { error: unknown }).error)
+          : "Unknown error";
+      onEvent({ type: "error", error });
+    }
+  }
+}
+
+export const chatApi = {
+  // Open a streaming POST to /api/chat and dispatch parsed SSE events. The
+  // returned promise resolves once the stream ends (server-side `done` or
+  // socket close); rejects on network/HTTP errors. Pass an AbortSignal to
+  // cancel mid-stream.
+  stream: async (options: ChatStreamOptions): Promise<void> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    };
+    const key = getApiKey();
+    if (key) headers["x-api-key"] = key;
+
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        messages: options.messages,
+        repo_id: options.repoId ?? null,
+      }),
+      signal: options.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text || res.statusText || `Chat failed (${res.status})`;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object" && "error" in parsed) {
+          message = String((parsed as { error: unknown }).error);
+        }
+      } catch {
+        // text wasn't JSON — fall through with the raw message.
+      }
+      throw new ApiError(res.status, message);
+    }
+
+    if (!res.body) {
+      throw new ApiError(500, "Streaming response had no body");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = parseSseChunk(buffer, options.onEvent);
+    }
+    buffer += decoder.decode();
+    parseSseChunk(buffer, options.onEvent);
+  },
+  materialize: (repoId: number, proposal: TaskTreeProposal) =>
+    apiFetch<MaterializedTaskTree>(
+      `/api/repos/${repoId}/materialize-tree`,
+      {
+        method: "POST",
+        body: JSON.stringify(proposal),
+      }
+    ),
 };
 
 export const criteriaApi = {

@@ -151,3 +151,41 @@ export interface WorkerStatus {
   this_worker_id: string | null;
   active_workers: ActiveWorker[];
 }
+
+export interface ProposedTaskNode {
+  title: string;
+  description?: string;
+  acceptance_criteria?: string[];
+  children?: ProposedTaskNode[];
+}
+
+export interface TaskTreeProposal {
+  parents: ProposedTaskNode[];
+}
+
+export interface MaterializedTaskNode {
+  id: number;
+  title: string;
+  parent_id: number | null;
+  order_position: number;
+  acceptance_criteria_ids: number[];
+  children: MaterializedTaskNode[];
+}
+
+export interface MaterializedTaskTree {
+  parents: MaterializedTaskNode[];
+}
+
+export type ChatRole = "user" | "assistant";
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+}
+
+export type ChatStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "proposal"; proposal: TaskTreeProposal }
+  | { type: "proposal_error"; error: string }
+  | { type: "error"; error: string }
+  | { type: "done" };

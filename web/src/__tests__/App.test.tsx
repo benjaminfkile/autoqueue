@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import App from "../App";
 
 describe("App", () => {
@@ -60,5 +61,18 @@ describe("App", () => {
         /orchestrator/i
       );
     });
+  });
+
+  it("opens the planning chat drawer from the header button", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(
+      screen.getByRole("button", { name: /open planning chat/i })
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /planning chat/i })
+      ).toBeInTheDocument()
+    );
   });
 });
