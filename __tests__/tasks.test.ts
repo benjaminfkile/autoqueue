@@ -4,6 +4,11 @@ import {
   autoCompleteParentTasks,
   claimNextPendingLeafTask,
   renewTaskLease,
+  getTasksByRepoId,
+  getTaskById,
+  getChildTasks,
+  updateTask,
+  deleteTask,
 } from "../src/db/tasks";
 
 // ---------------------------------------------------------------------------
@@ -335,5 +340,168 @@ describe("renewTaskLease", () => {
     await expect(renewTaskLease(knex as any, 42, 1800)).rejects.toThrow(
       "connection lost"
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Simple readers / mutators — exercise the remaining query-builder paths so
+// the Phase 1 coverage gate (≥80% line coverage on src/db/tasks.ts) is met.
+// ---------------------------------------------------------------------------
+describe("getTasksByRepoId", () => {
+  it("filters by repo_id and orders by order_position ascending", async () => {
+    const tasks = [{ id: 1 }, { id: 2 }];
+    const { knex, chain } = createMockKnex();
+    chain.orderBy.mockResolvedValueOnce(tasks);
+
+    const result = await getTasksByRepoId(knex as any, 7);
+
+    expect(knex).toHaveBeenCalledWith("tasks");
+    expect(chain.where).toHaveBeenCalledWith({ repo_id: 7 });
+    expect(chain.orderBy).toHaveBeenCalledWith("order_position", "asc");
+    expect(result).toBe(tasks);
+  });
+});
+
+describe("getTaskById", () => {
+  it("returns the row matching the given id (or undefined)", async () => {
+    const task = { id: 42 };
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce(task);
+
+    const result = await getTaskById(knex as any, 42);
+
+    expect(chain.where).toHaveBeenCalledWith({ id: 42 });
+    expect(chain.first).toHaveBeenCalled();
+    expect(result).toBe(task);
+  });
+});
+
+describe("getChildTasks", () => {
+  it("filters by parent_id and orders by order_position ascending", async () => {
+    const tasks = [{ id: 10 }, { id: 11 }];
+    const { knex, chain } = createMockKnex();
+    chain.orderBy.mockResolvedValueOnce(tasks);
+
+    const result = await getChildTasks(knex as any, 5);
+
+    expect(chain.where).toHaveBeenCalledWith({ parent_id: 5 });
+    expect(chain.orderBy).toHaveBeenCalledWith("order_position", "asc");
+    expect(result).toBe(tasks);
+  });
+});
+
+describe("createTask (parent_id branch)", () => {
+  it("uses andWhere({parent_id}) when parent_id is provided (exercises the non-null branch)", async () => {
+    const { knex, chain } = createMockKnex();
+    let andWhereFn: (() => void) | undefined;
+    chain.andWhere.mockImplementation(function (this: unknown, fn: () => void) {
+      andWhereFn = fn;
+      return chain;
+    });
+    chain.first.mockResolvedValueOnce({ max_pos: 1 });
+    const inserted = {
+      id: 20,
+      repo_id: 1,
+      parent_id: 9,
+      title: "child",
+      description: "",
+      order_position: 2,
+      status: "pending",
+      retry_count: 0,
+      pr_url: null,
+      created_at: new Date(),
+    };
+    chain.returning.mockResolvedValueOnce([inserted]);
+
+    const result = await createTask(knex as any, {
+      repo_id: 1,
+      parent_id: 9,
+      title: "child",
+    });
+
+    // Drive the andWhere callback so the parent_id branch executes.
+    expect(andWhereFn).toBeDefined();
+    andWhereFn!.call(chain);
+    expect(chain.where).toHaveBeenCalledWith({ parent_id: 9 });
+
+    // Insert should preserve parent_id and use max_pos + 1.
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ parent_id: 9, order_position: 2 })
+    );
+    expect(result).toEqual(inserted);
+  });
+
+  it("uses whereNull('parent_id') when parent_id is omitted (exercises the root-task branch)", async () => {
+    const { knex, chain } = createMockKnex();
+    let andWhereFn: (() => void) | undefined;
+    chain.andWhere.mockImplementation(function (this: unknown, fn: () => void) {
+      andWhereFn = fn;
+      return chain;
+    });
+    chain.first.mockResolvedValueOnce({ max_pos: 0 });
+    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+
+    await createTask(knex as any, { repo_id: 1, title: "root" });
+
+    expect(andWhereFn).toBeDefined();
+    andWhereFn!.call(chain);
+    expect(chain.whereNull).toHaveBeenCalledWith("parent_id");
+  });
+
+  it("respects an explicit order_position and skips the max-position lookup", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.returning.mockResolvedValueOnce([
+      { id: 30, order_position: 17 },
+    ]);
+
+    await createTask(knex as any, {
+      repo_id: 1,
+      title: "explicit",
+      order_position: 17,
+    });
+
+    // The max-position lookup should not have run.
+    expect(chain.max).not.toHaveBeenCalled();
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ order_position: 17 })
+    );
+  });
+});
+
+describe("updateTask", () => {
+  it("issues UPDATE ... WHERE id = ? RETURNING * and returns the updated row", async () => {
+    const updated = {
+      id: 42,
+      repo_id: 1,
+      parent_id: null,
+      title: "t",
+      description: "",
+      order_position: 0,
+      status: "done",
+      retry_count: 0,
+      pr_url: null,
+      created_at: new Date(),
+    };
+    const { knex, chain } = createMockKnex();
+    chain.returning.mockResolvedValueOnce([updated]);
+
+    const result = await updateTask(knex as any, 42, { status: "done" });
+
+    expect(chain.where).toHaveBeenCalledWith({ id: 42 });
+    expect(chain.update).toHaveBeenCalledWith({ status: "done" });
+    expect(chain.returning).toHaveBeenCalledWith("*");
+    expect(result).toBe(updated);
+  });
+});
+
+describe("deleteTask", () => {
+  it("issues DELETE ... WHERE id = ?", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.delete.mockResolvedValueOnce(1);
+
+    await deleteTask(knex as any, 42);
+
+    expect(chain.where).toHaveBeenCalledWith({ id: 42 });
+    expect(chain.delete).toHaveBeenCalled();
   });
 });
