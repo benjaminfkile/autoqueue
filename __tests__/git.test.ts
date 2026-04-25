@@ -10,16 +10,35 @@ type GitMock = {
   add: jest.Mock;
   commit: jest.Mock;
   remote: jest.Mock;
+  clone: jest.Mock;
+  merge: jest.Mock;
+  status: jest.Mock;
 };
 
 const mockState: {
   instances: GitMock[];
   nextBranches: string[];
   nextRemoteHeads: string;
+  nextStatus: {
+    modified: string[];
+    created: string[];
+    not_added: string[];
+    deleted: string[];
+    renamed: string[];
+    staged: string[];
+  };
 } = {
   instances: [],
   nextBranches: [],
   nextRemoteHeads: "",
+  nextStatus: {
+    modified: [],
+    created: [],
+    not_added: [],
+    deleted: [],
+    renamed: [],
+    staged: [],
+  },
 };
 
 jest.mock("simple-git", () => {
@@ -42,6 +61,11 @@ jest.mock("simple-git", () => {
         add: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         remote: jest.fn().mockResolvedValue(undefined),
+        clone: jest.fn().mockResolvedValue(undefined),
+        merge: jest.fn().mockResolvedValue(undefined),
+        status: jest
+          .fn()
+          .mockImplementation(async () => mockState.nextStatus),
       };
       mockState.instances.push(git);
       return git;
@@ -49,10 +73,32 @@ jest.mock("simple-git", () => {
   };
 });
 
+const fsMockState = {
+  existing: new Set<string>(),
+  mkdirCalls: [] as string[],
+};
+
+jest.mock("fs", () => {
+  const actual = jest.requireActual("fs");
+  return {
+    ...actual,
+    existsSync: jest.fn((p: string) => fsMockState.existing.has(p)),
+    mkdirSync: jest.fn((p: string) => {
+      fsMockState.mkdirCalls.push(p);
+    }),
+  };
+});
+
 import {
   checkoutBaseBranch,
+  cloneOrPull,
+  commitAndPush,
   commitAndPushTask,
+  createIssueBranch,
   createTaskBranch,
+  hasUncommittedChanges,
+  mergeIntoBase,
+  mergeTaskIntoBase,
 } from "../src/services/git";
 import * as path from "path";
 
@@ -60,6 +106,16 @@ beforeEach(() => {
   mockState.instances = [];
   mockState.nextBranches = [];
   mockState.nextRemoteHeads = "";
+  mockState.nextStatus = {
+    modified: [],
+    created: [],
+    not_added: [],
+    deleted: [],
+    renamed: [],
+    staged: [],
+  };
+  fsMockState.existing = new Set();
+  fsMockState.mkdirCalls = [];
 });
 
 describe("createTaskBranch", () => {
@@ -325,5 +381,160 @@ describe("commitAndPushTask", () => {
     const pushArgs = pushGit.push.mock.calls[0][0] as string[];
     expect(pushArgs).not.toContain("--force");
     expect(pushArgs).not.toContain("-f");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Coverage gate — exercise the remaining git.ts functions so the Phase 1
+// coverage threshold (≥80% on src/services/git.ts) is met.
+// ---------------------------------------------------------------------------
+describe("cloneOrPull", () => {
+  it("clones when the repo directory does not exist, after creating the parent dir", async () => {
+    // Parent dir doesn't exist → mkdirSync called → top-level simpleGit().clone(remote, dir)
+    await cloneOrPull("/repos", "pat-token", "octocat", "hello");
+
+    expect(fsMockState.mkdirCalls).toEqual([path.join("/repos", "octocat")]);
+    // The first instance is the top-level simpleGit() with no dir.
+    const cloneGit = mockState.instances[0];
+    expect(cloneGit.clone).toHaveBeenCalledWith(
+      "https://pat-token@github.com/octocat/hello.git",
+      path.join("/repos", "octocat", "hello")
+    );
+  });
+
+  it("fetches when the repo directory already exists", async () => {
+    const dir = path.join("/repos", "octocat", "hello");
+    fsMockState.existing.add(dir);
+
+    await cloneOrPull("/repos", "pat-token", "octocat", "hello");
+
+    const fetchGit = mockState.instances[0];
+    expect(fetchGit.dir).toBe(dir);
+    expect(fetchGit.fetch).toHaveBeenCalled();
+    expect(fetchGit.clone).not.toHaveBeenCalled();
+  });
+});
+
+describe("createIssueBranch", () => {
+  it("creates issue/{n} from baseBranch and deletes any pre-existing local branch first", async () => {
+    mockState.nextBranches = ["issue/15", "main"];
+
+    await createIssueBranch("/repos", "octocat", "hello", "main", 15);
+
+    const git = mockState.instances[0];
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("issue/15", true);
+    expect(git.checkout).toHaveBeenCalledWith(["-b", "issue/15", "main"]);
+  });
+
+  it("does not delete when no local branch exists for the issue", async () => {
+    mockState.nextBranches = ["main"];
+
+    await createIssueBranch("/repos", "octocat", "hello", "main", 99);
+
+    const git = mockState.instances[0];
+    expect(git.deleteLocalBranch).not.toHaveBeenCalled();
+    expect(git.checkout).toHaveBeenCalledWith(["-b", "issue/99", "main"]);
+  });
+});
+
+describe("commitAndPush (legacy, issue-based)", () => {
+  it("stages, commits, sets remote URL, and pushes the issue branch with --set-upstream", async () => {
+    await commitAndPush(
+      "/repos",
+      "pat-token",
+      "octocat",
+      "hello",
+      42,
+      "fix: 42"
+    );
+
+    const git = mockState.instances[0];
+    expect(git.add).toHaveBeenCalledWith("-A");
+    expect(git.commit).toHaveBeenCalledWith("fix: 42");
+    expect(git.remote).toHaveBeenCalledWith([
+      "set-url",
+      "origin",
+      "https://pat-token@github.com/octocat/hello.git",
+    ]);
+    expect(git.push).toHaveBeenCalledWith([
+      "--set-upstream",
+      "origin",
+      "issue/42",
+    ]);
+  });
+});
+
+describe("mergeIntoBase (legacy, issue-based)", () => {
+  it("checks out the base, merges --no-ff, pushes, and deletes the issue branch", async () => {
+    await mergeIntoBase("/repos", "pat-token", "octocat", "hello", "main", 7);
+
+    const git = mockState.instances[0];
+    expect(git.checkout).toHaveBeenCalledWith("main");
+    expect(git.merge).toHaveBeenCalledWith(["--no-ff", "issue/7"]);
+    expect(git.remote).toHaveBeenCalledWith([
+      "set-url",
+      "origin",
+      "https://pat-token@github.com/octocat/hello.git",
+    ]);
+    expect(git.push).toHaveBeenCalledTimes(1);
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("issue/7", true);
+  });
+});
+
+describe("mergeTaskIntoBase", () => {
+  it("checks out base, merges the task branch with --no-ff, pushes, and deletes the task branch", async () => {
+    await mergeTaskIntoBase(
+      "/repos",
+      "pat-token",
+      "octocat",
+      "hello",
+      "main",
+      "grunt/task-42"
+    );
+
+    const git = mockState.instances[0];
+    expect(git.checkout).toHaveBeenCalledWith("main");
+    expect(git.merge).toHaveBeenCalledWith(["--no-ff", "grunt/task-42"]);
+    expect(git.remote).toHaveBeenCalledWith([
+      "set-url",
+      "origin",
+      "https://pat-token@github.com/octocat/hello.git",
+    ]);
+    expect(git.push).toHaveBeenCalledTimes(1);
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt/task-42", true);
+  });
+});
+
+describe("hasUncommittedChanges", () => {
+  it("returns false when the status is fully clean", async () => {
+    const result = await hasUncommittedChanges("/repos", "octocat", "hello");
+    expect(result).toBe(false);
+  });
+
+  it("returns true when any of the change buckets is non-empty", async () => {
+    const buckets: Array<keyof typeof mockState.nextStatus> = [
+      "modified",
+      "created",
+      "not_added",
+      "deleted",
+      "renamed",
+      "staged",
+    ];
+    for (const bucket of buckets) {
+      mockState.instances = [];
+      mockState.nextStatus = {
+        modified: [],
+        created: [],
+        not_added: [],
+        deleted: [],
+        renamed: [],
+        staged: [],
+      };
+      mockState.nextStatus[bucket] = ["some-file.ts"];
+
+      // eslint-disable-next-line no-await-in-loop
+      const result = await hasUncommittedChanges("/repos", "octocat", "hello");
+      expect(result).toBe(true);
+    }
   });
 });
