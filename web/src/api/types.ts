@@ -58,4 +58,54 @@ export interface TaskUpdateInput {
   description?: string;
   order_position?: number;
   status?: TaskStatus;
+  ordering_mode?: OrderingMode | null;
+}
+
+export interface AcceptanceCriterion {
+  id: number;
+  task_id: number;
+  description: string;
+  order_position: number;
+  met: boolean;
+  created_at: string;
+}
+
+export interface AcceptanceCriterionUpdateInput {
+  description?: string;
+  order_position?: number;
+  met?: boolean;
+}
+
+export interface TaskChildSummary {
+  id: number;
+  title: string;
+  status: TaskStatus;
+  order_position: number;
+}
+
+export interface TaskDetail {
+  id: number;
+  repo_id: number;
+  parent_id: number | null;
+  title: string;
+  description: string;
+  order_position: number;
+  status: TaskStatus;
+  retry_count: number;
+  pr_url: string | null;
+  worker_id: string | null;
+  leased_until: string | null;
+  ordering_mode: OrderingMode | null;
+  log_path: string | null;
+  created_at: string;
+  acceptanceCriteria: AcceptanceCriterion[];
+  children: TaskChildSummary[];
+}
+
+export interface TaskEvent {
+  id: number;
+  task_id: number;
+  ts: string;
+  event: string;
+  data: Record<string, unknown> | null;
 }
