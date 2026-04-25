@@ -20,7 +20,7 @@ jest.mock("../src/services/chatService", () => {
   return {
     ...actual,
     loadChatContext: jest.fn(),
-    streamChatTextDeltas: jest.fn(),
+    streamChatEvents: jest.fn(),
     buildSystemPrompt: jest.fn().mockImplementation(actual.buildSystemPrompt),
   };
 });
@@ -32,8 +32,9 @@ jest.mock("bcrypt", () => ({
 import app from "../src/app";
 import {
   loadChatContext,
-  streamChatTextDeltas,
+  streamChatEvents,
   buildSystemPrompt,
+  PROPOSE_TASK_TREE_TOOL,
 } from "../src/services/chatService";
 
 const API_KEY = "test-key";
@@ -68,12 +69,15 @@ beforeEach(() => {
   jest.clearAllMocks();
   (bcrypt.compare as jest.Mock).mockResolvedValue(true);
   (loadChatContext as jest.Mock).mockResolvedValue({});
-  (streamChatTextDeltas as jest.Mock).mockImplementation(() =>
-    asyncIterable(["Hello", " world"])
+  (streamChatEvents as jest.Mock).mockImplementation(() =>
+    asyncIterable([
+      { type: "text", text: "Hello" },
+      { type: "text", text: " world" },
+    ])
   );
 });
 
-async function* asyncIterable(items: string[]) {
+async function* asyncIterable<T>(items: T[]) {
   for (const i of items) yield i;
 }
 
@@ -85,7 +89,7 @@ describe("POST /api/chat", () => {
       .set("x-api-key", "wrong")
       .send({ messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(401);
-    expect(streamChatTextDeltas).not.toHaveBeenCalled();
+    expect(streamChatEvents).not.toHaveBeenCalled();
   });
 
   it("returns 400 when messages is missing or empty", async () => {
@@ -165,12 +169,12 @@ describe("POST /api/chat", () => {
   });
 
   it("emits an SSE error event when the model stream throws", async () => {
-    (streamChatTextDeltas as jest.Mock).mockImplementation(
+    (streamChatEvents as jest.Mock).mockImplementation(
       async function* failingStream() {
         // Trigger an error mid-iteration.
         throw new Error("upstream blew up");
         // eslint-disable-next-line no-unreachable
-        yield "x";
+        yield { type: "text", text: "x" };
       }
     );
 
@@ -218,8 +222,8 @@ describe("POST /api/chat", () => {
     expect(res.status).toBe(200);
     expect(loadChatContext).toHaveBeenCalledWith(expect.anything(), 7);
 
-    expect(streamChatTextDeltas).toHaveBeenCalledTimes(1);
-    const args = (streamChatTextDeltas as jest.Mock).mock.calls[0][0];
+    expect(streamChatEvents).toHaveBeenCalledTimes(1);
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
     expect(args.messages).toEqual([
       { role: "user", content: "plan a feature" },
     ]);
@@ -240,7 +244,7 @@ describe("POST /api/chat", () => {
       .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
-    const args = (streamChatTextDeltas as jest.Mock).mock.calls[0][0];
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
     expect(args.system).not.toContain("Current repo");
     expect(args.system).not.toContain("Recent task history");
     expect(args.system).toContain("repos(");
@@ -258,7 +262,7 @@ describe("POST /api/chat", () => {
         ],
       });
 
-    const args = (streamChatTextDeltas as jest.Mock).mock.calls[0][0];
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
     expect(args.messages).toEqual([
       { role: "user", content: "first" },
       { role: "assistant", content: "ack" },
@@ -279,5 +283,74 @@ describe("POST /api/chat", () => {
       });
 
     expect(buildSystemPrompt).toHaveBeenCalledWith(ctx);
+  });
+
+  it("registers the propose_task_tree tool with each model call", async () => {
+    await request(app)
+      .post("/api/chat")
+      .set("x-api-key", API_KEY)
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
+    expect(args.tools).toBeDefined();
+    expect(args.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: PROPOSE_TASK_TREE_TOOL.name }),
+      ])
+    );
+  });
+
+  it("emits a structured `proposal` SSE event when the model calls propose_task_tree", async () => {
+    const proposal = {
+      parents: [
+        {
+          title: "Add login flow",
+          description: "User can sign in with email/password.",
+          acceptance_criteria: ["GET /login renders form"],
+          children: [
+            { title: "Wire DB schema for users" },
+            { title: "POST /login route with bcrypt check" },
+          ],
+        },
+      ],
+    };
+    (streamChatEvents as jest.Mock).mockImplementation(() =>
+      asyncIterable([
+        { type: "text", text: "Here's a plan:" },
+        { type: "proposal", proposal },
+      ])
+    );
+
+    const res = await request(app)
+      .post("/api/chat")
+      .set("x-api-key", API_KEY)
+      .send({ messages: [{ role: "user", content: "build login" }] });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("event: proposal");
+    expect(res.text).toContain(JSON.stringify({ proposal }));
+    // Done event still fires after the proposal.
+    expect(res.text).toContain("event: done");
+  });
+
+  it("emits a `proposal_error` SSE event when the tool input is malformed", async () => {
+    (streamChatEvents as jest.Mock).mockImplementation(() =>
+      asyncIterable([
+        {
+          type: "proposal_error",
+          error: "parents must be a non-empty array",
+          raw: {},
+        },
+      ])
+    );
+
+    const res = await request(app)
+      .post("/api/chat")
+      .set("x-api-key", API_KEY)
+      .send({ messages: [{ role: "user", content: "build login" }] });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("event: proposal_error");
+    expect(res.text).toContain("parents must be a non-empty array");
   });
 });

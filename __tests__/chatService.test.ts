@@ -3,8 +3,13 @@ import {
   GRUNT_SCHEMA,
   loadChatContext,
   streamChatTextDeltas,
+  streamChatEvents,
   AnthropicLike,
   AnthropicStreamEvent,
+  PROPOSE_TASK_TREE_TOOL,
+  PROPOSE_TASK_TREE_TOOL_NAME,
+  validateTaskTreeProposal,
+  ChatStreamEvent,
 } from "../src/services/chatService";
 import { Repo, Task } from "../src/interfaces";
 
@@ -199,3 +204,370 @@ describe("streamChatTextDeltas", () => {
 async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
 }
+
+describe("buildSystemPrompt — propose_task_tree guidance", () => {
+  it("instructs the model to call the propose_task_tree tool", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain(PROPOSE_TASK_TREE_TOOL_NAME);
+    expect(prompt.toLowerCase()).toContain("propose");
+  });
+});
+
+describe("PROPOSE_TASK_TREE_TOOL definition", () => {
+  it("uses the canonical tool name", () => {
+    expect(PROPOSE_TASK_TREE_TOOL.name).toBe("propose_task_tree");
+    expect(PROPOSE_TASK_TREE_TOOL_NAME).toBe("propose_task_tree");
+  });
+
+  it("declares an input_schema requiring a `parents` array", () => {
+    expect(PROPOSE_TASK_TREE_TOOL.input_schema.type).toBe("object");
+    const schema = PROPOSE_TASK_TREE_TOOL.input_schema as {
+      required?: string[];
+      properties?: { parents?: { type?: string } };
+    };
+    expect(schema.required).toEqual(expect.arrayContaining(["parents"]));
+    expect(schema.properties?.parents?.type).toBe("array");
+  });
+
+  it("has a description so the model knows when to invoke it", () => {
+    expect(PROPOSE_TASK_TREE_TOOL.description).toBeTruthy();
+    expect((PROPOSE_TASK_TREE_TOOL.description ?? "").length).toBeGreaterThan(20);
+  });
+});
+
+describe("validateTaskTreeProposal", () => {
+  it("accepts a minimal valid proposal", () => {
+    const result = validateTaskTreeProposal({
+      parents: [{ title: "Build login" }],
+    });
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.proposal.parents).toHaveLength(1);
+      expect(result.proposal.parents[0].title).toBe("Build login");
+    }
+  });
+
+  it("accepts a deeply nested tree with descriptions and acceptance_criteria", () => {
+    const result = validateTaskTreeProposal({
+      parents: [
+        {
+          title: "Phase 1",
+          description: "Foundations",
+          acceptance_criteria: ["repo bootstrapped"],
+          children: [
+            {
+              title: "Schema",
+              children: [{ title: "users table" }],
+            },
+            { title: "Routes" },
+          ],
+        },
+      ],
+    });
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.proposal.parents[0].children?.[0].children?.[0].title).toBe(
+        "users table"
+      );
+      expect(result.proposal.parents[0].acceptance_criteria).toEqual([
+        "repo bootstrapped",
+      ]);
+    }
+  });
+
+  it("strips unknown extra fields by ignoring them", () => {
+    const result = validateTaskTreeProposal({
+      parents: [{ title: "X", weird_extra: "ignored" }],
+    });
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.proposal.parents[0]).toEqual({ title: "X" });
+    }
+  });
+
+  it("rejects non-object root inputs (null/undefined/string/array)", () => {
+    for (const input of [null, undefined, "string", [] as never]) {
+      const result = validateTaskTreeProposal(input as unknown);
+      expect(result.valid).toBe(false);
+    }
+  });
+
+  it("rejects when parents is missing or empty", () => {
+    expect(validateTaskTreeProposal({}).valid).toBe(false);
+    expect(validateTaskTreeProposal({ parents: [] }).valid).toBe(false);
+    expect(validateTaskTreeProposal({ parents: "nope" }).valid).toBe(false);
+  });
+
+  it("rejects nodes without a title", () => {
+    const r = validateTaskTreeProposal({ parents: [{}] });
+    expect(r.valid).toBe(false);
+    if (!r.valid) expect(r.error).toMatch(/title/);
+  });
+
+  it("rejects empty-string titles", () => {
+    const r = validateTaskTreeProposal({ parents: [{ title: "   " }] });
+    expect(r.valid).toBe(false);
+  });
+
+  it("rejects non-string acceptance_criteria items with a useful path", () => {
+    const r = validateTaskTreeProposal({
+      parents: [
+        { title: "T", acceptance_criteria: ["ok", 5] },
+      ],
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid) expect(r.error).toMatch(/acceptance_criteria\[1\]/);
+  });
+
+  it("rejects a malformed nested child node and reports its path", () => {
+    const r = validateTaskTreeProposal({
+      parents: [
+        { title: "Root", children: [{ title: "ok" }, { title: "" }] },
+      ],
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid)
+      expect(r.error).toMatch(/parents\[0\].children\[1\]/);
+  });
+});
+
+describe("streamChatEvents", () => {
+  it("yields text events for text deltas", async () => {
+    const events: AnthropicStreamEvent[] = [
+      { type: "message_start" },
+      { type: "content_block_start", index: 0, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_stop" },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "hi" }],
+      client: fakeClient,
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toEqual([{ type: "text", text: "Hi" }]);
+  });
+
+  it("forwards tools to the client when provided", async () => {
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable([])) },
+    };
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "hi" }],
+      client: fakeClient,
+      tools: [PROPOSE_TASK_TREE_TOOL],
+    })) {
+      void _;
+    }
+    expect(fakeClient.messages.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [PROPOSE_TASK_TREE_TOOL],
+      })
+    );
+  });
+
+  it("emits a `proposal` event when the model calls propose_task_tree with valid input", async () => {
+    const proposal = {
+      parents: [
+        {
+          title: "Login feature",
+          children: [{ title: "Add /login route" }],
+        },
+      ],
+    };
+    const json = JSON.stringify(proposal);
+    // Split the JSON across two partial deltas to mimic streaming behavior.
+    const half = Math.floor(json.length / 2);
+    const events: AnthropicStreamEvent[] = [
+      { type: "message_start" },
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          name: "propose_task_tree",
+          id: "toolu_1",
+        },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: json.slice(0, half) },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: json.slice(half) },
+      },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_stop" },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "go" }],
+      client: fakeClient,
+      tools: [PROPOSE_TASK_TREE_TOOL],
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ type: "proposal", proposal });
+  });
+
+  it("emits a `proposal_error` event when the model's input is not valid JSON", async () => {
+    const events: AnthropicStreamEvent[] = [
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", name: "propose_task_tree", id: "x" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: "{ not json" },
+      },
+      { type: "content_block_stop", index: 0 },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "go" }],
+      client: fakeClient,
+      tools: [PROPOSE_TASK_TREE_TOOL],
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe("proposal_error");
+    if (out[0].type === "proposal_error") {
+      expect(out[0].error).toMatch(/JSON/i);
+    }
+  });
+
+  it("emits a `proposal_error` event when the input fails schema validation", async () => {
+    const events: AnthropicStreamEvent[] = [
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", name: "propose_task_tree", id: "x" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: JSON.stringify({ parents: [] }) },
+      },
+      { type: "content_block_stop", index: 0 },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "go" }],
+      client: fakeClient,
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe("proposal_error");
+    if (out[0].type === "proposal_error") {
+      expect(out[0].error).toMatch(/parents/);
+    }
+  });
+
+  it("ignores tool_use blocks for tool names other than propose_task_tree", async () => {
+    const events: AnthropicStreamEvent[] = [
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", name: "some_other_tool", id: "x" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: '{"foo":1}' },
+      },
+      { type: "content_block_stop", index: 0 },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "go" }],
+      client: fakeClient,
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toEqual([]);
+  });
+
+  it("interleaves text and proposal events in stream order", async () => {
+    const proposal = { parents: [{ title: "T" }] };
+    const events: AnthropicStreamEvent[] = [
+      { type: "content_block_start", index: 0, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "preamble " } },
+      { type: "content_block_stop", index: 0 },
+      {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "tool_use", name: "propose_task_tree", id: "y" },
+      },
+      {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: JSON.stringify(proposal) },
+      },
+      { type: "content_block_stop", index: 1 },
+    ];
+    const fakeClient: AnthropicLike = {
+      messages: { create: jest.fn().mockResolvedValue(toAsyncIterable(events)) },
+    };
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "hi" }],
+      client: fakeClient,
+    })) {
+      out.push(e);
+    }
+    expect(out).toEqual([
+      { type: "text", text: "preamble " },
+      { type: "proposal", proposal },
+    ]);
+  });
+});
