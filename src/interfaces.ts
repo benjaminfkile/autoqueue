@@ -12,6 +12,10 @@ export interface IAppSecrets {
   POLL_INTERVAL_SECONDS?: string;
   CLAUDE_PATH?: string;
   IS_WORKER?: string;
+  // Cognito auth provider config (optional — only required when AUTH_PROVIDER
+  // selects Cognito).
+  COGNITO_USER_POOL_ID?: string;
+  COGNITO_CLIENT_ID?: string;
   // Add additional app-level secrets here as needed
 }
 
