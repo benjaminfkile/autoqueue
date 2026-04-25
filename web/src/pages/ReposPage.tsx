@@ -20,10 +20,12 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput } from "../api/types";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
+import RepoSettingsPanel from "./repos/RepoSettingsPanel";
 import TaskTreeView from "./repos/TaskTreeView";
 import TaskDetailPage from "./repos/TaskDetailPage";
 import {
@@ -57,6 +59,7 @@ export default function ReposPage() {
   const [deleteRepo, setDeleteRepo] = useState<Repo | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [settingsRepoId, setSettingsRepoId] = useState<number | null>(null);
 
   const loadStatsForRepo = useCallback(async (repoId: number) => {
     setRepoStats((prev) => ({
@@ -358,6 +361,19 @@ export default function ReposPage() {
                         <AccountTreeIcon fontSize="small" />
                       </IconButton>
                       <IconButton
+                        aria-label={`Settings for ${repoDisplayName(repo)}`}
+                        onClick={() =>
+                          setSettingsRepoId((curr) =>
+                            curr === repo.id ? null : repo.id
+                          )
+                        }
+                        color={
+                          settingsRepoId === repo.id ? "primary" : "default"
+                        }
+                      >
+                        <SettingsIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
                         aria-label={`Edit ${repoDisplayName(repo)}`}
                         onClick={() => openEdit(repo)}
                       >
@@ -376,6 +392,39 @@ export default function ReposPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        {settingsRepoId !== null && (() => {
+          const settingsRepo = repos.find((r) => r.id === settingsRepoId);
+          if (!settingsRepo) return null;
+          return (
+            <Paper variant="outlined" sx={{ mt: 3, p: 2 }} data-testid="repo-settings-panel">
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ mb: 2 }}
+              >
+                <Typography variant="h6" component="h2">
+                  Settings · {repoDisplayName(settingsRepo)}
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => setSettingsRepoId(null)}
+                  aria-label="Close settings"
+                >
+                  Close
+                </Button>
+              </Stack>
+              <RepoSettingsPanel
+                repo={settingsRepo}
+                onChange={(updated) =>
+                  setRepos((prev) =>
+                    prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+                  )
+                }
+              />
+            </Paper>
+          );
+        })()}
         {selectedRepoId !== null && (() => {
           const selectedRepo = repos.find((r) => r.id === selectedRepoId);
           if (!selectedRepo) return null;

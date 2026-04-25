@@ -7,6 +7,7 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Chip from "@mui/material/Chip";
 import Checkbox from "@mui/material/Checkbox";
+import MenuItem from "@mui/material/MenuItem";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
@@ -23,6 +24,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import { criteriaApi, tasksApi } from "../../api/client";
 import type {
   AcceptanceCriterion,
+  OrderingMode,
   TaskDetail,
   TaskEvent,
   TaskSummary,
@@ -242,6 +244,14 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
         prev ? { ...prev, description: descriptionDraft } : prev
       );
       setEditingDescription(false);
+    });
+
+  const setOrderingMode = (value: OrderingMode | "inherit") =>
+    persist("ordering_mode", async () => {
+      if (!task) return;
+      const next: OrderingMode | null = value === "inherit" ? null : value;
+      await tasksApi.update(task.id, { ordering_mode: next });
+      setTask((prev) => (prev ? { ...prev, ordering_mode: next } : prev));
     });
 
   const toggleCriterion = (criterion: AcceptanceCriterion) =>
@@ -585,6 +595,30 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
                     No children.
                   </Typography>
                 ) : (
+                  <>
+                  <Box sx={{ mb: 1, mt: 0.5 }} data-testid="task-detail-ordering-mode">
+                    <TextField
+                      select
+                      size="small"
+                      label="Ordering mode"
+                      value={task.ordering_mode ?? "inherit"}
+                      onChange={(e) =>
+                        void setOrderingMode(
+                          e.target.value as OrderingMode | "inherit"
+                        )
+                      }
+                      disabled={savingField === "ordering_mode"}
+                      sx={{ minWidth: 200 }}
+                      helperText="Controls how child tasks run."
+                      SelectProps={{
+                        inputProps: { "aria-label": "Ordering mode" },
+                      }}
+                    >
+                      <MenuItem value="inherit">inherit (repo default)</MenuItem>
+                      <MenuItem value="sequential">sequential</MenuItem>
+                      <MenuItem value="parallel">parallel</MenuItem>
+                    </TextField>
+                  </Box>
                   <List dense disablePadding>
                     {task.children.map((child) => (
                       <ListItem
@@ -614,6 +648,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
                       </ListItem>
                     ))}
                   </List>
+                  </>
                 )}
               </Box>
             </Stack>

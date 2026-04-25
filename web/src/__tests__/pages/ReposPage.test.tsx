@@ -332,6 +332,50 @@ describe("ReposPage", () => {
     });
   });
 
+  it("opens the settings panel and PATCHes a setting that reflects in the row", async () => {
+    let currentRepo = makeRepo({
+      id: 8,
+      owner: "alice",
+      repo_name: "alpha",
+      base_branch: "main",
+      base_branch_parent: "main",
+    });
+    installFetch({
+      "GET /api/repos": () => jsonResponse([currentRepo]),
+      "GET /api/tasks": () => jsonResponse([]),
+      "PATCH /api/repos/:id": (init) => {
+        const body = JSON.parse(String(init.body));
+        currentRepo = { ...currentRepo, ...body };
+        return jsonResponse(currentRepo);
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<ReposPage />);
+    await user.click(
+      await screen.findByRole("button", { name: /settings for alice\/alpha/i })
+    );
+    const panel = await screen.findByTestId("repo-settings-panel");
+    expect(within(panel).getByRole("heading", { name: /settings/i })).toBeInTheDocument();
+
+    const input = within(panel).getByLabelText("Base branch parent");
+    await user.clear(input);
+    await user.type(input, "develop");
+    await user.click(
+      within(panel).getByRole("button", { name: /save base branch parent/i })
+    );
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.url === "/api/repos/8"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch!.body!)).toEqual({
+        base_branch_parent: "develop",
+      });
+    });
+  });
+
   it("surfaces a load error and lets the user retry", async () => {
     let attempt = 0;
     installFetch({
