@@ -18,6 +18,10 @@ jest.mock("../src/db/taskEvents", () => ({
   recordEvent: jest.fn(),
 }));
 
+jest.mock("../src/db/taskNotes", () => ({
+  getNotesForTask: jest.fn(),
+}));
+
 jest.mock("../src/services/git", () => ({
   cloneOrPull: jest.fn(),
   checkoutBaseBranch: jest.fn(),
@@ -45,6 +49,7 @@ import {
 } from "../src/db/tasks";
 import { getCriteriaByTaskId } from "../src/db/acceptanceCriteria";
 import { recordEvent } from "../src/db/taskEvents";
+import { getNotesForTask } from "../src/db/taskNotes";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -66,6 +71,7 @@ const getChildTasksMock = getChildTasks as jest.Mock;
 const getTasksByRepoIdMock = getTasksByRepoId as jest.Mock;
 const renewTaskLeaseMock = renewTaskLease as jest.Mock;
 const recordEventMock = recordEvent as jest.Mock;
+const getNotesForTaskMock = getNotesForTask as jest.Mock;
 const cloneOrPullMock = cloneOrPull as jest.Mock;
 const checkoutBaseBranchMock = checkoutBaseBranch as jest.Mock;
 const createTaskBranchMock = createTaskBranch as jest.Mock;
@@ -80,6 +86,7 @@ beforeEach(() => {
   getTasksByRepoIdMock.mockResolvedValue([]);
   renewTaskLeaseMock.mockResolvedValue(undefined);
   recordEventMock.mockResolvedValue(undefined);
+  getNotesForTaskMock.mockResolvedValue([]);
 });
 
 describe("runTask", () => {
@@ -628,5 +635,162 @@ describe("runTask log capture", () => {
       ([, id, data]) => id === 42 && data && data.log_path === capturedLogPath
     );
     expect(logPathUpdate).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notes inclusion in TaskPayload (task #202): runTask must surface every note
+// visible to the running task — per the visibility rules baked into
+// getNotesForTask — on the payload handed to the agent. The agent depends on
+// this to read context/warnings left by previous agents and by users.
+// ---------------------------------------------------------------------------
+describe("runTask notes inclusion", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  function setupHappyPathMocks() {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+  }
+
+  it("calls getNotesForTask with the running task's id (so visibility is resolved against the correct task)", async () => {
+    setupHappyPathMocks();
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(getNotesForTaskMock).toHaveBeenCalledTimes(1);
+    expect(getNotesForTaskMock).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it("includes a notes array on TaskPayload populated from getNotesForTask", async () => {
+    const fixedDate = new Date("2026-04-25T12:00:00.000Z");
+    getNotesForTaskMock.mockResolvedValue([
+      {
+        id: 100,
+        task_id: 42,
+        author: "agent",
+        visibility: "siblings",
+        tags: ["context"],
+        content: "ran lint already",
+        created_at: fixedDate,
+      },
+      {
+        id: 101,
+        task_id: 7,
+        author: "user",
+        visibility: "all",
+        tags: [],
+        content: "skip the legacy adapter",
+        created_at: fixedDate,
+      },
+    ]);
+    setupHappyPathMocks();
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
+    expect(payload).toBeDefined();
+    expect(Array.isArray(payload.task.notes)).toBe(true);
+    expect(payload.task.notes).toHaveLength(2);
+    expect(payload.task.notes[0]).toMatchObject({
+      id: 100,
+      task_id: 42,
+      author: "agent",
+      visibility: "siblings",
+      tags: ["context"],
+      content: "ran lint already",
+    });
+    expect(payload.task.notes[1]).toMatchObject({
+      id: 101,
+      task_id: 7,
+      author: "user",
+      visibility: "all",
+      tags: [],
+      content: "skip the legacy adapter",
+    });
+  });
+
+  it("serializes Date created_at values to ISO strings so the payload is plain-JSON safe for the agent prompt", async () => {
+    const fixedDate = new Date("2026-04-25T12:00:00.000Z");
+    getNotesForTaskMock.mockResolvedValue([
+      {
+        id: 1,
+        task_id: 42,
+        author: "agent",
+        visibility: "self",
+        tags: [],
+        content: "n",
+        created_at: fixedDate,
+      },
+    ]);
+    setupHappyPathMocks();
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
+    expect(payload.task.notes[0].created_at).toBe("2026-04-25T12:00:00.000Z");
+  });
+
+  it("normalizes a missing tags field to an empty array (defensive against historical rows)", async () => {
+    getNotesForTaskMock.mockResolvedValue([
+      {
+        id: 1,
+        task_id: 42,
+        author: "agent",
+        visibility: "self",
+        // no tags field
+        content: "legacy row",
+        created_at: new Date("2026-04-25T12:00:00.000Z"),
+      },
+    ]);
+    setupHappyPathMocks();
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
+    expect(payload.task.notes[0].tags).toEqual([]);
+  });
+
+  it("emits an empty notes array (not undefined) when no notes are visible — so the agent prompt always has the section", async () => {
+    getNotesForTaskMock.mockResolvedValue([]);
+    setupHappyPathMocks();
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
+    expect(payload.task.notes).toEqual([]);
   });
 });

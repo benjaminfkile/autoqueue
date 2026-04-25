@@ -104,6 +104,16 @@ export interface TaskNote {
 }
 
 // ---- Task payload for agent ----
+export interface TaskPayloadNote {
+  id: number;
+  task_id: number;
+  author: NoteAuthor;
+  visibility: NoteVisibility;
+  tags: string[];
+  content: string;
+  created_at: string;
+}
+
 export interface TaskPayload {
   task: {
     id: number;
@@ -112,6 +122,7 @@ export interface TaskPayload {
     acceptanceCriteria: Array<{ id: number; description: string; met: boolean }>;
     parent: { id: number; title: string; description: string } | null;
     siblings: Array<{ id: number; title: string; status: string; order_position: number }>;
+    notes: TaskPayloadNote[];
   };
 }
 

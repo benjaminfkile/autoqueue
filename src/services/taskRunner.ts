@@ -11,6 +11,7 @@ import {
 } from "../db/tasks";
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import { recordEvent } from "../db/taskEvents";
+import { getNotesForTask } from "../db/taskNotes";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -80,7 +81,10 @@ async function runTaskBody(
   }
   siblings = siblings.filter((t) => t.id !== task.id);
 
-  // 5. Build TaskPayload
+  // 5. Load notes visible to this task per visibility rules
+  const notes = await getNotesForTask(db, task.id);
+
+  // 6. Build TaskPayload
   const taskPayload: TaskPayload = {
     task: {
       id: task.id,
@@ -100,10 +104,22 @@ async function runTaskBody(
         status: s.status,
         order_position: s.order_position,
       })),
+      notes: notes.map((n) => ({
+        id: n.id,
+        task_id: n.task_id,
+        author: n.author,
+        visibility: n.visibility,
+        tags: n.tags ?? [],
+        content: n.content,
+        created_at:
+          n.created_at instanceof Date
+            ? n.created_at.toISOString()
+            : String(n.created_at),
+      })),
     },
   };
 
-  // 6. Walk up parent chain, activate pending ancestors
+  // 7. Walk up parent chain, activate pending ancestors
   let ancestorId = task.parent_id;
   while (ancestorId != null) {
     const ancestor = await getTaskById(db, ancestorId);
@@ -119,7 +135,7 @@ async function runTaskBody(
   }
 
   for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    // 7. Git setup (skipped for local folder repos)
+    // 8. Git setup (skipped for local folder repos)
     let branchName = "";
     if (!repo.is_local_folder) {
       await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
@@ -134,7 +150,7 @@ async function runTaskBody(
       await recordEvent(db, task.id, "branch_created", { branch: branchName });
     }
 
-    // 8. Run Claude
+    // 9. Run Claude
     const workDir = repo.is_local_folder
       ? repo.local_path!
       : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
@@ -163,7 +179,7 @@ async function runTaskBody(
     await recordEvent(db, task.id, "claude_finished", { attempt, success });
 
     if (success) {
-      // 9. On success
+      // 10. On success
       if (repo.is_local_folder) {
         await updateTask(db, task.id, { status: "done" });
         await recordEvent(db, task.id, "status_change", {
@@ -227,7 +243,7 @@ async function runTaskBody(
       return "success";
     }
 
-    // 10/11. On failure
+    // 11/12. On failure
     console.error(`[taskRunner] Claude failed on attempt ${attempt} for task #${task.id}:\n${claudeOutput}`);
 
     if (attempt < MAX_ATTEMPTS) {

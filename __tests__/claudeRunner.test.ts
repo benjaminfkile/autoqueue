@@ -27,6 +27,7 @@ const samplePayload: TaskPayload = {
     acceptanceCriteria: [],
     parent: null,
     siblings: [],
+    notes: [],
   },
 };
 
@@ -158,6 +159,24 @@ describe("runClaudeOnTask log capture", () => {
     const result = await promise;
     expect(result.success).toBe(true);
     expect(result.output).toContain("plain");
+  });
+
+  it("the prompt passed to claude references the task.notes section so the agent reads it", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+
+    child.emit("close", 0);
+    await promise;
+
+    // The last spawn argument is the prompt string passed to claude.
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    expect(prompt).toMatch(/task\.notes/);
   });
 
   it("preserves log file across child close (file persists after task completion)", async () => {

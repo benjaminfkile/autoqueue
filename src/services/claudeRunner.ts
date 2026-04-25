@@ -34,7 +34,8 @@ Instructions:
 - Your work is considered complete when all acceptance criteria are met.
 - Make all necessary code changes in this repository.
 - When you are done, ensure all changes are saved to disk.
-- Do not commit anything.`;
+- Do not commit anything.
+- The \`task.notes\` array contains notes left by previous agents and by users that are visible to this task per the project's note-visibility rules. Read it carefully before starting — it may contain context, warnings, or follow-up guidance that affects how you should approach this task. An empty array means no notes are visible to this task.`;
 
   // Prefer explicit arg, then .env/process env, then PATH lookup.
   const resolvedClaudePath = claudePath ?? process.env.CLAUDE_PATH ?? "claude";
