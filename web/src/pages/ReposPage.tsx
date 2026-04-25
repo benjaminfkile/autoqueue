@@ -19,10 +19,12 @@ import CircularProgress from "@mui/material/CircularProgress";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput } from "../api/types";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
+import TaskTreeView from "./repos/TaskTreeView";
 import {
   countTasksByStatus,
   emptyCounts,
@@ -30,6 +32,7 @@ import {
   lastActivityIso,
   repoDisplayName,
   RepoStatusCounts,
+  TASK_STATUS_CHIP_COLOR,
   TASK_STATUSES,
 } from "./repos/repoDisplay";
 
@@ -39,16 +42,6 @@ interface RepoRowState {
   loading: boolean;
   error: string | null;
 }
-
-const STATUS_CHIP_COLOR: Record<
-  string,
-  "default" | "primary" | "success" | "error" | "warning"
-> = {
-  pending: "default",
-  active: "primary",
-  done: "success",
-  failed: "error",
-};
 
 export default function ReposPage() {
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -61,6 +54,7 @@ export default function ReposPage() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [formRepo, setFormRepo] = useState<Repo | null>(null);
   const [deleteRepo, setDeleteRepo] = useState<Repo | null>(null);
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
 
   const loadStatsForRepo = useCallback(async (repoId: number) => {
     setRepoStats((prev) => ({
@@ -271,6 +265,7 @@ export default function ReposPage() {
       )}
 
       {!loading && repos.length > 0 && (
+        <>
         <TableContainer component={Paper} variant="outlined">
           <Table aria-label="Repos">
             <TableHead>
@@ -321,7 +316,7 @@ export default function ReposPage() {
                             <Chip
                               size="small"
                               label={`${status}: ${counts[status]}`}
-                              color={STATUS_CHIP_COLOR[status]}
+                              color={TASK_STATUS_CHIP_COLOR[status]}
                               variant={
                                 counts[status] === 0 ? "outlined" : "filled"
                               }
@@ -348,6 +343,19 @@ export default function ReposPage() {
                     </TableCell>
                     <TableCell align="right">
                       <IconButton
+                        aria-label={`View tasks for ${repoDisplayName(repo)}`}
+                        onClick={() =>
+                          setSelectedRepoId((curr) =>
+                            curr === repo.id ? null : repo.id
+                          )
+                        }
+                        color={
+                          selectedRepoId === repo.id ? "primary" : "default"
+                        }
+                      >
+                        <AccountTreeIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
                         aria-label={`Edit ${repoDisplayName(repo)}`}
                         onClick={() => openEdit(repo)}
                       >
@@ -366,6 +374,33 @@ export default function ReposPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        {selectedRepoId !== null && (() => {
+          const selectedRepo = repos.find((r) => r.id === selectedRepoId);
+          if (!selectedRepo) return null;
+          return (
+            <Paper variant="outlined" sx={{ mt: 3, p: 2 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ mb: 1 }}
+              >
+                <Typography variant="h6" component="h2">
+                  Tasks · {repoDisplayName(selectedRepo)}
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => setSelectedRepoId(null)}
+                  aria-label="Close task tree"
+                >
+                  Close
+                </Button>
+              </Stack>
+              <TaskTreeView repoId={selectedRepoId} />
+            </Paper>
+          );
+        })()}
+        </>
       )}
 
       <RepoFormDialog

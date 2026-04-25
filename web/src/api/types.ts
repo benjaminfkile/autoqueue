@@ -1,7 +1,12 @@
 export type RepoOnFailure = "halt_repo" | "halt_subtree" | "retry" | "continue";
 export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 export type OrderingMode = "sequential" | "parallel";
-export type TaskStatus = "pending" | "active" | "done" | "failed";
+export type TaskStatus =
+  | "pending"
+  | "active"
+  | "done"
+  | "failed"
+  | "interrupted";
 
 export interface Repo {
   id: number;
@@ -46,4 +51,11 @@ export interface TaskSummary {
   order_position: number;
   children_count: number;
   created_at: string;
+}
+
+export interface TaskUpdateInput {
+  title?: string;
+  description?: string;
+  order_position?: number;
+  status?: TaskStatus;
 }
