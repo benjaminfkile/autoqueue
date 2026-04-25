@@ -7,6 +7,7 @@ import type {
   TaskEvent,
   TaskSummary,
   TaskUpdateInput,
+  WorkerStatus,
 } from "./types";
 
 export const API_KEY_STORAGE_KEY = "grunt_api_key";
@@ -112,6 +113,10 @@ export const tasksApi = {
     return res.text();
   },
   logStreamUrl: (id: number) => `/api/tasks/${id}/log/stream`,
+};
+
+export const systemApi = {
+  workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
 };
 
 export const criteriaApi = {

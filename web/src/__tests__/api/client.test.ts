@@ -4,6 +4,7 @@ import {
   API_KEY_STORAGE_KEY,
   criteriaApi,
   reposApi,
+  systemApi,
   tasksApi,
 } from "../../api/client";
 
@@ -143,6 +144,21 @@ describe("tasksApi", () => {
 
   it("returns the streaming endpoint URL", () => {
     expect(tasksApi.logStreamUrl(11)).toBe("/api/tasks/11/log/stream");
+  });
+});
+
+describe("systemApi", () => {
+  it("fetches /api/system/worker-status", async () => {
+    mockFetchOnce(
+      jsonResponse({
+        mode: "worker",
+        this_worker_id: "host:1",
+        active_workers: [],
+      })
+    );
+    const status = await systemApi.workerStatus();
+    expect(calls[0].url).toBe("/api/system/worker-status");
+    expect(status.mode).toBe("worker");
   });
 });
 

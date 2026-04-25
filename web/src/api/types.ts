@@ -109,3 +109,20 @@ export interface TaskEvent {
   event: string;
   data: Record<string, unknown> | null;
 }
+
+export type WorkerMode = "worker" | "orchestrator";
+
+export interface ActiveWorker {
+  worker_id: string;
+  task_id: number;
+  task_title: string;
+  repo_id: number;
+  leased_until: string;
+  is_self: boolean;
+}
+
+export interface WorkerStatus {
+  mode: WorkerMode;
+  this_worker_id: string | null;
+  active_workers: ActiveWorker[];
+}

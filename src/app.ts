@@ -10,6 +10,7 @@ import fs from "fs";
 import healthRouter from "./routers/healthRouter";
 import reposRouter from "./routers/reposRouter";
 import tasksRouter from "./routers/tasksRouter";
+import systemRouter from "./routers/systemRouter";
 import protectedRoute from "./middleware/protectedRoute";
 
 const app: Express = express();
@@ -22,6 +23,7 @@ app.use(express.json());
 app.use("/api/health", healthRouter);
 app.use("/api/repos", protectedRoute(), reposRouter);
 app.use("/api/tasks", protectedRoute(), tasksRouter);
+app.use("/api/system", protectedRoute(), systemRouter);
 
 // Static SPA serving for the React + MUI GUI built under /web/dist.
 // Resolves both when running compiled (<repo>/dist/src/app.js) and when
