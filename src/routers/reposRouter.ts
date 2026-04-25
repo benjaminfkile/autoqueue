@@ -28,11 +28,12 @@ reposRouter.post("/", async (req: Request, res: Response) => {
   try {
     const db = getDb();
 
-    const { owner, repo_name, active, base_branch, require_pr, github_token, is_local_folder, local_path } = req.body as {
+    const { owner, repo_name, active, base_branch, base_branch_parent, require_pr, github_token, is_local_folder, local_path } = req.body as {
       owner?: string;
       repo_name?: string;
       active?: boolean;
       base_branch?: string;
+      base_branch_parent?: string;
       require_pr?: boolean;
       github_token?: string | null;
       is_local_folder?: boolean;
@@ -51,7 +52,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const isActive = active !== false;
-    const repo = await createRepo(db, { owner, repo_name, active: isActive, base_branch, require_pr, github_token, is_local_folder, local_path });
+    const repo = await createRepo(db, { owner, repo_name, active: isActive, base_branch, base_branch_parent, require_pr, github_token, is_local_folder, local_path });
 
     return res.status(201).json(repo);
   } catch (err) {
@@ -83,6 +84,7 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       owner: string;
       repo_name: string;
       base_branch: string;
+      base_branch_parent: string;
       require_pr: boolean;
       github_token: string | null;
       is_local_folder: boolean;
