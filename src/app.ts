@@ -13,6 +13,8 @@ import tasksRouter from "./routers/tasksRouter";
 import systemRouter from "./routers/systemRouter";
 import chatRouter from "./routers/chatRouter";
 import protectedRoute from "./middleware/protectedRoute";
+import { ApiKeyProvider } from "./auth/ApiKeyProvider";
+import { AuthProvider } from "./auth/AuthProvider";
 
 const app: Express = express();
 
@@ -21,11 +23,13 @@ const app: Express = express();
 
 app.use(express.json());
 
+const authProviders: AuthProvider[] = [new ApiKeyProvider()];
+
 app.use("/api/health", healthRouter);
-app.use("/api/repos", protectedRoute(), reposRouter);
-app.use("/api/tasks", protectedRoute(), tasksRouter);
-app.use("/api/system", protectedRoute(), systemRouter);
-app.use("/api/chat", protectedRoute(), chatRouter);
+app.use("/api/repos", protectedRoute(authProviders), reposRouter);
+app.use("/api/tasks", protectedRoute(authProviders), tasksRouter);
+app.use("/api/system", protectedRoute(authProviders), systemRouter);
+app.use("/api/chat", protectedRoute(authProviders), chatRouter);
 
 // Static SPA serving for the React + MUI GUI built under /web/dist.
 // Resolves both when running compiled (<repo>/dist/src/app.js) and when
