@@ -163,6 +163,7 @@ tasksRouter.patch("/:id", async (req: Request, res: Response) => {
       order_position: number;
       status: "pending" | "active" | "done" | "failed";
       ordering_mode: OrderingMode | null;
+      requires_approval: boolean;
     }>;
 
     if (
@@ -171,6 +172,13 @@ tasksRouter.patch("/:id", async (req: Request, res: Response) => {
       !VALID_ORDERING_MODE.includes(data.ordering_mode)
     ) {
       return res.status(400).json({ error: "Invalid ordering_mode" });
+    }
+
+    if (
+      data.requires_approval !== undefined &&
+      typeof data.requires_approval !== "boolean"
+    ) {
+      return res.status(400).json({ error: "Invalid requires_approval" });
     }
 
     const db = getDb();

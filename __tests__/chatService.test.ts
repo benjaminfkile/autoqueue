@@ -54,6 +54,7 @@ const makeTask = (overrides: Partial<Task>): Task => ({
   leased_until: null,
   ordering_mode: null,
   log_path: null,
+  requires_approval: false,
   created_at: new Date("2026-04-10T00:00:00Z"),
   ...overrides,
 });
