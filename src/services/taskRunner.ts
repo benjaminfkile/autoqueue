@@ -10,6 +10,7 @@ import {
   renewTaskLease,
 } from "../db/tasks";
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
+import { recordEvent } from "../db/taskEvents";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -109,6 +110,10 @@ async function runTaskBody(
     if (!ancestor) break;
     if (ancestor.status === "pending") {
       await updateTask(db, ancestor.id, { status: "active" });
+      await recordEvent(db, ancestor.id, "status_change", {
+        from: "pending",
+        to: "active",
+      });
     }
     ancestorId = ancestor.parent_id;
   }
@@ -126,6 +131,7 @@ async function runTaskBody(
         repo.base_branch_parent ?? "main"
       );
       branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+      await recordEvent(db, task.id, "branch_created", { branch: branchName });
     }
 
     // 8. Run Claude
@@ -133,17 +139,23 @@ async function runTaskBody(
       ? repo.local_path!
       : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
 
+    await recordEvent(db, task.id, "claude_started", { attempt });
     const { success, output: claudeOutput } = await runClaudeOnTask({
       workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
       claudePath: secrets.CLAUDE_PATH,
     });
+    await recordEvent(db, task.id, "claude_finished", { attempt, success });
 
     if (success) {
       // 9. On success
       if (repo.is_local_folder) {
         await updateTask(db, task.id, { status: "done" });
+        await recordEvent(db, task.id, "status_change", {
+          from: task.status,
+          to: "done",
+        });
         return "success";
       }
 
@@ -156,6 +168,7 @@ async function runTaskBody(
           branchName,
           `feat: complete task #${task.id} - ${task.title}`
         );
+        await recordEvent(db, task.id, "commit_pushed", { branch: branchName });
       }
 
       if (repo.require_pr) {
@@ -176,6 +189,11 @@ async function runTaskBody(
         });
 
         await updateTask(db, task.id, { status: "done", pr_url: pr.url });
+        await recordEvent(db, task.id, "pr_opened", { url: pr.url });
+        await recordEvent(db, task.id, "status_change", {
+          from: task.status,
+          to: "done",
+        });
       } else {
         await mergeTaskIntoBase(
           secrets.REPOS_PATH,
@@ -186,6 +204,10 @@ async function runTaskBody(
           branchName
         );
         await updateTask(db, task.id, { status: "done" });
+        await recordEvent(db, task.id, "status_change", {
+          from: task.status,
+          to: "done",
+        });
       }
 
       return "success";
@@ -196,9 +218,18 @@ async function runTaskBody(
 
     if (attempt < MAX_ATTEMPTS) {
       await updateTask(db, task.id, { retry_count: attempt });
+      await recordEvent(db, task.id, "retry", {
+        attempt,
+        next_attempt: attempt + 1,
+      });
       return "failed";
     } else {
       await updateTask(db, task.id, { status: "failed" });
+      await recordEvent(db, task.id, "failed", { attempt });
+      await recordEvent(db, task.id, "status_change", {
+        from: task.status,
+        to: "failed",
+      });
       return "halted";
     }
   }

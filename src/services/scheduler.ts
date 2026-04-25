@@ -3,6 +3,7 @@ import * as os from "os";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
 import { claimNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
+import { recordEvent } from "../db/taskEvents";
 import { runTask } from "./taskRunner";
 
 const LEASE_SECONDS = 30 * 60;
@@ -20,6 +21,7 @@ export async function buildWorkQueue(
   for (const repo of repos) {
     const task = await claimNextPendingLeafTask(db, repo.id, workerId, leaseSeconds);
     if (task) {
+      await recordEvent(db, task.id, "claimed", { worker_id: workerId });
       queue.push({ repoId: repo.id, taskId: task.id });
     }
   }

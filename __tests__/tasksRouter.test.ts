@@ -38,6 +38,10 @@ import {
   deleteCriterion,
 } from "../src/db/acceptanceCriteria";
 
+// Mock task events DB layer
+jest.mock("../src/db/taskEvents");
+import { getEventsByTaskId } from "../src/db/taskEvents";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -315,6 +319,67 @@ describe("tasksRouter", () => {
         .delete("/api/tasks/1/criteria/2")
         .set("x-api-key", API_KEY);
       expect(res.status).toBe(204);
+    });
+  });
+
+  // GET /api/tasks/:id/events
+  describe("GET /api/tasks/:id/events", () => {
+    it("returns 200 with the chronological list of events from getEventsByTaskId", async () => {
+      const events = [
+        {
+          id: 1,
+          task_id: 1,
+          ts: new Date("2026-04-25T10:00:00Z"),
+          event: "claimed",
+          data: { worker_id: "worker-a" },
+        },
+        {
+          id: 2,
+          task_id: 1,
+          ts: new Date("2026-04-25T10:00:01Z"),
+          event: "claude_started",
+          data: { attempt: 1 },
+        },
+      ];
+      (getEventsByTaskId as jest.Mock).mockResolvedValue(events);
+
+      const res = await request(app)
+        .get("/api/tasks/1/events")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(getEventsByTaskId).toHaveBeenCalledWith(expect.anything(), 1);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(2);
+      expect(res.body[0]).toMatchObject({
+        id: 1,
+        event: "claimed",
+        data: { worker_id: "worker-a" },
+      });
+      expect(res.body[1]).toMatchObject({
+        id: 2,
+        event: "claude_started",
+        data: { attempt: 1 },
+      });
+    });
+
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app)
+        .get("/api/tasks/abc/events")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid id/i);
+      expect(getEventsByTaskId).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with an empty array when the task has no events", async () => {
+      (getEventsByTaskId as jest.Mock).mockResolvedValue([]);
+
+      const res = await request(app)
+        .get("/api/tasks/1/events")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
     });
   });
 });
