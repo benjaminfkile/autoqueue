@@ -7,8 +7,8 @@ import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
 import { initDb, getDb } from "./src/db/db";
-import { resetActiveTasks } from "./src/db/tasks";
-import { startScheduler } from "./src/services/scheduler";
+import { reconcileOrphanedTasks } from "./src/db/tasks";
+import { startScheduler, WORKER_ID } from "./src/services/scheduler";
 import morgan from "morgan";
 
 process.on("uncaughtException", (err) => {
@@ -40,10 +40,10 @@ async function start() {
       console.log(`Created repos directory: ${reposPath}`);
     }
 
-    const resetCount = await resetActiveTasks(getDb());
-    if (resetCount > 0) {
-      console.log(`[startup] Reset ${resetCount} active task(s) back to pending.`);
-    }
+    const reclaimedCount = await reconcileOrphanedTasks(getDb(), WORKER_ID);
+    console.log(
+      `[startup] Reclaimed ${reclaimedCount} orphaned task(s) back to pending (worker_id=${WORKER_ID}).`
+    );
 
     startScheduler(getDb(), appSecrets);
 
