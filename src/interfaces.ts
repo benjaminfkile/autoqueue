@@ -84,6 +84,25 @@ export interface TaskEvent {
   data: Record<string, unknown> | null;
 }
 
+// ---- Task notes (Phase 4: cross-task notes and context) ----
+export type NoteAuthor = "agent" | "user";
+export type NoteVisibility =
+  | "self"
+  | "siblings"
+  | "descendants"
+  | "ancestors"
+  | "all";
+
+export interface TaskNote {
+  id: number;
+  task_id: number;
+  author: NoteAuthor;
+  visibility: NoteVisibility;
+  tags: string[];
+  content: string;
+  created_at: Date;
+}
+
 // ---- Task payload for agent ----
 export interface TaskPayload {
   task: {
