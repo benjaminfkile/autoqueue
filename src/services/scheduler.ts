@@ -1,17 +1,24 @@
 import { Knex } from "knex";
+import * as os from "os";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
-import { getNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
+import { claimNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
 import { runTask } from "./taskRunner";
 
+const LEASE_SECONDS = 30 * 60;
+
+export const WORKER_ID = `${os.hostname()}:${process.pid}`;
+
 export async function buildWorkQueue(
-  db: Knex
+  db: Knex,
+  workerId: string = WORKER_ID,
+  leaseSeconds: number = LEASE_SECONDS
 ): Promise<Array<{ repoId: number; taskId: number }>> {
   const repos = await getActiveRepos(db);
   const queue: Array<{ repoId: number; taskId: number }> = [];
 
   for (const repo of repos) {
-    const task = await getNextPendingLeafTask(db, repo.id);
+    const task = await claimNextPendingLeafTask(db, repo.id, workerId, leaseSeconds);
     if (task) {
       queue.push({ repoId: repo.id, taskId: task.id });
     }
@@ -42,7 +49,7 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
         await autoCompleteParentTasks(db, repo.id);
       }
 
-      const workQueue = await buildWorkQueue(db);
+      const workQueue = await buildWorkQueue(db, WORKER_ID, LEASE_SECONDS);
 
       for (const { repoId, taskId } of workQueue) {
         const result = await runTask(db, secrets, repoId, taskId);

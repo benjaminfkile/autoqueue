@@ -102,43 +102,58 @@ export async function resetActiveTasks(db: Knex): Promise<number> {
   return rows.length;
 }
 
-export async function getNextPendingLeafTask(
+export async function claimNextPendingLeafTask(
   db: Knex,
-  repoId: number
+  repoId: number,
+  workerId: string,
+  leaseSeconds: number
 ): Promise<Task | undefined> {
-  const result = await db.raw<{ rows: Task[] }>(
-    `WITH RECURSIVE task_path AS (
-      SELECT id, parent_id, order_position,
-             ARRAY[order_position] AS path
-      FROM tasks
-      WHERE repo_id = ? AND parent_id IS NULL
+  return db.transaction(async (trx) => {
+    const result = await trx.raw<{ rows: Task[] }>(
+      `WITH RECURSIVE task_path AS (
+        SELECT id, parent_id, order_position,
+               ARRAY[order_position] AS path
+        FROM tasks
+        WHERE repo_id = ? AND parent_id IS NULL
 
-      UNION ALL
+        UNION ALL
 
-      SELECT t.id, t.parent_id, t.order_position,
-             tp.path || t.order_position
-      FROM tasks t
-      JOIN task_path tp ON t.parent_id = tp.id
-    )
-    SELECT t.* FROM tasks t
-    JOIN task_path tp ON t.id = tp.id
-    WHERE t.repo_id = ?
-      AND t.status = 'pending'
-      AND NOT EXISTS (
-        SELECT 1 FROM tasks child
-        WHERE child.parent_id = t.id
-          AND child.status IN ('pending', 'active')
+        SELECT t.id, t.parent_id, t.order_position,
+               tp.path || t.order_position
+        FROM tasks t
+        JOIN task_path tp ON t.parent_id = tp.id
+      ),
+      candidate AS (
+        SELECT t.id
+        FROM tasks t
+        JOIN task_path tp ON t.id = tp.id
+        WHERE t.repo_id = ?
+          AND t.status = 'pending'
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks child
+            WHERE child.parent_id = t.id
+              AND child.status IN ('pending', 'active')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks failed
+            WHERE failed.repo_id = ?
+              AND failed.status = 'failed'
+          )
+        ORDER BY tp.path ASC
+        LIMIT 1
+        FOR UPDATE OF t SKIP LOCKED
       )
-      AND NOT EXISTS (
-        SELECT 1 FROM tasks failed
-        WHERE failed.repo_id = ?
-          AND failed.status = 'failed'
-      )
-    ORDER BY tp.path ASC
-    LIMIT 1`,
-    [repoId, repoId, repoId]
-  );
-  return result.rows[0];
+      UPDATE tasks
+      SET status = 'active',
+          worker_id = ?,
+          leased_until = NOW() + (? * interval '1 second')
+      FROM candidate
+      WHERE tasks.id = candidate.id
+      RETURNING tasks.*`,
+      [repoId, repoId, repoId, workerId, leaseSeconds]
+    );
+    return result.rows[0];
+  });
 }
 
 export async function autoCompleteParentTasks(

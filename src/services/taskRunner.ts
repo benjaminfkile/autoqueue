@@ -71,10 +71,7 @@ export async function runTask(
     },
   };
 
-  // 6. Set task status to active
-  await updateTask(db, task.id, { status: "active" });
-
-  // 7. Walk up parent chain, activate pending ancestors
+  // 6. Walk up parent chain, activate pending ancestors
   let ancestorId = task.parent_id;
   while (ancestorId != null) {
     const ancestor = await getTaskById(db, ancestorId);
@@ -86,7 +83,7 @@ export async function runTask(
   }
 
   for (let attempt = task.retry_count + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    // 8. Git setup (skipped for local folder repos)
+    // 7. Git setup (skipped for local folder repos)
     let branchName = "";
     if (!repo.is_local_folder) {
       await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
@@ -100,7 +97,7 @@ export async function runTask(
       branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
     }
 
-    // 9. Run Claude
+    // 8. Run Claude
     const workDir = repo.is_local_folder
       ? repo.local_path!
       : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
@@ -113,7 +110,7 @@ export async function runTask(
     });
 
     if (success) {
-      // 10. On success
+      // 9. On success
       if (repo.is_local_folder) {
         await updateTask(db, task.id, { status: "done" });
         return "success";
@@ -163,7 +160,7 @@ export async function runTask(
       return "success";
     }
 
-    // 11/12. On failure
+    // 10/11. On failure
     console.error(`[taskRunner] Claude failed on attempt ${attempt} for task #${task.id}:\n${claudeOutput}`);
 
     if (attempt < MAX_ATTEMPTS) {
