@@ -61,6 +61,7 @@ export interface Task {
   worker_id: string | null;
   leased_until: Date | null;
   ordering_mode: OrderingMode | null;
+  log_path: string | null;
   created_at: Date;
 }
 

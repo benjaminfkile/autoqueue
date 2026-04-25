@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import * as fs from "fs";
 import { getDb } from "../db/db";
 import {
   getTasksByRepoId,
@@ -16,6 +17,9 @@ import {
 } from "../db/acceptanceCriteria";
 import { getEventsByTaskId } from "../db/taskEvents";
 import { OrderingMode } from "../interfaces";
+
+const LOG_STREAM_POLL_INTERVAL_MS = 500;
+const LOG_STREAM_STATUS_POLL_MS = 2000;
 
 const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
 
@@ -180,6 +184,141 @@ tasksRouter.delete("/:id", async (req: Request, res: Response) => {
     return res.status(204).send();
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/tasks/:id/log — return the saved log file for a task
+tasksRouter.get("/:id/log", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const task = await getTaskById(db, taskId);
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+    if (!task.log_path) {
+      return res.status(404).json({ error: "Log not available" });
+    }
+    if (!fs.existsSync(task.log_path)) {
+      return res.status(404).json({ error: "Log file missing" });
+    }
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    const stream = fs.createReadStream(task.log_path);
+    stream.on("error", (err) => {
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      } else {
+        res.end();
+      }
+    });
+    stream.pipe(res);
+    return;
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/tasks/:id/log/stream — SSE-stream the log for an active task
+tasksRouter.get("/:id/log/stream", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const task = await getTaskById(db, taskId);
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+    if (!task.log_path) {
+      return res.status(404).json({ error: "Log not available" });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const logPath = task.log_path;
+    let offset = 0;
+    let closed = false;
+
+    const sendChunk = (chunk: string) => {
+      const lines = chunk.split(/\r?\n/);
+      for (const line of lines) {
+        res.write(`data: ${line}\n`);
+      }
+      res.write("\n");
+    };
+
+    const readNew = async () => {
+      if (closed) return;
+      try {
+        const stat = await fs.promises.stat(logPath);
+        if (stat.size > offset) {
+          const fh = await fs.promises.open(logPath, "r");
+          try {
+            const length = stat.size - offset;
+            const buf = Buffer.alloc(length);
+            await fh.read(buf, 0, length, offset);
+            offset = stat.size;
+            sendChunk(buf.toString("utf8"));
+          } finally {
+            await fh.close();
+          }
+        }
+      } catch (err) {
+        // File might not exist yet — ignore, retry next tick.
+      }
+    };
+
+    const checkStatus = async (): Promise<boolean> => {
+      const fresh = await getTaskById(db, taskId);
+      if (!fresh) return false;
+      return fresh.status === "active" || fresh.status === "pending";
+    };
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(readTimer);
+      clearInterval(statusTimer);
+      try {
+        res.end();
+      } catch {
+        // ignore
+      }
+    };
+
+    const readTimer = setInterval(() => {
+      readNew();
+    }, LOG_STREAM_POLL_INTERVAL_MS);
+
+    const statusTimer = setInterval(async () => {
+      const stillActive = await checkStatus();
+      if (!stillActive) {
+        await readNew();
+        cleanup();
+      }
+    }, LOG_STREAM_STATUS_POLL_MS);
+
+    req.on("close", cleanup);
+
+    await readNew();
+
+    return;
+  } catch (err) {
+    if (!res.headersSent) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+    res.end();
+    return;
   }
 });
 

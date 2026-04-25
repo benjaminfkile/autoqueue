@@ -554,3 +554,79 @@ describe("runTask event emission", () => {
     expect(statusChangeToDone).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Log capture (task #191): runTask passes a per-task log file path to the
+// agent runner and wires up onFirstByte to set log_path on the task.
+// ---------------------------------------------------------------------------
+describe("runTask log capture", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  it("passes a logFilePath of <REPOS_PATH>/_logs/task-<id>.log to runClaudeOnTask", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const call = runClaudeMock.mock.calls[0]?.[0];
+    expect(call).toBeDefined();
+    expect(call.logFilePath).toMatch(/[\\/]_logs[\\/]task-42\.log$/);
+    expect(call.logFilePath.startsWith("/repos") || call.logFilePath.startsWith("\\repos")).toBe(true);
+    expect(typeof call.onFirstByte).toBe("function");
+  });
+
+  it("invoking onFirstByte triggers updateTask with log_path set to the log file path", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+
+    let capturedLogPath = "";
+    runClaudeMock.mockImplementation(async (opts: any) => {
+      capturedLogPath = opts.logFilePath;
+      opts.onFirstByte();
+      return { success: true, output: "ok" };
+    });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    // Allow the deferred update from onFirstByte to settle.
+    await new Promise((r) => setImmediate(r));
+
+    const logPathUpdate = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data && data.log_path === capturedLogPath
+    );
+    expect(logPathUpdate).toBeDefined();
+  });
+});
