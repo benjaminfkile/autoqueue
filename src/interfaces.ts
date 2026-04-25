@@ -74,6 +74,15 @@ export interface AcceptanceCriterion {
   created_at: Date;
 }
 
+// ---- Task events table row ----
+export interface TaskEvent {
+  id: number;
+  task_id: number;
+  ts: Date;
+  event: string;
+  data: Record<string, unknown> | null;
+}
+
 // ---- Task payload for agent ----
 export interface TaskPayload {
   task: {

@@ -14,6 +14,7 @@ import {
   updateCriterion,
   deleteCriterion,
 } from "../db/acceptanceCriteria";
+import { getEventsByTaskId } from "../db/taskEvents";
 import { OrderingMode } from "../interfaces";
 
 const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
@@ -177,6 +178,22 @@ tasksRouter.delete("/:id", async (req: Request, res: Response) => {
     const db = getDb();
     await deleteTask(db, id);
     return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/tasks/:id/events — return events for a task in chronological order
+tasksRouter.get("/:id/events", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const events = await getEventsByTaskId(db, taskId);
+    return res.status(200).json(events);
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
