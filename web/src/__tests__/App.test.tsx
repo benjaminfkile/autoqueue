@@ -1,17 +1,42 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import App from "../App";
 
 describe("App", () => {
-  it("renders the grunt heading", () => {
+  beforeEach(() => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith("/api/repos")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    (globalThis as unknown as { fetch: typeof fetch }).fetch =
+      fetchMock as unknown as typeof fetch;
+  });
+
+  it("renders the grunt app bar heading", async () => {
     render(<App />);
     expect(
       screen.getByRole("heading", { level: 1, name: /grunt/i })
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/no repos yet/i)).toBeInTheDocument()
+    );
   });
 
-  it("renders the scaffold tagline", () => {
+  it("renders the Repos page", async () => {
     render(<App />);
-    expect(screen.getByText(/Phase 3 GUI scaffold/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { level: 1, name: /repos/i })
+      ).toBeInTheDocument();
+    });
   });
 });
