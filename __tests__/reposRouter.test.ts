@@ -35,6 +35,11 @@ import {
 jest.mock("../src/services/taskTreeMaterializer");
 import { materializeTaskTree } from "../src/services/taskTreeMaterializer";
 
+// Mock the task-usage DB layer so /api/repos/:id/usage tests stay focused on
+// HTTP plumbing — the SQL aggregation is unit-tested in taskUsage.test.ts.
+jest.mock("../src/db/taskUsage");
+import { getUsageTotalsForRepo } from "../src/db/taskUsage";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -549,6 +554,74 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(500);
       expect(res.body.error).toMatch(/rolled back/);
+    });
+  });
+
+  // --------------------------------------------------------------------
+  // GET /api/repos/:id/usage — aggregated token usage across every task
+  // in the repo. Used by the GUI repos table to surface per-repo spend.
+  // --------------------------------------------------------------------
+  describe("GET /api/repos/:id/usage", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app)
+        .get("/api/repos/abc/usage")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(getUsageTotalsForRepo).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .get("/api/repos/42/usage")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(404);
+      expect(getUsageTotalsForRepo).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with totals scoped to the requested repo_id", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getUsageTotalsForRepo as jest.Mock).mockResolvedValue({
+        input_tokens: 1000,
+        output_tokens: 2000,
+        cache_creation_input_tokens: 500,
+        cache_read_input_tokens: 5000,
+        run_count: 10,
+      });
+
+      const res = await request(app)
+        .get("/api/repos/1/usage")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.body.totals).toMatchObject({
+        input_tokens: 1000,
+        output_tokens: 2000,
+        cache_creation_input_tokens: 500,
+        cache_read_input_tokens: 5000,
+        run_count: 10,
+      });
+      expect(getUsageTotalsForRepo).toHaveBeenCalledWith(expect.anything(), 1);
+    });
+
+    it("returns 200 with zeroed totals when no usage has been recorded for the repo yet", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getUsageTotalsForRepo as jest.Mock).mockResolvedValue({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        run_count: 0,
+      });
+
+      const res = await request(app)
+        .get("/api/repos/1/usage")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.body.totals.run_count).toBe(0);
     });
   });
 });

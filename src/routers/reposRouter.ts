@@ -17,6 +17,7 @@ import {
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
 import { getTemplateById } from "../db/taskTemplates";
+import { getUsageTotalsForRepo } from "../db/taskUsage";
 
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
@@ -295,6 +296,29 @@ reposRouter.post(
     }
   }
 );
+
+// GET /api/repos/:id/usage — return aggregated token usage across every task
+// in this repo. Mirrors the per-task /usage shape (totals only — no per-run
+// detail at this level) so GUI cards can share rendering logic.
+reposRouter.get("/:id/usage", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const existing = await getRepoById(db, id);
+    if (!existing) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const totals = await getUsageTotalsForRepo(db, id);
+    return res.status(200).json({ totals });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 // DELETE /api/repos/:id — delete a repo
 reposRouter.delete("/:id", async (req: Request, res: Response) => {

@@ -12,6 +12,7 @@ import {
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import { recordEvent } from "../db/taskEvents";
 import { createNote, getNotesForTask } from "../db/taskNotes";
+import { recordTaskUsage } from "../db/taskUsage";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -161,7 +162,12 @@ async function runTaskBody(
       "_logs",
       `task-${task.id}.log`
     );
-    const { success, output: claudeOutput, notes: agentNotes = [] } = await runClaudeOnTask({
+    const {
+      success,
+      output: claudeOutput,
+      notes: agentNotes = [],
+      usage: agentUsage = null,
+    } = await runClaudeOnTask({
       workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
@@ -177,6 +183,25 @@ async function runTaskBody(
       },
     });
     await recordEvent(db, task.id, "claude_finished", { attempt, success });
+
+    // Persist token usage for every attempt — failed runs cost tokens too, and
+    // the per-repo total needs to reflect that. Skipped only when the CLI did
+    // not surface usage info (e.g. older output formats), so we don't insert
+    // misleading all-zero rows.
+    if (agentUsage) {
+      try {
+        await recordTaskUsage(db, {
+          task_id: task.id,
+          repo_id: repo.id,
+          usage: agentUsage,
+        });
+      } catch (err) {
+        console.error(
+          `[taskRunner] Failed to record token usage for task #${task.id}:`,
+          err
+        );
+      }
+    }
 
     if (success) {
       for (const n of agentNotes) {

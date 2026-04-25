@@ -157,6 +157,33 @@ export interface TaskPayload {
   };
 }
 
+// ---- Token usage parsed from a single Anthropic SDK / claude CLI response ----
+// The four fields mirror the Anthropic API's `usage` object so we can store
+// them verbatim and aggregate per-task / per-repo cost downstream without
+// re-mapping. Cache hits live in `cache_read_input_tokens`; cache writes in
+// `cache_creation_input_tokens`.
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+
+// ---- task_usage table row ----
+// One row per agent run (success or failure). Aggregations for the GUI live in
+// dedicated DB helpers (sum per task, sum per repo) rather than denormalised
+// columns, so the audit trail of individual runs is preserved.
+export interface TaskUsage {
+  id: number;
+  task_id: number;
+  repo_id: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  created_at: Date;
+}
+
 // ---- Task templates (Phase 7: save/reuse task tree patterns) ----
 // `tree` stores a TaskTreeProposal (parents → children → acceptance_criteria).
 // Kept as JSONB rather than relational rows so a template is a single, atomic

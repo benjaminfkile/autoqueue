@@ -53,6 +53,13 @@ import {
   getNotesForTask,
 } from "../src/db/taskNotes";
 
+// Mock task usage DB layer
+jest.mock("../src/db/taskUsage");
+import {
+  getUsageRowsForTask,
+  getUsageTotalsForTask,
+} from "../src/db/taskUsage";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -769,6 +776,98 @@ describe("tasksRouter", () => {
         .set("x-api-key", API_KEY);
       expect(res.status).toBe(204);
       expect(deleteNote).toHaveBeenCalledWith(expect.anything(), 5);
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // GET /api/tasks/:id/usage — token usage totals + per-run breakdown.
+  // The GUI uses the totals on the task detail page; the per-run rows let a
+  // future drill-down show cost-per-attempt without an extra round trip.
+  // ----------------------------------------------------------------------
+  describe("GET /api/tasks/:id/usage", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app)
+        .get("/api/tasks/abc/usage")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(getUsageTotalsForTask).not.toHaveBeenCalled();
+      expect(getUsageRowsForTask).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with totals and runs", async () => {
+      const totals = {
+        input_tokens: 100,
+        output_tokens: 200,
+        cache_creation_input_tokens: 50,
+        cache_read_input_tokens: 1000,
+        run_count: 2,
+      };
+      const runs = [
+        {
+          id: 1,
+          task_id: 1,
+          repo_id: 1,
+          input_tokens: 50,
+          output_tokens: 100,
+          cache_creation_input_tokens: 25,
+          cache_read_input_tokens: 500,
+          created_at: new Date(),
+        },
+        {
+          id: 2,
+          task_id: 1,
+          repo_id: 1,
+          input_tokens: 50,
+          output_tokens: 100,
+          cache_creation_input_tokens: 25,
+          cache_read_input_tokens: 500,
+          created_at: new Date(),
+        },
+      ];
+      (getUsageTotalsForTask as jest.Mock).mockResolvedValue(totals);
+      (getUsageRowsForTask as jest.Mock).mockResolvedValue(runs);
+
+      const res = await request(app)
+        .get("/api/tasks/1/usage")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.body.totals).toMatchObject(totals);
+      expect(res.body.runs).toHaveLength(2);
+      expect(getUsageTotalsForTask).toHaveBeenCalledWith(expect.anything(), 1);
+      expect(getUsageRowsForTask).toHaveBeenCalledWith(expect.anything(), 1);
+    });
+
+    it("returns 200 with zeroed totals and an empty runs array when no usage has been recorded", async () => {
+      (getUsageTotalsForTask as jest.Mock).mockResolvedValue({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        run_count: 0,
+      });
+      (getUsageRowsForTask as jest.Mock).mockResolvedValue([]);
+
+      const res = await request(app)
+        .get("/api/tasks/99/usage")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.body.totals.run_count).toBe(0);
+      expect(res.body.runs).toEqual([]);
+    });
+
+    it("returns 500 when the underlying DB query throws", async () => {
+      (getUsageTotalsForTask as jest.Mock).mockRejectedValue(
+        new Error("db down")
+      );
+      (getUsageRowsForTask as jest.Mock).mockResolvedValue([]);
+
+      const res = await request(app)
+        .get("/api/tasks/1/usage")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/db down/);
     });
   });
 });
