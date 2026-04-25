@@ -11,12 +11,14 @@ import userEvent from "@testing-library/user-event";
 import TaskDetailPage, {
   formatEventData,
   formatEventTimestamp,
+  parseNoteTags,
   taskBranchName,
 } from "../../pages/repos/TaskDetailPage";
 import type {
   AcceptanceCriterion,
   TaskDetail,
   TaskEvent,
+  TaskNote,
 } from "../../api/types";
 
 interface FetchCall {
@@ -50,6 +52,8 @@ interface Routes {
   "GET /api/tasks/:id"?: RouteHandler;
   "GET /api/tasks/:id/events"?: RouteHandler;
   "GET /api/tasks/:id/log"?: RouteHandler;
+  "GET /api/tasks/:id/notes"?: RouteHandler;
+  "POST /api/tasks/:id/notes"?: RouteHandler;
   "PATCH /api/tasks/:id"?: RouteHandler;
   "PATCH /api/tasks/:taskId/criteria/:criterionId"?: RouteHandler;
 }
@@ -98,6 +102,22 @@ function installFetch(routes: Routes) {
         routes["GET /api/tasks/:id/log"]
       ) {
         return routes["GET /api/tasks/:id/log"](init ?? {}, urlObj);
+      }
+      if (
+        method === "GET" &&
+        /^\/api\/tasks\/\d+\/notes$/.test(path)
+      ) {
+        if (routes["GET /api/tasks/:id/notes"]) {
+          return routes["GET /api/tasks/:id/notes"](init ?? {}, urlObj);
+        }
+        return jsonResponse([]);
+      }
+      if (
+        method === "POST" &&
+        /^\/api\/tasks\/\d+\/notes$/.test(path) &&
+        routes["POST /api/tasks/:id/notes"]
+      ) {
+        return routes["POST /api/tasks/:id/notes"](init ?? {}, urlObj);
       }
       if (
         method === "PATCH" &&
@@ -164,6 +184,18 @@ function makeEvent(partial: Partial<TaskEvent> & { id: number }): TaskEvent {
     ts: "2026-04-01T00:00:00Z",
     event: "status_change",
     data: null,
+    ...partial,
+  };
+}
+
+function makeNote(partial: Partial<TaskNote> & { id: number }): TaskNote {
+  return {
+    task_id: 1,
+    author: "user",
+    visibility: "all",
+    tags: [],
+    content: "Note content",
+    created_at: "2026-04-01T00:00:00Z",
     ...partial,
   };
 }
@@ -245,6 +277,20 @@ describe("formatEventData", () => {
     expect(formatEventData({ branch: "grunt/task-1" })).toContain(
       "grunt/task-1"
     );
+  });
+});
+
+describe("parseNoteTags", () => {
+  it("returns an empty array for an empty string", () => {
+    expect(parseNoteTags("")).toEqual([]);
+  });
+
+  it("splits on commas, trims whitespace, and drops empties", () => {
+    expect(parseNoteTags("alpha, beta,  ,gamma  ")).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
   });
 });
 
@@ -747,6 +793,176 @@ describe("TaskDetailPage", () => {
           /inherit/i
         )
       ).toBeInTheDocument()
+    );
+  });
+
+  it("renders notes chronologically with author, visibility, and tag chips", async () => {
+    const detail = makeDetail({ id: 100 });
+    const notes: TaskNote[] = [
+      makeNote({
+        id: 2,
+        task_id: 100,
+        author: "agent",
+        visibility: "siblings",
+        tags: ["context"],
+        content: "Second note (agent)",
+        created_at: "2026-04-02T00:00:00Z",
+      }),
+      makeNote({
+        id: 1,
+        task_id: 100,
+        author: "user",
+        visibility: "self",
+        tags: [],
+        content: "First note (user)",
+        created_at: "2026-04-01T00:00:00Z",
+      }),
+    ];
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(detail),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () => jsonResponse(notes),
+    });
+    render(<TaskDetailPage taskId={100} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-notes")).toBeInTheDocument()
+    );
+
+    const items = screen
+      .getByTestId("task-detail-notes")
+      .querySelectorAll("[data-testid^='note-']");
+    const noteRows = Array.from(items).filter((el) =>
+      /^note-\d+$/.test(el.getAttribute("data-testid") ?? "")
+    );
+    expect(noteRows.length).toBe(2);
+    expect(noteRows[0]).toHaveAttribute("data-testid", "note-1");
+    expect(noteRows[1]).toHaveAttribute("data-testid", "note-2");
+
+    expect(screen.getByTestId("note-1-content")).toHaveTextContent(
+      "First note (user)"
+    );
+    expect(screen.getByTestId("note-1-author")).toHaveTextContent("user");
+    expect(screen.getByTestId("note-1-visibility")).toHaveTextContent("self");
+
+    expect(screen.getByTestId("note-2-author")).toHaveTextContent("agent");
+    expect(screen.getByTestId("note-2-visibility")).toHaveTextContent(
+      "siblings"
+    );
+    expect(screen.getByTestId("note-2-tag-context")).toHaveTextContent(
+      "#context"
+    );
+  });
+
+  it("shows an empty state when there are no notes", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(makeDetail({ id: 101 })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () => jsonResponse([]),
+    });
+    render(<TaskDetailPage taskId={101} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no notes yet/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByTestId("task-detail-notes")).not.toBeInTheDocument();
+  });
+
+  it("submits an inline note and POSTs it to the notes endpoint", async () => {
+    const detail = makeDetail({ id: 102 });
+    let createdId = 1000;
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(detail),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () => jsonResponse([]),
+      "POST /api/tasks/:id/notes": (init) => {
+        const body = JSON.parse(String(init.body));
+        const id = createdId++;
+        return jsonResponse(
+          makeNote({
+            id,
+            task_id: 102,
+            author: body.author,
+            visibility: body.visibility,
+            tags: body.tags ?? [],
+            content: body.content,
+            created_at: "2026-04-03T00:00:00Z",
+          }),
+          201
+        );
+      },
+    });
+    const user = userEvent.setup();
+    render(<TaskDetailPage taskId={102} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no notes yet/i)).toBeInTheDocument()
+    );
+
+    const contentField = screen.getByLabelText("Note content");
+    await user.type(contentField, "A brand new note");
+
+    const tagsField = screen.getByLabelText("Note tags");
+    await user.type(tagsField, "alpha, beta");
+
+    await user.click(
+      screen.getByRole("button", { name: /add note/i })
+    );
+
+    await waitFor(() => {
+      const post = calls.find(
+        (c) => c.method === "POST" && c.url === "/api/tasks/102/notes"
+      );
+      expect(post).toBeDefined();
+      const parsed = JSON.parse(post!.body!);
+      expect(parsed).toEqual({
+        author: "user",
+        visibility: "all",
+        content: "A brand new note",
+        tags: ["alpha", "beta"],
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("A brand new note")).toBeInTheDocument()
+    );
+
+    // The form clears after success.
+    expect(screen.getByLabelText("Note content")).toHaveValue("");
+    expect(screen.getByLabelText("Note tags")).toHaveValue("");
+  });
+
+  it("does not submit when the note content is empty", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(makeDetail({ id: 103 })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () => jsonResponse([]),
+    });
+    render(<TaskDetailPage taskId={103} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no notes yet/i)).toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole("button", { name: /add note/i })
+    ).toBeDisabled();
+    expect(
+      calls.some((c) => c.method === "POST" && /\/notes$/.test(c.url))
+    ).toBe(false);
+  });
+
+  it("renders a notes error and dismisses it via the close button", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(makeDetail({ id: 104 })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () =>
+        jsonResponse({ error: "notes blew up" }, 500),
+    });
+    render(<TaskDetailPage taskId={104} />);
+    await waitFor(() =>
+      expect(screen.getByText(/notes blew up/i)).toBeInTheDocument()
     );
   });
 

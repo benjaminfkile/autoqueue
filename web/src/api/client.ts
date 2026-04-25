@@ -5,6 +5,8 @@ import type {
   RepoInput,
   TaskDetail,
   TaskEvent,
+  TaskNote,
+  TaskNoteInput,
   TaskSummary,
   TaskUpdateInput,
   WorkerStatus,
@@ -113,6 +115,20 @@ export const tasksApi = {
     return res.text();
   },
   logStreamUrl: (id: number) => `/api/tasks/${id}/log/stream`,
+};
+
+export const notesApi = {
+  list: (taskId: number) =>
+    apiFetch<TaskNote[]>(`/api/tasks/${taskId}/notes`),
+  create: (taskId: number, input: TaskNoteInput) =>
+    apiFetch<TaskNote>(`/api/tasks/${taskId}/notes`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  delete: (taskId: number, noteId: number) =>
+    apiFetch<void>(`/api/tasks/${taskId}/notes/${noteId}`, {
+      method: "DELETE",
+    }),
 };
 
 export const systemApi = {

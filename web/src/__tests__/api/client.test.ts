@@ -3,6 +3,7 @@ import {
   ApiError,
   API_KEY_STORAGE_KEY,
   criteriaApi,
+  notesApi,
   reposApi,
   systemApi,
   tasksApi,
@@ -159,6 +160,55 @@ describe("systemApi", () => {
     const status = await systemApi.workerStatus();
     expect(calls[0].url).toBe("/api/system/worker-status");
     expect(status.mode).toBe("worker");
+  });
+});
+
+describe("notesApi", () => {
+  it("fetches notes for a task", async () => {
+    mockFetchOnce(jsonResponse([]));
+    await notesApi.list(7);
+    expect(calls[0].url).toBe("/api/tasks/7/notes");
+    expect(calls[0].init.method ?? "GET").toBe("GET");
+  });
+
+  it("creates a note via POST", async () => {
+    mockFetchOnce(
+      jsonResponse(
+        {
+          id: 10,
+          task_id: 7,
+          author: "user",
+          visibility: "all",
+          tags: ["x"],
+          content: "hello",
+          created_at: "2026-04-25T00:00:00Z",
+        },
+        201
+      )
+    );
+    await notesApi.create(7, {
+      author: "user",
+      visibility: "all",
+      content: "hello",
+      tags: ["x"],
+    });
+    expect(calls[0].url).toBe("/api/tasks/7/notes");
+    expect(calls[0].init.method).toBe("POST");
+    expect(calls[0].init.body).toBe(
+      JSON.stringify({
+        author: "user",
+        visibility: "all",
+        content: "hello",
+        tags: ["x"],
+      })
+    );
+  });
+
+  it("deletes a note", async () => {
+    mockFetchOnce(new Response(null, { status: 204 }));
+    await notesApi.delete(7, 10);
+    expect(calls[0].url).toBe("/api/tasks/7/notes/10");
+    expect(calls[0].init.method).toBe("DELETE");
   });
 });
 

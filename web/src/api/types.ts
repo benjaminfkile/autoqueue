@@ -110,6 +110,31 @@ export interface TaskEvent {
   data: Record<string, unknown> | null;
 }
 
+export type NoteAuthor = "agent" | "user";
+export type NoteVisibility =
+  | "self"
+  | "siblings"
+  | "descendants"
+  | "ancestors"
+  | "all";
+
+export interface TaskNote {
+  id: number;
+  task_id: number;
+  author: NoteAuthor;
+  visibility: NoteVisibility;
+  tags: string[];
+  content: string;
+  created_at: string;
+}
+
+export interface TaskNoteInput {
+  author: NoteAuthor;
+  visibility: NoteVisibility;
+  content: string;
+  tags?: string[];
+}
+
 export type WorkerMode = "worker" | "orchestrator";
 
 export interface ActiveWorker {
