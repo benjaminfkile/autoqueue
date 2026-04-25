@@ -8,6 +8,10 @@ import {
   systemApi,
   tasksApi,
 } from "../../api/client";
+import {
+  __resetTokenStoreForTests,
+  setBearerToken,
+} from "../../auth/tokenStore";
 
 interface FetchCall {
   url: string;
@@ -42,10 +46,12 @@ beforeEach(() => {
   (globalThis as unknown as { fetch: typeof fetch }).fetch =
     fetchMock as unknown as typeof fetch;
   window.localStorage.clear();
+  __resetTokenStoreForTests();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  __resetTokenStoreForTests();
 });
 
 describe("apiFetch", () => {
@@ -56,12 +62,33 @@ describe("apiFetch", () => {
     expect(calls).toHaveLength(1);
     const headers = calls[0].init.headers as Record<string, string>;
     expect(headers["x-api-key"]).toBe("secret-key");
+    expect(headers["Authorization"]).toBeUndefined();
   });
 
   it("omits x-api-key when no key is stored", async () => {
     mockFetchOnce(jsonResponse([]));
     await reposApi.list();
     const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers["Authorization"]).toBeUndefined();
+  });
+
+  it("sends Authorization: Bearer when an in-memory bearer token is set", async () => {
+    setBearerToken("jwt-abc");
+    mockFetchOnce(jsonResponse([]));
+    await reposApi.list();
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer jwt-abc");
+    expect(headers["x-api-key"]).toBeUndefined();
+  });
+
+  it("prefers the bearer token over a stored api key when both are present", async () => {
+    window.localStorage.setItem(API_KEY_STORAGE_KEY, "legacy-key");
+    setBearerToken("jwt-abc");
+    mockFetchOnce(jsonResponse([]));
+    await reposApi.list();
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer jwt-abc");
     expect(headers["x-api-key"]).toBeUndefined();
   });
 

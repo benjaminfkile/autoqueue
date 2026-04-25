@@ -20,6 +20,18 @@ export interface IAppSecrets {
   // selects Cognito).
   COGNITO_USER_POOL_ID?: string;
   COGNITO_CLIENT_ID?: string;
+  // Cognito hosted-UI config (only required when the GUI should redirect to
+  // the Cognito-hosted login page). e.g. "mygrunt.auth.us-east-1.amazoncognito.com".
+  COGNITO_DOMAIN?: string;
+  // Region of the Cognito user pool, used for region-aware Cognito IdP calls
+  // (in-app username/password login). Inferred from the user pool id when omitted.
+  COGNITO_REGION?: string;
+  // Selects how the GUI obtains a token when AUTH_PROVIDER includes cognito.
+  //   "hosted" → redirect to the Cognito-hosted UI (OAuth code flow)
+  //   "inapp"  → render an in-app username/password form that POSTs to
+  //              /api/auth/login (server-side InitiateAuth USER_PASSWORD_AUTH)
+  // Defaults to "hosted" when COGNITO_DOMAIN is configured, otherwise "inapp".
+  COGNITO_LOGIN_MODE?: "hosted" | "inapp";
   // Add additional app-level secrets here as needed
 }
 
