@@ -47,6 +47,8 @@ export interface Task {
   status: "pending" | "active" | "done" | "failed";
   retry_count: number;
   pr_url: string | null;
+  worker_id: string | null;
+  leased_until: Date | null;
   created_at: Date;
 }
 
