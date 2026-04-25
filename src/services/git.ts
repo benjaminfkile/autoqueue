@@ -1,7 +1,6 @@
 import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
-import { randomUUID } from "crypto";
 
 function repoPath(reposPath: string, owner: string, repoName: string): string {
   return path.join(reposPath, owner, repoName);
@@ -97,7 +96,7 @@ export async function createTaskBranch(
   baseBranch: string,
   taskId: number
 ): Promise<string> {
-  const branchName = `${randomUUID()}-${taskId}`;
+  const branchName = `grunt/task-${taskId}`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   const branches = await git.branchLocal();
