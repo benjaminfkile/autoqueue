@@ -44,6 +44,10 @@ jest.mock("../src/services/claudeRunner", () => ({
   runClaudeOnTask: jest.fn(),
 }));
 
+jest.mock("../src/services/webhookDelivery", () => ({
+  triggerWebhooks: jest.fn(),
+}));
+
 import { getRepoById } from "../src/db/repos";
 import {
   getTaskById,
@@ -66,6 +70,7 @@ import {
 } from "../src/services/git";
 import { createPullRequest } from "../src/services/github";
 import { runClaudeOnTask } from "../src/services/claudeRunner";
+import { triggerWebhooks } from "../src/services/webhookDelivery";
 import { runTask } from "../src/services/taskRunner";
 
 const getTaskByIdMock = getTaskById as jest.Mock;
@@ -87,6 +92,7 @@ const commitAndPushTaskMock = commitAndPushTask as jest.Mock;
 const mergeTaskIntoBaseMock = mergeTaskIntoBase as jest.Mock;
 const hasUncommittedChangesMock = hasUncommittedChanges as jest.Mock;
 const createPullRequestMock = createPullRequest as jest.Mock;
+const triggerWebhooksMock = triggerWebhooks as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -1083,5 +1089,186 @@ describe("runTask records token usage after each agent run", () => {
     } finally {
       errSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook firing on task state changes (task #219): runTask must fire the
+// configured webhook events at exactly the moments the task transitions
+// through done / failed (intermediate retry) / halted (terminal failure). The
+// firing is fire-and-forget — task-pipeline progress must not be blocked by
+// webhook delivery.
+// ---------------------------------------------------------------------------
+describe("runTask webhook firing", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "Add login",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const localFolderRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+  const githubRepo = {
+    id: 2,
+    owner: "acme",
+    repo_name: "widgets",
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: false,
+    local_path: null,
+    created_at: new Date(),
+  };
+
+  it("fires a 'done' webhook when a local-folder task succeeds", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(localFolderRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const result = await runTask({} as any, secrets, 1, 42);
+
+    expect(result).toBe("success");
+    const doneCalls = triggerWebhooksMock.mock.calls.filter(
+      (c) => c[3] === "done"
+    );
+    expect(doneCalls).toHaveLength(1);
+    // The Task passed to triggerWebhooks reflects the *new* status so payload
+    // builders don't have to guess what the task ended up as.
+    expect(doneCalls[0][2]).toMatchObject({ id: 42, status: "done" });
+    // The Repo argument is also forwarded so the payload can render owner/repo.
+    expect(doneCalls[0][1]).toMatchObject({ id: 1 });
+  });
+
+  it("fires a 'done' webhook on the merge-to-base success path (require_pr=false on a github repo)", async () => {
+    getTaskByIdMock.mockResolvedValue({ ...baseTask, repo_id: 2 });
+    getRepoByIdMock.mockResolvedValue(githubRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    createTaskBranchMock.mockResolvedValue("task-42");
+    cloneOrPullMock.mockResolvedValue(undefined);
+    checkoutBaseBranchMock.mockResolvedValue(undefined);
+    hasUncommittedChangesMock.mockResolvedValue(false);
+    mergeTaskIntoBaseMock.mockResolvedValue(undefined);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = {
+      REPOS_PATH: "/tmp",
+      ANTHROPIC_API_KEY: "x",
+      GH_PAT: "tok",
+    };
+    await runTask({} as any, secrets, 2, 42);
+
+    const doneCalls = triggerWebhooksMock.mock.calls.filter(
+      (c) => c[3] === "done"
+    );
+    expect(doneCalls).toHaveLength(1);
+    expect(doneCalls[0][2]).toMatchObject({ status: "done" });
+  });
+
+  it("fires a 'done' webhook on the PR-opened success path (require_pr=true on a github repo) with pr_url populated", async () => {
+    const prRepo = { ...githubRepo, require_pr: true };
+    getTaskByIdMock.mockResolvedValue({ ...baseTask, repo_id: 2 });
+    getRepoByIdMock.mockResolvedValue(prRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    createTaskBranchMock.mockResolvedValue("task-42");
+    cloneOrPullMock.mockResolvedValue(undefined);
+    checkoutBaseBranchMock.mockResolvedValue(undefined);
+    hasUncommittedChangesMock.mockResolvedValue(false);
+    createPullRequestMock.mockResolvedValue({ url: "https://gh/pr/1" });
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = {
+      REPOS_PATH: "/tmp",
+      ANTHROPIC_API_KEY: "x",
+      GH_PAT: "tok",
+    };
+    await runTask({} as any, secrets, 2, 42);
+
+    const doneCalls = triggerWebhooksMock.mock.calls.filter(
+      (c) => c[3] === "done"
+    );
+    expect(doneCalls).toHaveLength(1);
+    expect(doneCalls[0][2]).toMatchObject({
+      status: "done",
+      pr_url: "https://gh/pr/1",
+    });
+  });
+
+  it("fires a 'failed' webhook on a non-final attempt failure (intermediate retry path)", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(localFolderRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const result = await runTask({} as any, secrets, 1, 42);
+
+    expect(result).toBe("failed");
+    const events = triggerWebhooksMock.mock.calls.map((c) => c[3]);
+    expect(events).toContain("failed");
+    // A non-final attempt must NOT also fire 'halted' or 'done'.
+    expect(events).not.toContain("halted");
+    expect(events).not.toContain("done");
+  });
+
+  it("fires a 'halted' webhook (and not 'done') when the final attempt fails", async () => {
+    // retry_count = 2 → MAX_ATTEMPTS=3 means this is the final attempt.
+    getTaskByIdMock.mockResolvedValue({ ...baseTask, retry_count: 2 });
+    getRepoByIdMock.mockResolvedValue(localFolderRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const result = await runTask({} as any, secrets, 1, 42);
+
+    expect(result).toBe("halted");
+    const events = triggerWebhooksMock.mock.calls.map((c) => c[3]);
+    expect(events).toContain("halted");
+    expect(events).not.toContain("done");
+    // The Task forwarded with the 'halted' event reflects the final 'failed' status.
+    const haltedCall = triggerWebhooksMock.mock.calls.find((c) => c[3] === "halted");
+    expect(haltedCall![2]).toMatchObject({ status: "failed" });
+  });
+
+  it("does not fire any webhook when claude succeeds — er, wait, that case fires 'done'. We assert it's exactly one call total on the success path.", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(localFolderRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    // No spurious 'failed' or 'halted' calls on the success path.
+    const eventsFired = triggerWebhooksMock.mock.calls.map((c) => c[3]);
+    expect(eventsFired).toEqual(["done"]);
   });
 });

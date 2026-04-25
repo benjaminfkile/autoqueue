@@ -480,6 +480,9 @@ jest.mock("../src/services/git", () => ({
   hasUncommittedChanges: jest.fn(),
 }));
 jest.mock("../src/services/github", () => ({ createPullRequest: jest.fn() }));
+jest.mock("../src/services/webhookDelivery", () => ({
+  triggerWebhooks: jest.fn(),
+}));
 // Mock only runClaudeOnTask — keep parseNotesFromOutput real so the parsing
 // tests above run against the actual implementation.
 jest.mock("../src/services/claudeRunner", () => {

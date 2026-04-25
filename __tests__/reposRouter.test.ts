@@ -40,6 +40,17 @@ import { materializeTaskTree } from "../src/services/taskTreeMaterializer";
 jest.mock("../src/db/taskUsage");
 import { getUsageTotalsForRepo } from "../src/db/taskUsage";
 
+// Mock the webhooks DB layer so /api/repos/:id/webhooks tests stay focused on
+// HTTP plumbing — the persistence contract is unit-tested in repoWebhooks.test.ts.
+jest.mock("../src/db/repoWebhooks");
+import {
+  createWebhook,
+  deleteWebhook,
+  getWebhookById,
+  getWebhooksByRepoId,
+  updateWebhook,
+} from "../src/db/repoWebhooks";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -622,6 +633,309 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.totals.run_count).toBe(0);
+    });
+  });
+
+  // --------------------------------------------------------------------
+  // /api/repos/:id/webhooks — per-repo Slack-compatible webhooks. The DB
+  // layer is mocked; these tests pin the HTTP contract: validation,
+  // 404/400 paths, and pass-through to the DB helpers.
+  // --------------------------------------------------------------------
+  describe("GET /api/repos/:id/webhooks", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app)
+        .get("/api/repos/abc/webhooks")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(getWebhooksByRepoId).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .get("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+      expect(getWebhooksByRepoId).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with the webhooks scoped to the repo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const rows = [
+        {
+          id: 1,
+          repo_id: 1,
+          url: "https://hooks.slack.com/services/X",
+          events: ["done"],
+          active: true,
+          created_at: new Date(),
+        },
+      ];
+      (getWebhooksByRepoId as jest.Mock).mockResolvedValue(rows);
+
+      const res = await request(app)
+        .get("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(getWebhooksByRepoId).toHaveBeenCalledWith(expect.anything(), 1);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        id: 1,
+        url: "https://hooks.slack.com/services/X",
+      });
+    });
+  });
+
+  describe("POST /api/repos/:id/webhooks", () => {
+    const validBody = {
+      url: "https://hooks.slack.com/services/X/Y/Z",
+      events: ["done", "halted"],
+    };
+
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app)
+        .post("/api/repos/abc/webhooks")
+        .set("x-api-key", API_KEY)
+        .send(validBody);
+      expect(res.status).toBe(400);
+      expect(createWebhook).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send(validBody);
+      expect(res.status).toBe(404);
+      expect(createWebhook).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-http(s) URL with 400 (so misconfigured callers fail loudly)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ url: "ftp://wrong/", events: ["done"] });
+      expect(res.status).toBe(400);
+      expect(createWebhook).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing url with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ events: ["done"] });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects an empty events array with 400 (subscribing to nothing is meaningless)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ url: validBody.url, events: [] });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects an unknown event name with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ url: validBody.url, events: ["done", "exploded"] });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects a non-boolean active with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ ...validBody, active: "yes" });
+      expect(res.status).toBe(400);
+    });
+
+    it("creates the webhook and returns 201 with the inserted row", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const inserted = {
+        id: 9,
+        repo_id: 1,
+        url: validBody.url,
+        events: ["done", "halted"],
+        active: true,
+        created_at: new Date(),
+      };
+      (createWebhook as jest.Mock).mockResolvedValue(inserted);
+
+      const res = await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send(validBody);
+
+      expect(res.status).toBe(201);
+      expect(createWebhook).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          repo_id: 1,
+          url: validBody.url,
+          events: ["done", "halted"],
+        })
+      );
+      expect(res.body).toMatchObject({ id: 9, url: validBody.url });
+    });
+
+    it("deduplicates repeated events on the way to the DB layer", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (createWebhook as jest.Mock).mockResolvedValue({ id: 1 });
+
+      await request(app)
+        .post("/api/repos/1/webhooks")
+        .set("x-api-key", API_KEY)
+        .send({ url: validBody.url, events: ["done", "done", "failed"] });
+
+      expect(createWebhook).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ events: ["done", "failed"] })
+      );
+    });
+  });
+
+  describe("PATCH /api/repos/:id/webhooks/:webhookId", () => {
+    it("returns 404 when the webhook does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .patch("/api/repos/1/webhooks/99")
+        .set("x-api-key", API_KEY)
+        .send({ active: false });
+      expect(res.status).toBe(404);
+      expect(updateWebhook).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the webhook belongs to a different repo (cross-tenant safety)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 999,
+        url: "https://x/",
+        events: ["done"],
+        active: true,
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY)
+        .send({ active: false });
+      expect(res.status).toBe(404);
+      expect(updateWebhook).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid url with 400 even when other fields are valid", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 1,
+        url: "https://x/",
+        events: ["done"],
+        active: true,
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY)
+        .send({ url: "not-a-url" });
+      expect(res.status).toBe(400);
+      expect(updateWebhook).not.toHaveBeenCalled();
+    });
+
+    it("patches only the supplied fields and returns the updated row", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 1,
+        url: "https://old/",
+        events: ["done"],
+        active: true,
+      });
+      (updateWebhook as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 1,
+        url: "https://old/",
+        events: ["done", "halted"],
+        active: false,
+        created_at: new Date(),
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY)
+        .send({ events: ["done", "halted"], active: false });
+
+      expect(res.status).toBe(200);
+      expect(updateWebhook).toHaveBeenCalledWith(
+        expect.anything(),
+        9,
+        expect.objectContaining({ events: ["done", "halted"], active: false })
+      );
+      // url was NOT in the patch body, so the DB helper should not see it.
+      expect(updateWebhook).toHaveBeenCalledWith(
+        expect.anything(),
+        9,
+        expect.not.objectContaining({ url: expect.anything() })
+      );
+    });
+  });
+
+  describe("DELETE /api/repos/:id/webhooks/:webhookId", () => {
+    it("returns 404 when the webhook does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .delete("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+      expect(deleteWebhook).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the webhook belongs to a different repo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 555,
+        url: "https://x/",
+        events: ["done"],
+        active: true,
+      });
+
+      const res = await request(app)
+        .delete("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+      expect(deleteWebhook).not.toHaveBeenCalled();
+    });
+
+    it("returns 204 on successful delete", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getWebhookById as jest.Mock).mockResolvedValue({
+        id: 9,
+        repo_id: 1,
+        url: "https://x/",
+        events: ["done"],
+        active: true,
+      });
+      (deleteWebhook as jest.Mock).mockResolvedValue(1);
+
+      const res = await request(app)
+        .delete("/api/repos/1/webhooks/9")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(204);
+      expect(deleteWebhook).toHaveBeenCalledWith(expect.anything(), 9);
     });
   });
 });

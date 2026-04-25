@@ -23,6 +23,7 @@ import {
 } from "./git";
 import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
+import { triggerWebhooks } from "./webhookDelivery";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_SECONDS = 30 * 60;
@@ -227,6 +228,7 @@ async function runTaskBody(
           from: task.status,
           to: "done",
         });
+        triggerWebhooks(db, repo, { ...task, status: "done" }, "done");
         return "success";
       }
 
@@ -265,6 +267,12 @@ async function runTaskBody(
           from: task.status,
           to: "done",
         });
+        triggerWebhooks(
+          db,
+          repo,
+          { ...task, status: "done", pr_url: pr.url },
+          "done"
+        );
       } else {
         await mergeTaskIntoBase(
           secrets.REPOS_PATH,
@@ -279,6 +287,7 @@ async function runTaskBody(
           from: task.status,
           to: "done",
         });
+        triggerWebhooks(db, repo, { ...task, status: "done" }, "done");
       }
 
       return "success";
@@ -293,6 +302,7 @@ async function runTaskBody(
         attempt,
         next_attempt: attempt + 1,
       });
+      triggerWebhooks(db, repo, task, "failed");
       return "failed";
     } else {
       await updateTask(db, task.id, { status: "failed" });
@@ -301,6 +311,7 @@ async function runTaskBody(
         from: task.status,
         to: "failed",
       });
+      triggerWebhooks(db, repo, { ...task, status: "failed" }, "halted");
       return "halted";
     }
   }
