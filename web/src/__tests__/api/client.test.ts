@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   ApiError,
   API_KEY_STORAGE_KEY,
+  criteriaApi,
   reposApi,
   tasksApi,
 } from "../../api/client";
@@ -109,5 +110,48 @@ describe("tasksApi", () => {
     mockFetchOnce(jsonResponse([]));
     await tasksApi.listByRepo(42);
     expect(calls[0].url).toBe("/api/tasks?repo_id=42");
+  });
+
+  it("fetches a single task detail", async () => {
+    mockFetchOnce(jsonResponse({ id: 7 }));
+    await tasksApi.get(7);
+    expect(calls[0].url).toBe("/api/tasks/7");
+  });
+
+  it("fetches events", async () => {
+    mockFetchOnce(jsonResponse([]));
+    await tasksApi.events(7);
+    expect(calls[0].url).toBe("/api/tasks/7/events");
+  });
+
+  it("fetches the static log as plain text", async () => {
+    mockFetchOnce(
+      new Response("hello", {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      })
+    );
+    const text = await tasksApi.log(7);
+    expect(calls[0].url).toBe("/api/tasks/7/log");
+    expect(text).toBe("hello");
+  });
+
+  it("returns empty string when log endpoint 404s", async () => {
+    mockFetchOnce(new Response("not found", { status: 404 }));
+    await expect(tasksApi.log(7)).resolves.toBe("");
+  });
+
+  it("returns the streaming endpoint URL", () => {
+    expect(tasksApi.logStreamUrl(11)).toBe("/api/tasks/11/log/stream");
+  });
+});
+
+describe("criteriaApi", () => {
+  it("patches /api/tasks/:taskId/criteria/:criterionId", async () => {
+    mockFetchOnce(jsonResponse({ id: 21, met: true }));
+    await criteriaApi.update(5, 21, { met: true });
+    expect(calls[0].url).toBe("/api/tasks/5/criteria/21");
+    expect(calls[0].init.method).toBe("PATCH");
+    expect(calls[0].init.body).toBe(JSON.stringify({ met: true }));
   });
 });

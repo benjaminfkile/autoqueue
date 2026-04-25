@@ -25,6 +25,7 @@ import type { Repo, RepoInput } from "../api/types";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
 import TaskTreeView from "./repos/TaskTreeView";
+import TaskDetailPage from "./repos/TaskDetailPage";
 import {
   countTasksByStatus,
   emptyCounts,
@@ -55,6 +56,7 @@ export default function ReposPage() {
   const [formRepo, setFormRepo] = useState<Repo | null>(null);
   const [deleteRepo, setDeleteRepo] = useState<Repo | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 
   const loadStatsForRepo = useCallback(async (repoId: number) => {
     setRepoStats((prev) => ({
@@ -396,10 +398,21 @@ export default function ReposPage() {
                   Close
                 </Button>
               </Stack>
-              <TaskTreeView repoId={selectedRepoId} />
+              <TaskTreeView
+                repoId={selectedRepoId}
+                onViewDetail={(task) => setSelectedTaskId(task.id)}
+              />
             </Paper>
           );
         })()}
+        {selectedTaskId !== null && (
+          <Paper variant="outlined" sx={{ mt: 3, p: 2 }}>
+            <TaskDetailPage
+              taskId={selectedTaskId}
+              onClose={() => setSelectedTaskId(null)}
+            />
+          </Paper>
+        )}
         </>
       )}
 
