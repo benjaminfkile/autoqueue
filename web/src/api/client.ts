@@ -1,3 +1,4 @@
+import { getBearerToken } from "../auth/tokenStore";
 import type {
   AcceptanceCriterion,
   AcceptanceCriterionUpdateInput,
@@ -36,6 +37,18 @@ function getApiKey(): string {
   }
 }
 
+// Per-request auth header selection. Bearer tokens (Cognito) take precedence
+// over the legacy localStorage api key; either one is sent, never both. The
+// bearer token lives in memory only (auth/tokenStore) so it is cleared on
+// reload by design.
+function authHeader(): Record<string, string> {
+  const bearer = getBearerToken();
+  if (bearer) return { Authorization: `Bearer ${bearer}` };
+  const key = getApiKey();
+  if (key) return { "x-api-key": key };
+  return {};
+}
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -44,8 +57,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body !== undefined && headers["Content-Type"] === undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const key = getApiKey();
-  if (key) headers["x-api-key"] = key;
+  Object.assign(headers, authHeader());
 
   const res = await fetch(path, { ...init, headers });
 
@@ -105,11 +117,7 @@ export const tasksApi = {
   events: (id: number) => apiFetch<TaskEvent[]>(`/api/tasks/${id}/events`),
   log: async (id: number): Promise<string> => {
     const headers: Record<string, string> = { Accept: "text/plain" };
-    const key =
-      typeof window === "undefined"
-        ? ""
-        : window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? "";
-    if (key) headers["x-api-key"] = key;
+    Object.assign(headers, authHeader());
     const res = await fetch(`/api/tasks/${id}/log`, { headers });
     if (res.status === 404) return "";
     if (!res.ok) {
@@ -220,8 +228,7 @@ export const chatApi = {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     };
-    const key = getApiKey();
-    if (key) headers["x-api-key"] = key;
+    Object.assign(headers, authHeader());
 
     const res = await fetch("/api/chat", {
       method: "POST",

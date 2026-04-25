@@ -8,6 +8,7 @@ import fs from "fs";
 //import cors from "cors";
 //import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
+import authRouter from "./routers/authRouter";
 import reposRouter from "./routers/reposRouter";
 import tasksRouter from "./routers/tasksRouter";
 import systemRouter from "./routers/systemRouter";
@@ -25,6 +26,10 @@ app.use(express.json());
 // app.get("authProviders"), which is populated at startup based on the
 // AUTH_PROVIDER config. See src/auth/buildAuthProviders.ts.
 app.use("/api/health", healthRouter);
+// Auth router exposes /config (which auth flow to drive) and /login (in-app
+// USER_PASSWORD_AUTH flow). Both must be reachable before the user has a
+// token, so they sit outside protectedRoute.
+app.use("/api/auth", authRouter);
 app.use("/api/repos", protectedRoute(), reposRouter);
 app.use("/api/tasks", protectedRoute(), tasksRouter);
 app.use("/api/system", protectedRoute(), systemRouter);
