@@ -14,6 +14,8 @@ import {
   RepoOnFailure,
   RepoOnParentChildFail,
 } from "../interfaces";
+import { validateTaskTreeProposal } from "../services/chatService";
+import { materializeTaskTree } from "../services/taskTreeMaterializer";
 
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
@@ -219,6 +221,33 @@ reposRouter.post("/:id/advance", async (req: Request, res: Response) => {
     }
 
     return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/repos/:id/materialize-tree — atomically create a proposed task
+// tree (parents → children → acceptance criteria) under this repo.
+reposRouter.post("/:id/materialize-tree", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const existing = await getRepoById(db, id);
+    if (!existing) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const validation = validateTaskTreeProposal(req.body);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const result = await materializeTaskTree(db, id, validation.proposal);
+    return res.status(201).json(result);
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

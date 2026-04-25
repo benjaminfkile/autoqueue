@@ -29,6 +29,12 @@ import {
   deleteRepo,
 } from "../src/db/repos";
 
+// Mock the task-tree materializer service so the route tests stay focused on
+// HTTP plumbing — the materializer's atomicity contract is unit-tested
+// separately.
+jest.mock("../src/services/taskTreeMaterializer");
+import { materializeTaskTree } from "../src/services/taskTreeMaterializer";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -416,6 +422,133 @@ describe("reposRouter", () => {
         .set("x-api-key", API_KEY);
 
       expect(res.status).toBe(204);
+    });
+  });
+
+  describe("POST /api/repos/:id/materialize-tree", () => {
+    const validProposal = {
+      parents: [
+        {
+          title: "Phase 1",
+          description: "Foundation",
+          acceptance_criteria: ["repo bootstrapped"],
+          children: [{ title: "Schema" }],
+        },
+      ],
+    };
+
+    it("returns 401 without a valid API key", async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", "wrong")
+        .send(validProposal);
+      expect(res.status).toBe(401);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app)
+        .post("/api/repos/abc/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send(validProposal);
+      expect(res.status).toBe(400);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send(validProposal);
+      expect(res.status).toBe(404);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when the proposal body fails validation", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send({ parents: [] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/parents/);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("rejects nodes missing a title with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send({ parents: [{}] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/title/);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("creates the tree atomically and returns ids the GUI can navigate to", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const materialized = {
+        parents: [
+          {
+            id: 100,
+            title: "Phase 1",
+            parent_id: null,
+            order_position: 0,
+            acceptance_criteria_ids: [500],
+            children: [
+              {
+                id: 101,
+                title: "Schema",
+                parent_id: 100,
+                order_position: 0,
+                acceptance_criteria_ids: [],
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+      (materializeTaskTree as jest.Mock).mockResolvedValue(materialized);
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send(validProposal);
+
+      expect(res.status).toBe(201);
+      expect(materializeTaskTree).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({
+          parents: expect.arrayContaining([
+            expect.objectContaining({ title: "Phase 1" }),
+          ]),
+        })
+      );
+      // Returned ids let the GUI deep-link to the created tasks.
+      expect(res.body.parents[0].id).toBe(100);
+      expect(res.body.parents[0].children[0].id).toBe(101);
+      expect(res.body.parents[0].acceptance_criteria_ids).toEqual([500]);
+    });
+
+    it("returns 500 when the materializer rejects (e.g. transaction rolled back)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (materializeTaskTree as jest.Mock).mockRejectedValue(
+        new Error("rolled back")
+      );
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .set("x-api-key", API_KEY)
+        .send(validProposal);
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/rolled back/);
     });
   });
 });
