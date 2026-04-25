@@ -2,7 +2,13 @@ import { Knex } from "knex";
 import * as path from "path";
 import { IAppSecrets, TaskPayload } from "../interfaces";
 import { getRepoById } from "../db/repos";
-import { getTaskById, getChildTasks, updateTask, getTasksByRepoId } from "../db/tasks";
+import {
+  getTaskById,
+  getChildTasks,
+  updateTask,
+  getTasksByRepoId,
+  renewTaskLease,
+} from "../db/tasks";
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import {
   cloneOrPull,
@@ -16,6 +22,8 @@ import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
 
 const MAX_ATTEMPTS = 3;
+const LEASE_SECONDS = 30 * 60;
+const LEASE_RENEWAL_INTERVAL_MS = 60 * 1000;
 
 export async function runTask(
   db: Knex,
@@ -32,6 +40,29 @@ export async function runTask(
     return "failed";
   }
 
+  const renewalTimer = setInterval(() => {
+    renewTaskLease(db, taskId, LEASE_SECONDS).catch((err) => {
+      console.error(
+        `[taskRunner] Failed to renew lease for task #${taskId}:`,
+        err
+      );
+    });
+  }, LEASE_RENEWAL_INTERVAL_MS);
+
+  try {
+    return await runTaskBody(db, secrets, repoId, task, repo);
+  } finally {
+    clearInterval(renewalTimer);
+  }
+}
+
+async function runTaskBody(
+  db: Knex,
+  secrets: IAppSecrets,
+  repoId: number,
+  task: NonNullable<Awaited<ReturnType<typeof getTaskById>>>,
+  repo: NonNullable<Awaited<ReturnType<typeof getRepoById>>>
+): Promise<"success" | "failed" | "halted"> {
   // 2. Load acceptance criteria
   const criteria = await getCriteriaByTaskId(db, task.id);
 

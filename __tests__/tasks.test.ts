@@ -3,6 +3,7 @@ import {
   resetActiveTasks,
   autoCompleteParentTasks,
   claimNextPendingLeafTask,
+  renewTaskLease,
 } from "../src/db/tasks";
 
 // ---------------------------------------------------------------------------
@@ -266,5 +267,33 @@ describe("claimNextPendingLeafTask", () => {
     expect(a).toBeDefined();
     expect(b).toBeDefined();
     expect(a!.id).not.toBe(b!.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renewTaskLease — bump leased_until to NOW() + leaseSeconds
+// ---------------------------------------------------------------------------
+describe("renewTaskLease", () => {
+  it("issues an UPDATE that sets leased_until = NOW() + leaseSeconds for the given task id", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rowCount: 1 });
+
+    await renewTaskLease(knex as any, 42, 1800);
+
+    expect(knex.raw).toHaveBeenCalledTimes(1);
+    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/UPDATE tasks/);
+    expect(sql).toContain("leased_until = NOW() + (? * interval '1 second')");
+    expect(sql).toMatch(/WHERE id = \?/);
+    expect(bindings).toEqual([1800, 42]);
+  });
+
+  it("propagates DB errors so callers can log/recover", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockRejectedValueOnce(new Error("connection lost"));
+
+    await expect(renewTaskLease(knex as any, 42, 1800)).rejects.toThrow(
+      "connection lost"
+    );
   });
 });
