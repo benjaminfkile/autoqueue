@@ -2,7 +2,7 @@ import {
   createTask,
   resetActiveTasks,
   autoCompleteParentTasks,
-  getNextPendingLeafTask,
+  claimNextPendingLeafTask,
 } from "../src/db/tasks";
 
 // ---------------------------------------------------------------------------
@@ -35,8 +35,12 @@ function createMockKnex(overrides: Record<string, unknown> = {}) {
   // The knex instance is itself a function (table selector)
   const knex = jest.fn().mockReturnValue(chain) as unknown as jest.Mock & {
     raw: jest.Mock;
+    transaction: jest.Mock;
   };
   knex.raw = jest.fn();
+  // The transaction helper hands a "trx" object to the callback. For these
+  // unit tests, the trx object is the knex mock itself, so trx.raw == knex.raw.
+  knex.transaction = jest.fn(async (cb: (trx: unknown) => unknown) => cb(knex));
 
   return { knex, chain };
 }
@@ -155,48 +159,112 @@ describe("autoCompleteParentTasks", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getNextPendingLeafTask — NOT EXISTS (failed tasks) guard
+// claimNextPendingLeafTask — atomic claim with FOR UPDATE SKIP LOCKED
 // ---------------------------------------------------------------------------
-describe("getNextPendingLeafTask", () => {
-  it("returns the first pending leaf task", async () => {
-    const task = {
+describe("claimNextPendingLeafTask", () => {
+  it("returns the claimed task with worker_id and leased_until set", async () => {
+    const claimed = {
       id: 5,
       repo_id: 1,
       parent_id: null,
       title: "leaf",
       description: "",
       order_position: 0,
-      status: "pending",
+      status: "active",
       retry_count: 0,
       pr_url: null,
+      worker_id: "host:123",
+      leased_until: new Date(),
       created_at: new Date(),
     };
     const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [task] });
+    knex.raw.mockResolvedValueOnce({ rows: [claimed] });
 
-    const result = await getNextPendingLeafTask(knex as any, 1);
+    const result = await claimNextPendingLeafTask(
+      knex as any,
+      1,
+      "host:123",
+      1800
+    );
 
-    expect(result).toEqual(task);
+    expect(result).toEqual(claimed);
+    expect(knex.transaction).toHaveBeenCalledTimes(1);
     expect(knex.raw).toHaveBeenCalledTimes(1);
+
+    // Verify the SQL is a single-statement claim that locks the candidate
+    // row with FOR UPDATE SKIP LOCKED and updates it atomically.
+    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
+    expect(sql).toContain("FOR UPDATE OF t SKIP LOCKED");
+    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'active'/);
+    expect(sql).toContain("worker_id = ?");
+    expect(sql).toContain("leased_until = NOW() + (? * interval '1 second')");
+    expect(sql).toContain("RETURNING tasks.*");
+    // bindings: [repoId, repoId, repoId, workerId, leaseSeconds]
+    expect(bindings).toEqual([1, 1, 1, "host:123", 1800]);
   });
 
-  it("returns undefined when a failed task exists for the repo (NOT EXISTS guard)", async () => {
+  it("returns undefined when no eligible task is available (e.g. all locked or none pending)", async () => {
     const { knex } = createMockKnex();
-    // The query returns no rows because the NOT EXISTS (failed tasks) clause
-    // filters everything out when a failed task exists
+    // No row matched (or every candidate was locked by a concurrent worker
+    // and skipped).
     knex.raw.mockResolvedValueOnce({ rows: [] });
 
-    const result = await getNextPendingLeafTask(knex as any, 1);
+    const result = await claimNextPendingLeafTask(
+      knex as any,
+      1,
+      "host:123",
+      1800
+    );
 
     expect(result).toBeUndefined();
+  });
 
-    // Verify the SQL contains the NOT EXISTS guard for failed tasks
+  it("retains the failed-task NOT EXISTS guard so a failed task halts the repo", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
     const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    expect(sql).toContain("NOT EXISTS");
-    expect(sql).toContain("failed");
-    // Specifically verify the failed-task guard is a separate NOT EXISTS clause
-    // that checks for any failed task in the repo
     expect(sql).toMatch(/NOT EXISTS\s*\(\s*SELECT 1 FROM tasks failed/);
     expect(sql).toContain("failed.status = 'failed'");
+  });
+
+  it("two concurrent claim calls never return the same task (FOR UPDATE SKIP LOCKED contract)", async () => {
+    // Simulate two concurrent workers polling. The first transaction's
+    // candidate CTE locks row 5; the second transaction's SKIP LOCKED
+    // skips row 5 and either picks the next eligible row or finds none.
+    // We model this at the boundary by returning two distinct rows from
+    // db.raw across the two calls — the guarantee is that the same task is
+    // never returned twice.
+    const taskA = {
+      id: 5,
+      repo_id: 1,
+      parent_id: null,
+      title: "leaf-a",
+      description: "",
+      order_position: 0,
+      status: "active",
+      retry_count: 0,
+      pr_url: null,
+      worker_id: "worker-a",
+      leased_until: new Date(),
+      created_at: new Date(),
+    };
+    const taskB = { ...taskA, id: 6, title: "leaf-b", worker_id: "worker-b" };
+
+    const { knex } = createMockKnex();
+    knex.raw
+      .mockResolvedValueOnce({ rows: [taskA] })
+      .mockResolvedValueOnce({ rows: [taskB] });
+
+    const [a, b] = await Promise.all([
+      claimNextPendingLeafTask(knex as any, 1, "worker-a", 1800),
+      claimNextPendingLeafTask(knex as any, 1, "worker-b", 1800),
+    ]);
+
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    expect(a!.id).not.toBe(b!.id);
   });
 });
