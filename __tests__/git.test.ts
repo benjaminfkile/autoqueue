@@ -7,6 +7,9 @@ type GitMock = {
   fetch: jest.Mock;
   pull: jest.Mock;
   push: jest.Mock;
+  add: jest.Mock;
+  commit: jest.Mock;
+  remote: jest.Mock;
 };
 
 const mockState: {
@@ -36,6 +39,9 @@ jest.mock("simple-git", () => {
         fetch: jest.fn().mockResolvedValue(undefined),
         pull: jest.fn().mockResolvedValue(undefined),
         push: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        remote: jest.fn().mockResolvedValue(undefined),
       };
       mockState.instances.push(git);
       return git;
@@ -43,7 +49,11 @@ jest.mock("simple-git", () => {
   };
 });
 
-import { checkoutBaseBranch, createTaskBranch } from "../src/services/git";
+import {
+  checkoutBaseBranch,
+  commitAndPushTask,
+  createTaskBranch,
+} from "../src/services/git";
 import * as path from "path";
 
 beforeEach(() => {
@@ -222,5 +232,98 @@ describe("checkoutBaseBranch", () => {
     const git = mockState.instances[0];
     expect(git.checkout.mock.calls[0]).toEqual(["release"]);
     expect(git.checkout.mock.calls[1]).toEqual([["-b", "develop"]]);
+  });
+});
+
+describe("commitAndPushTask", () => {
+  it("pushes with --set-upstream and does not pass --force", async () => {
+    await commitAndPushTask(
+      "/repos",
+      "pat-token",
+      "octocat",
+      "hello",
+      "grunt/task-42",
+      "task: 42"
+    );
+
+    const git = mockState.instances[0];
+    expect(git.push).toHaveBeenCalledTimes(1);
+    expect(git.push).toHaveBeenCalledWith([
+      "--set-upstream",
+      "origin",
+      "grunt/task-42",
+    ]);
+
+    const pushArgs = git.push.mock.calls[0][0] as string[];
+    expect(pushArgs).not.toContain("--force");
+    expect(pushArgs).not.toContain("-f");
+  });
+
+  it("stages all changes, commits with the supplied message, and sets the authenticated remote URL", async () => {
+    await commitAndPushTask(
+      "/repos",
+      "pat-token",
+      "octocat",
+      "hello",
+      "grunt/task-7",
+      "task: 7"
+    );
+
+    const git = mockState.instances[0];
+    expect(git.add).toHaveBeenCalledWith("-A");
+    expect(git.commit).toHaveBeenCalledWith("task: 7");
+    expect(git.remote).toHaveBeenCalledWith([
+      "set-url",
+      "origin",
+      "https://pat-token@github.com/octocat/hello.git",
+    ]);
+  });
+
+  it("does not pass --force on a retry of the same task (clean push after createTaskBranch recreated the branch)", async () => {
+    // Simulate a retry: createTaskBranch is called, sees an existing local
+    // branch, deletes it, and recreates it from baseBranch. Then we commit
+    // and push.
+    mockState.nextBranches = ["grunt/task-5"];
+
+    const branch = await createTaskBranch(
+      "/repos",
+      "octocat",
+      "hello",
+      "main",
+      5
+    );
+
+    await commitAndPushTask(
+      "/repos",
+      "pat-token",
+      "octocat",
+      "hello",
+      branch,
+      "task: 5 (retry)"
+    );
+
+    // createTaskBranch + commitAndPushTask each open a new simple-git instance.
+    expect(mockState.instances).toHaveLength(2);
+
+    const createBranchGit = mockState.instances[0];
+    expect(createBranchGit.deleteLocalBranch).toHaveBeenCalledWith(
+      "grunt/task-5",
+      true
+    );
+    expect(createBranchGit.checkout).toHaveBeenCalledWith([
+      "-b",
+      "grunt/task-5",
+      "main",
+    ]);
+
+    const pushGit = mockState.instances[1];
+    expect(pushGit.push).toHaveBeenCalledWith([
+      "--set-upstream",
+      "origin",
+      "grunt/task-5",
+    ]);
+    const pushArgs = pushGit.push.mock.calls[0][0] as string[];
+    expect(pushArgs).not.toContain("--force");
+    expect(pushArgs).not.toContain("-f");
   });
 });
