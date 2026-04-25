@@ -1,5 +1,10 @@
 import { Knex } from "knex";
-import { Repo, RepoOnFailure, RepoOnParentChildFail } from "../interfaces";
+import {
+  OrderingMode,
+  Repo,
+  RepoOnFailure,
+  RepoOnParentChildFail,
+} from "../interfaces";
 
 export async function getActiveRepos(db: Knex): Promise<Repo[]> {
   return db<Repo>("repos").where({ active: true });
@@ -39,6 +44,7 @@ export async function createRepo(
     on_failure?: RepoOnFailure;
     max_retries?: number;
     on_parent_child_fail?: RepoOnParentChildFail;
+    ordering_mode?: OrderingMode;
   }
 ): Promise<Repo> {
   const [repo] = await db<Repo>("repos").insert(data).returning("*");

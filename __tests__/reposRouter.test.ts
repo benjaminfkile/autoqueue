@@ -50,6 +50,7 @@ const mockRepo = {
   on_failure: "halt_repo",
   max_retries: 3,
   on_parent_child_fail: "mark_partial",
+  ordering_mode: "sequential",
   created_at: new Date(),
 };
 
@@ -208,6 +209,63 @@ describe("reposRouter", () => {
       expect(res.status).toBe(400);
       expect(createRepo).not.toHaveBeenCalled();
     });
+
+    it("accepts ordering_mode and passes it through to createRepo", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+      (createRepo as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        ordering_mode: "parallel",
+      });
+
+      const res = await request(app)
+        .post("/api/repos")
+        .set("x-api-key", API_KEY)
+        .send({
+          owner: "octocat",
+          repo_name: "hello",
+          ordering_mode: "parallel",
+        });
+
+      expect(res.status).toBe(201);
+      expect(createRepo).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ ordering_mode: "parallel" })
+      );
+      expect(res.body.ordering_mode).toBe("parallel");
+    });
+
+    it("creates a repo without ordering_mode (undefined) so DB default 'sequential' applies", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+      (createRepo as jest.Mock).mockResolvedValue(mockRepo);
+
+      const res = await request(app)
+        .post("/api/repos")
+        .set("x-api-key", API_KEY)
+        .send({ owner: "octocat", repo_name: "hello" });
+
+      expect(res.status).toBe(201);
+      expect(createRepo).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ ordering_mode: undefined })
+      );
+      expect(res.body.ordering_mode).toBe("sequential");
+    });
+
+    it("rejects an invalid ordering_mode value", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/repos")
+        .set("x-api-key", API_KEY)
+        .send({
+          owner: "octocat",
+          repo_name: "hello",
+          ordering_mode: "chaotic",
+        });
+
+      expect(res.status).toBe(400);
+      expect(createRepo).not.toHaveBeenCalled();
+    });
   });
 
   describe("PATCH /api/repos/:id", () => {
@@ -296,6 +354,39 @@ describe("reposRouter", () => {
         .patch("/api/repos/1")
         .set("x-api-key", API_KEY)
         .send({ max_retries: 1.5 });
+
+      expect(res.status).toBe(400);
+      expect(updateRepo).not.toHaveBeenCalled();
+    });
+
+    it("accepts ordering_mode and passes it through to updateRepo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (updateRepo as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        ordering_mode: "parallel",
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1")
+        .set("x-api-key", API_KEY)
+        .send({ ordering_mode: "parallel" });
+
+      expect(res.status).toBe(200);
+      expect(updateRepo).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({ ordering_mode: "parallel" })
+      );
+      expect(res.body.ordering_mode).toBe("parallel");
+    });
+
+    it("rejects an invalid ordering_mode value", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+
+      const res = await request(app)
+        .patch("/api/repos/1")
+        .set("x-api-key", API_KEY)
+        .send({ ordering_mode: "anarchy" });
 
       expect(res.status).toBe(400);
       expect(updateRepo).not.toHaveBeenCalled();
