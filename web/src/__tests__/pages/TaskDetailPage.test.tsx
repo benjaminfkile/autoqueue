@@ -6,7 +6,7 @@ import {
   afterEach,
   vi,
 } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TaskDetailPage, {
   formatEventData,
@@ -611,6 +611,142 @@ describe("TaskDetailPage", () => {
     render(<TaskDetailPage taskId={1} />);
     await waitFor(() =>
       expect(screen.getByText(/kaboom/i)).toBeInTheDocument()
+    );
+  });
+
+  it("does not show the ordering mode override when there are no children", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse(makeDetail({ id: 60, ordering_mode: null })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+    });
+    render(<TaskDetailPage taskId={60} />);
+    await waitFor(() =>
+      expect(screen.getByText("Build the rocket")).toBeInTheDocument()
+    );
+    expect(
+      screen.queryByTestId("task-detail-ordering-mode")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows ordering mode override on parent tasks and defaults to inherit when null", async () => {
+    const detail = makeDetail({
+      id: 70,
+      ordering_mode: null,
+      children: [
+        { id: 71, title: "Child A", status: "pending", order_position: 0 },
+      ],
+    });
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(detail),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+    });
+    render(<TaskDetailPage taskId={70} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("task-detail-ordering-mode")
+      ).toBeInTheDocument()
+    );
+    expect(
+      within(screen.getByTestId("task-detail-ordering-mode")).getByText(
+        /inherit/i
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("PATCHes ordering_mode when the override is changed to a concrete value", async () => {
+    const detail = makeDetail({
+      id: 80,
+      ordering_mode: null,
+      children: [
+        { id: 81, title: "Child A", status: "pending", order_position: 0 },
+      ],
+    });
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(detail),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "PATCH /api/tasks/:id": (init) => {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({ ...detail, ...body });
+      },
+    });
+    const user = userEvent.setup();
+    render(<TaskDetailPage taskId={80} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("task-detail-ordering-mode")
+      ).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByLabelText("Ordering mode"));
+    const listbox = await screen.findByRole("listbox");
+    await user.click(within(listbox).getByText("parallel"));
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.url === "/api/tasks/80"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch!.body!)).toEqual({ ordering_mode: "parallel" });
+    });
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("task-detail-ordering-mode")).getByText(
+          /^parallel$/
+        )
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("PATCHes ordering_mode as null when the override is set back to inherit", async () => {
+    const detail = makeDetail({
+      id: 90,
+      ordering_mode: "parallel",
+      children: [
+        { id: 91, title: "Child A", status: "pending", order_position: 0 },
+      ],
+    });
+    installFetch({
+      "GET /api/tasks/:id": () => jsonResponse(detail),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "PATCH /api/tasks/:id": (init) => {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({ ...detail, ...body });
+      },
+    });
+    const user = userEvent.setup();
+    render(<TaskDetailPage taskId={90} />);
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("task-detail-ordering-mode")).getByText(
+          /^parallel$/
+        )
+      ).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByLabelText("Ordering mode"));
+    const listbox = await screen.findByRole("listbox");
+    await user.click(within(listbox).getByText(/inherit/i));
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.url === "/api/tasks/90"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch!.body!)).toEqual({ ordering_mode: null });
+    });
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("task-detail-ordering-mode")).getByText(
+          /inherit/i
+        )
+      ).toBeInTheDocument()
     );
   });
 
