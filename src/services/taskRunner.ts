@@ -90,7 +90,13 @@ export async function runTask(
     let branchName = "";
     if (!repo.is_local_folder) {
       await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
-      await checkoutBaseBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch);
+      await checkoutBaseBranch(
+        secrets.REPOS_PATH,
+        repo.owner!,
+        repo.repo_name!,
+        repo.base_branch,
+        repo.base_branch_parent ?? "main"
+      );
       branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
     }
 

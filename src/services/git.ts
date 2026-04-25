@@ -27,9 +27,25 @@ export async function checkoutBaseBranch(
   reposPath: string,
   owner: string,
   repoName: string,
-  baseBranch: string
+  baseBranch: string,
+  baseBranchParent: string
 ): Promise<void> {
   const git = simpleGit(repoPath(reposPath, owner, repoName));
+
+  const localBranches = await git.branchLocal();
+  if (!localBranches.all.includes(baseBranch)) {
+    const remoteHeads = await git.listRemote(["--heads", "origin", baseBranch]);
+    if (remoteHeads && remoteHeads.trim().length > 0) {
+      await git.fetch(["origin", baseBranch]);
+      await git.checkout(["-b", baseBranch, `origin/${baseBranch}`]);
+    } else {
+      await git.checkout(baseBranchParent);
+      await git.pull();
+      await git.checkout(["-b", baseBranch]);
+      await git.push(["--set-upstream", "origin", baseBranch]);
+    }
+  }
+
   await git.checkout(baseBranch);
   await git.pull();
 }
