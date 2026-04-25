@@ -16,6 +16,7 @@ import {
 } from "../interfaces";
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
+import { getTemplateById } from "../db/taskTemplates";
 
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
@@ -252,6 +253,48 @@ reposRouter.post("/:id/materialize-tree", async (req: Request, res: Response) =>
     return res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// POST /api/repos/:id/instantiate-template/:templateId — replay a saved
+// template into this repo as a fresh task tree. Validates the stored proposal
+// before handing it to the materializer so a corrupted template surfaces as a
+// 400 rather than a transactional failure mid-insert.
+reposRouter.post(
+  "/:id/instantiate-template/:templateId",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+      const templateId = parseInt(req.params.templateId, 10);
+      if (isNaN(templateId)) {
+        return res.status(400).json({ error: "Invalid templateId" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+      const template = await getTemplateById(db, templateId);
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const validation = validateTaskTreeProposal(template.tree);
+      if (!validation.valid) {
+        return res
+          .status(400)
+          .json({ error: `Stored template is invalid: ${validation.error}` });
+      }
+
+      const result = await materializeTaskTree(db, id, validation.proposal);
+      return res.status(201).json(result);
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
 
 // DELETE /api/repos/:id — delete a repo
 reposRouter.delete("/:id", async (req: Request, res: Response) => {

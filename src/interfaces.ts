@@ -157,6 +157,25 @@ export interface TaskPayload {
   };
 }
 
+// ---- Task templates (Phase 7: save/reuse task tree patterns) ----
+// `tree` stores a TaskTreeProposal (parents → children → acceptance_criteria).
+// Kept as JSONB rather than relational rows so a template is a single, atomic
+// document that the materializer can replay verbatim into any repo.
+export interface TaskTemplate {
+  id: number;
+  name: string;
+  description: string;
+  tree: {
+    parents: Array<{
+      title: string;
+      description?: string;
+      acceptance_criteria?: string[];
+      children?: unknown[];
+    }>;
+  };
+  created_at: Date;
+}
+
 // ---- DB health check result ----
 export interface IDBHealth {
   connected: boolean;
