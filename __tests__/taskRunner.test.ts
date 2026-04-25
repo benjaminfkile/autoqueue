@@ -20,6 +20,7 @@ jest.mock("../src/db/taskEvents", () => ({
 
 jest.mock("../src/db/taskNotes", () => ({
   getNotesForTask: jest.fn(),
+  createNote: jest.fn(),
 }));
 
 jest.mock("../src/services/git", () => ({
@@ -49,7 +50,7 @@ import {
 } from "../src/db/tasks";
 import { getCriteriaByTaskId } from "../src/db/acceptanceCriteria";
 import { recordEvent } from "../src/db/taskEvents";
-import { getNotesForTask } from "../src/db/taskNotes";
+import { createNote, getNotesForTask } from "../src/db/taskNotes";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -72,6 +73,7 @@ const getTasksByRepoIdMock = getTasksByRepoId as jest.Mock;
 const renewTaskLeaseMock = renewTaskLease as jest.Mock;
 const recordEventMock = recordEvent as jest.Mock;
 const getNotesForTaskMock = getNotesForTask as jest.Mock;
+const createNoteMock = createNote as jest.Mock;
 const cloneOrPullMock = cloneOrPull as jest.Mock;
 const checkoutBaseBranchMock = checkoutBaseBranch as jest.Mock;
 const createTaskBranchMock = createTaskBranch as jest.Mock;
@@ -87,6 +89,7 @@ beforeEach(() => {
   renewTaskLeaseMock.mockResolvedValue(undefined);
   recordEventMock.mockResolvedValue(undefined);
   getNotesForTaskMock.mockResolvedValue([]);
+  createNoteMock.mockResolvedValue({ id: 1 });
 });
 
 describe("runTask", () => {
@@ -792,5 +795,146 @@ describe("runTask notes inclusion", () => {
 
     const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
     expect(payload.task.notes).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent NOTES_TO_SAVE persistence (task #203): when claudeRunner returns a
+// `notes` array on the result (parsed from the agent's structured output),
+// taskRunner must persist each one via createNote with author='agent' and the
+// running task's id — but only when the agent run succeeds.
+// ---------------------------------------------------------------------------
+describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  function setupHappyPathMocks() {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    updateTaskMock.mockResolvedValue(baseTask);
+  }
+
+  it("persists each agent-emitted note via createNote with author='agent' and task_id of the running task", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({
+      success: true,
+      output: "ok",
+      notes: [
+        { visibility: "siblings", tags: ["context"], content: "watch order" },
+        { visibility: "all", content: "skip the legacy adapter" },
+      ],
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(createNoteMock).toHaveBeenCalledTimes(2);
+    expect(createNoteMock).toHaveBeenNthCalledWith(1, expect.anything(), {
+      task_id: 42,
+      author: "agent",
+      visibility: "siblings",
+      content: "watch order",
+      tags: ["context"],
+    });
+    expect(createNoteMock).toHaveBeenNthCalledWith(2, expect.anything(), {
+      task_id: 42,
+      author: "agent",
+      visibility: "all",
+      content: "skip the legacy adapter",
+      tags: undefined,
+    });
+  });
+
+  it("does NOT persist agent notes when the agent run fails (no point persisting partial work)", async () => {
+    // retry_count = 2 → MAX_ATTEMPTS=3 means this is the final attempt; runTask
+    // resolves to 'halted' after recording the failure. In any failure mode, no
+    // createNote calls should fire.
+    getTaskByIdMock.mockResolvedValue({ ...baseTask, retry_count: 2 });
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    updateTaskMock.mockResolvedValue(baseTask);
+    runClaudeMock.mockResolvedValue({
+      success: false,
+      output: "boom",
+      notes: [{ visibility: "all", content: "should not persist" }],
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const result = await runTask({} as any, secrets, 1, 42);
+    expect(result).toBe("halted");
+    expect(createNoteMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call createNote at all when the agent emits no notes (empty array)", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok", notes: [] });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(createNoteMock).not.toHaveBeenCalled();
+  });
+
+  it("a failure to persist one note does not abort the task (the other notes and downstream steps still run)", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({
+      success: true,
+      output: "ok",
+      notes: [
+        { visibility: "siblings", content: "first" },
+        { visibility: "all", content: "second" },
+      ],
+    });
+    // First createNote rejects, second resolves. The task should still finish.
+    createNoteMock
+      .mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce({ id: 2 });
+    // Silence the expected error log.
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const result = await runTask({} as any, secrets, 1, 42);
+
+      expect(result).toBe("success");
+      expect(createNoteMock).toHaveBeenCalledTimes(2);
+      // The status_change to 'done' must still be recorded — note persistence
+      // failures shouldn't block task completion.
+      const statusDone = recordEventMock.mock.calls.find(
+        (c) =>
+          c[1] === 42 &&
+          c[2] === "status_change" &&
+          (c[3] as { to?: string })?.to === "done"
+      );
+      expect(statusDone).toBeDefined();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
