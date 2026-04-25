@@ -21,6 +21,10 @@ export interface IDBSecrets {
   password: string;
 }
 
+// ---- Failure policy enums (per-repo) ----
+export type RepoOnFailure = "halt_repo" | "halt_subtree" | "retry" | "continue";
+export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
+
 // ---- Repos table row ----
 export interface Repo {
   id: number;
@@ -33,6 +37,9 @@ export interface Repo {
   github_token: string | null;
   is_local_folder: boolean;
   local_path: string | null;
+  on_failure: RepoOnFailure;
+  max_retries: number;
+  on_parent_child_fail: RepoOnParentChildFail;
   created_at: Date;
 }
 

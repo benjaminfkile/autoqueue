@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import { Repo } from "../interfaces";
+import { Repo, RepoOnFailure, RepoOnParentChildFail } from "../interfaces";
 
 export async function getActiveRepos(db: Knex): Promise<Repo[]> {
   return db<Repo>("repos").where({ active: true });
@@ -26,7 +26,20 @@ export async function getRepoByOwnerAndName(
 
 export async function createRepo(
   db: Knex,
-  data: { owner?: string | null; repo_name?: string | null; active?: boolean; base_branch?: string; base_branch_parent?: string; require_pr?: boolean; github_token?: string | null; is_local_folder?: boolean; local_path?: string | null }
+  data: {
+    owner?: string | null;
+    repo_name?: string | null;
+    active?: boolean;
+    base_branch?: string;
+    base_branch_parent?: string;
+    require_pr?: boolean;
+    github_token?: string | null;
+    is_local_folder?: boolean;
+    local_path?: string | null;
+    on_failure?: RepoOnFailure;
+    max_retries?: number;
+    on_parent_child_fail?: RepoOnParentChildFail;
+  }
 ): Promise<Repo> {
   const [repo] = await db<Repo>("repos").insert(data).returning("*");
   return repo;
