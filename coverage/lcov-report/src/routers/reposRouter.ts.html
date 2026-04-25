@@ -3,15 +3,15 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for db/tasks.ts</title>
+    <title>Code coverage report for src/routers/reposRouter.ts</title>
     <meta charset="utf-8" />
-    <link rel="stylesheet" href="../prettify.css" />
-    <link rel="stylesheet" href="../base.css" />
-    <link rel="shortcut icon" type="image/x-icon" href="../favicon.png" />
+    <link rel="stylesheet" href="../../prettify.css" />
+    <link rel="stylesheet" href="../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style type='text/css'>
         .coverage-summary .sorter {
-            background-image: url(../sort-arrow-sprite.png);
+            background-image: url(../../sort-arrow-sprite.png);
         }
     </style>
 </head>
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../index.html">All files</a> / <a href="index.html">db</a> tasks.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/routers</a> reposRouter.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">74.41% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>49/49</span>
+                <span class='fraction'>64/86</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">83.72% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>36/43</span>
+                <span class='fraction'>30/40</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">80% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>12/12</span>
+                <span class='fraction'>4/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">74.41% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>48/48</span>
+                <span class='fraction'>64/86</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line high'></div>
+    <div class='status-line medium'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -316,118 +316,53 @@
 <a name='L251'></a><a href='#L251'>251</a>
 <a name='L252'></a><a href='#L252'>252</a>
 <a name='L253'></a><a href='#L253'>253</a>
-<a name='L254'></a><a href='#L254'>254</a>
-<a name='L255'></a><a href='#L255'>255</a>
-<a name='L256'></a><a href='#L256'>256</a>
-<a name='L257'></a><a href='#L257'>257</a>
-<a name='L258'></a><a href='#L258'>258</a>
-<a name='L259'></a><a href='#L259'>259</a>
-<a name='L260'></a><a href='#L260'>260</a>
-<a name='L261'></a><a href='#L261'>261</a>
-<a name='L262'></a><a href='#L262'>262</a>
-<a name='L263'></a><a href='#L263'>263</a>
-<a name='L264'></a><a href='#L264'>264</a>
-<a name='L265'></a><a href='#L265'>265</a>
-<a name='L266'></a><a href='#L266'>266</a>
-<a name='L267'></a><a href='#L267'>267</a>
-<a name='L268'></a><a href='#L268'>268</a>
-<a name='L269'></a><a href='#L269'>269</a>
-<a name='L270'></a><a href='#L270'>270</a>
-<a name='L271'></a><a href='#L271'>271</a>
-<a name='L272'></a><a href='#L272'>272</a>
-<a name='L273'></a><a href='#L273'>273</a>
-<a name='L274'></a><a href='#L274'>274</a>
-<a name='L275'></a><a href='#L275'>275</a>
-<a name='L276'></a><a href='#L276'>276</a>
-<a name='L277'></a><a href='#L277'>277</a>
-<a name='L278'></a><a href='#L278'>278</a>
-<a name='L279'></a><a href='#L279'>279</a>
-<a name='L280'></a><a href='#L280'>280</a>
-<a name='L281'></a><a href='#L281'>281</a>
-<a name='L282'></a><a href='#L282'>282</a>
-<a name='L283'></a><a href='#L283'>283</a>
-<a name='L284'></a><a href='#L284'>284</a>
-<a name='L285'></a><a href='#L285'>285</a>
-<a name='L286'></a><a href='#L286'>286</a>
-<a name='L287'></a><a href='#L287'>287</a>
-<a name='L288'></a><a href='#L288'>288</a>
-<a name='L289'></a><a href='#L289'>289</a>
-<a name='L290'></a><a href='#L290'>290</a>
-<a name='L291'></a><a href='#L291'>291</a>
-<a name='L292'></a><a href='#L292'>292</a>
-<a name='L293'></a><a href='#L293'>293</a>
-<a name='L294'></a><a href='#L294'>294</a>
-<a name='L295'></a><a href='#L295'>295</a>
-<a name='L296'></a><a href='#L296'>296</a>
-<a name='L297'></a><a href='#L297'>297</a>
-<a name='L298'></a><a href='#L298'>298</a>
-<a name='L299'></a><a href='#L299'>299</a>
-<a name='L300'></a><a href='#L300'>300</a>
-<a name='L301'></a><a href='#L301'>301</a>
-<a name='L302'></a><a href='#L302'>302</a>
-<a name='L303'></a><a href='#L303'>303</a>
-<a name='L304'></a><a href='#L304'>304</a>
-<a name='L305'></a><a href='#L305'>305</a>
-<a name='L306'></a><a href='#L306'>306</a>
-<a name='L307'></a><a href='#L307'>307</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
+<a name='L254'></a><a href='#L254'>254</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -438,15 +373,12 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -455,6 +387,27 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -462,525 +415,413 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">8x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Knex } from "knex";
-import { OrderingMode, RepoOnParentChildFail, Task } from "../interfaces";
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import express, { Request, Response } from "express";
+import { getDb } from "../db/db";
+import {
+  createRepo,
+  deleteRepo,
+  getAllRepos,
+  getRepoByOwnerAndName,
+  getRepoById,
+  updateRepo,
+} from "../db/repos";
+import {
+  IAppSecrets,
+  OrderingMode,
+  RepoOnFailure,
+  RepoOnParentChildFail,
+} from "../interfaces";
 &nbsp;
-export async function getTasksByRepoId(
-  db: Knex,
-  repoId: number
-): Promise&lt;Task[]&gt; {
-  return db&lt;Task&gt;("tasks")
-    .where({ repo_id: repoId })
-    .orderBy("order_position", "asc");
-}
+const VALID_ON_FAILURE: RepoOnFailure[] = [
+  "halt_repo",
+  "halt_subtree",
+  "retry",
+  "continue",
+];
+const VALID_ON_PARENT_CHILD_FAIL: RepoOnParentChildFail[] = [
+  "cascade_fail",
+  "mark_partial",
+  "ignore",
+];
+const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
 &nbsp;
-export async function getTaskById(
-  db: Knex,
-  id: number
-): Promise&lt;Task | undefined&gt; {
-  return db&lt;Task&gt;("tasks").where({ id }).first();
-}
+const reposRouter = express.Router();
 &nbsp;
-export async function getChildTasks(
-  db: Knex,
-  parentId: number
-): Promise&lt;Task[]&gt; {
-  return db&lt;Task&gt;("tasks")
-    .where({ parent_id: parentId })
-    .orderBy("order_position", "asc");
-}
-&nbsp;
-export async function createTask(
-  db: Knex,
-  data: {
-    repo_id: number;
-    parent_id?: number | null;
-    title: string;
-    description?: string;
-    order_position?: number;
-    ordering_mode?: OrderingMode | null;
+// GET /api/repos — return all repos
+reposRouter.get("/", async (req: Request, res: Response) =&gt; {
+  try {
+    const db = getDb();
+    const repos = await getAllRepos(db);
+    return res.status(200).json(repos);
+  } catch (err) {
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: (err as Error).message });</span>
   }
-): Promise&lt;Task&gt; {
-  let orderPosition = data.order_position;
+});
 &nbsp;
-  if (orderPosition == null) {
-    const result = await db("tasks")
-      .where({ repo_id: data.repo_id })
-      .andWhere(function () {
-        if (data.parent_id != null) {
-          this.where({ parent_id: data.parent_id });
-        } else {
-          this.whereNull("parent_id");
-        }
-      })
-      .max("order_position as max_pos")
-      .first();
+// POST /api/repos — create a repo
+reposRouter.post("/", async (req: Request, res: Response) =&gt; {
+  try {
+    const db = getDb();
 &nbsp;
-    const maxPos = result<span class="branch-0 cbranch-no" title="branch not covered" >?.m</span>ax_pos;
-    orderPosition = maxPos != null ? maxPos + 1 : 0;
-  }
+    const {
+      owner,
+      repo_name,
+      active,
+      base_branch,
+      base_branch_parent,
+      require_pr,
+      github_token,
+      is_local_folder,
+      local_path,
+      on_failure,
+      max_retries,
+      on_parent_child_fail,
+      ordering_mode,
+    } = req.body as {
+      owner?: string;
+      repo_name?: string;
+      active?: boolean;
+      base_branch?: string;
+      base_branch_parent?: string;
+      require_pr?: boolean;
+      github_token?: string | null;
+      is_local_folder?: boolean;
+      local_path?: string | null;
+      on_failure?: RepoOnFailure;
+      max_retries?: number;
+      on_parent_child_fail?: RepoOnParentChildFail;
+      ordering_mode?: OrderingMode;
+    };
 &nbsp;
-  const [task] = await db&lt;Task&gt;("tasks")
-    .insert({
-      repo_id: data.repo_id,
-      parent_id: data.parent_id ?? null,
-      title: data.title,
-      description: data.description<span class="branch-0 cbranch-no" title="branch not covered" > ?? "</span>",
-      order_position: orderPosition,
-      ordering_mode: data.ordering_mode<span class="branch-0 cbranch-no" title="branch not covered" > ?? n</span>ull,
-    })
-    .returning("*");
-&nbsp;
-  return task;
-}
-&nbsp;
-export async function updateTask(
-  db: Knex,
-  id: number,
-  data: Partial&lt;
-    Pick&lt;
-      Task,
-      | "status"
-      | "order_position"
-      | "retry_count"
-      | "title"
-      | "description"
-      | "pr_url"
-      | "ordering_mode"
-      | "log_path"
-    &gt;
-  &gt;
-): Promise&lt;Task&gt; {
-  const [task] = await db&lt;Task&gt;("tasks")
-    .where({ id })
-    .update(data)
-    .returning("*");
-  return task;
-}
-&nbsp;
-export async function deleteTask(db: Knex, id: number): Promise&lt;void&gt; {
-  await db&lt;Task&gt;("tasks").where({ id }).delete();
-}
-&nbsp;
-export async function reconcileOrphanedTasks(
-  db: Knex,
-  workerId: string
-): Promise&lt;number&gt; {
-  const result = await db.raw&lt;{ rows: Array&lt;{ id: number }&gt; }&gt;(
-    `UPDATE tasks
-     SET status = 'pending',
-         worker_id = NULL,
-         leased_until = NULL
-     WHERE status = 'active'
-       AND (worker_id = ? OR leased_until IS NULL OR leased_until &lt; NOW())
-     RETURNING id`,
-    [workerId]
-  );
-  return result.rows.length;
-}
-&nbsp;
-export async function claimNextPendingLeafTask(
-  db: Knex,
-  repoId: number,
-  workerId: string,
-  leaseSeconds: number
-): Promise&lt;Task | undefined&gt; {
-  return db.transaction(async (trx) =&gt; {
-    const result = await trx.raw&lt;{ rows: Task[] }&gt;(
-      `WITH RECURSIVE task_path AS (
-        SELECT id, parent_id, order_position,
-               ARRAY[order_position] AS path,
-               ARRAY[id]::int[] AS ancestor_ids
-        FROM tasks
-        WHERE repo_id = ? AND parent_id IS NULL
-&nbsp;
-        UNION ALL
-&nbsp;
-        SELECT t.id, t.parent_id, t.order_position,
-               tp.path || t.order_position,
-               tp.ancestor_ids || t.id
-        FROM tasks t
-        JOIN task_path tp ON t.parent_id = tp.id
-      ),
-      candidate AS (
-        SELECT t.id
-        FROM tasks t
-        JOIN task_path tp ON t.id = tp.id
-        JOIN repos r ON r.id = t.repo_id
-        LEFT JOIN tasks parent ON parent.id = t.parent_id
-        WHERE t.repo_id = ?
-          AND t.status = 'pending'
-          AND NOT EXISTS (
-            SELECT 1 FROM tasks child
-            WHERE child.parent_id = t.id
-              AND child.status IN ('pending', 'active')
-          )
-          AND CASE r.on_failure
-            WHEN 'continue' THEN TRUE
-            WHEN 'halt_subtree' THEN
-              NOT EXISTS (
-                SELECT 1 FROM tasks failed
-                WHERE failed.repo_id = t.repo_id
-                  AND failed.status = 'failed'
-                  AND failed.parent_id IS NOT DISTINCT FROM t.parent_id
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM task_path failed_tp
-                JOIN tasks failed ON failed.id = failed_tp.id
-                WHERE failed.status = 'failed'
-                  AND t.id = ANY(failed_tp.ancestor_ids)
-              )
-            ELSE
-              NOT EXISTS (
-                SELECT 1 FROM tasks failed
-                WHERE failed.repo_id = t.repo_id
-                  AND failed.status = 'failed'
-              )
-          END
-          AND (
-            COALESCE(parent.ordering_mode, r.ordering_mode) = 'parallel'
-            OR NOT EXISTS (
-              SELECT 1 FROM tasks sibling
-              WHERE sibling.repo_id = t.repo_id
-                AND sibling.parent_id IS NOT DISTINCT FROM t.parent_id
-                AND sibling.order_position &lt; t.order_position
-                AND sibling.status IN ('pending', 'active')
-            )
-          )
-        ORDER BY tp.path ASC
-        LIMIT 1
-        FOR UPDATE OF t SKIP LOCKED
-      )
-      UPDATE tasks
-      SET status = 'active',
-          worker_id = ?,
-          leased_until = NOW() + (? * interval '1 second')
-      FROM candidate
-      WHERE tasks.id = candidate.id
-      RETURNING tasks.*`,
-      [repoId, repoId, workerId, leaseSeconds]
-    );
-    return result.rows[0];
-  });
-}
-&nbsp;
-export async function renewTaskLease(
-  db: Knex,
-  taskId: number,
-  leaseSeconds: number
-): Promise&lt;void&gt; {
-  await db.raw(
-    `UPDATE tasks
-     SET leased_until = NOW() + (? * interval '1 second')
-     WHERE id = ?`,
-    [leaseSeconds, taskId]
-  );
-}
-&nbsp;
-export async function autoCompleteParentTasks(
-  db: Knex,
-  repoId: number,
-  policy: RepoOnParentChildFail = "ignore"
-): Promise&lt;number&gt; {
-  let totalUpdated = 0;
-&nbsp;
-  while (true) {
-    let count = 0;
-&nbsp;
-    if (policy === "cascade_fail") {
-      const failResult = await db.raw&lt;{ rowCount: number }&gt;(
-        `UPDATE tasks SET status = 'failed'
-         WHERE repo_id = ?
-           AND status NOT IN ('done', 'failed')
-           AND EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-               AND child.status NOT IN ('done', 'failed')
-           )
-           AND EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-               AND child.status = 'failed'
-           )`,
-        [repoId]
-      );
-      count += failResult.rowCount ?? <span class="branch-1 cbranch-no" title="branch not covered" >0;</span>
-&nbsp;
-      const doneResult = await db.raw&lt;{ rowCount: number }&gt;(
-        `UPDATE tasks SET status = 'done'
-         WHERE repo_id = ?
-           AND status NOT IN ('done', 'failed')
-           AND EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-               AND child.status != 'done'
-           )`,
-        [repoId]
-      );
-      count += doneResult.rowCount ?? <span class="branch-1 cbranch-no" title="branch not covered" >0;</span>
-    } else if (policy === "mark_partial") {
-      const result = await db.raw&lt;{ rowCount: number }&gt;(
-        `UPDATE tasks SET status = 'done'
-         WHERE repo_id = ?
-           AND status NOT IN ('done', 'failed')
-           AND EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-               AND child.status != 'done'
-           )`,
-        [repoId]
-      );
-      count = result.rowCount ?? <span class="branch-1 cbranch-no" title="branch not covered" >0;</span>
-    } else {
-      const result = await db.raw&lt;{ rowCount: number }&gt;(
-        `UPDATE tasks SET status = 'done'
-         WHERE repo_id = ?
-           AND status NOT IN ('done', 'failed')
-           AND EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM tasks child
-             WHERE child.parent_id = tasks.id
-               AND child.status NOT IN ('done', 'failed')
-           )`,
-        [repoId]
-      );
-      count = result.rowCount ?? <span class="branch-1 cbranch-no" title="branch not covered" >0;</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!is_local_folder &amp;&amp; (!owner || !repo_name)) {
+<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ error: "owner and repo_name are required" });</span>
     }
 &nbsp;
-    if (count === 0) break;
-    totalUpdated += count;
-  }
+    if (on_failure !== undefined &amp;&amp; !VALID_ON_FAILURE.includes(on_failure)) {
+      return res.status(400).json({ error: "Invalid on_failure" });
+    }
+    if (
+      on_parent_child_fail !== undefined &amp;&amp;
+      !VALID_ON_PARENT_CHILD_FAIL.includes(on_parent_child_fail)
+    ) {
+      return res.status(400).json({ error: "Invalid on_parent_child_fail" });
+    }
+    if (
+      max_retries !== undefined &amp;&amp;
+      (!Number.isInteger(max_retries) || max_retries &lt; 0)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "max_retries must be a non-negative integer" });
+    }
+    if (
+      ordering_mode !== undefined &amp;&amp;
+      !VALID_ORDERING_MODE.includes(ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
+    }
 &nbsp;
-  return totalUpdated;
-}
+    if (!is_local_folder) {
+      const existing = await getRepoByOwnerAndName(db, owner as string, repo_name as string);
+      <span class="missing-if-branch" title="if path not taken" >I</span>if (existing) {
+<span class="cstat-no" title="statement not covered" >        return res.status(409).json({ error: "Repo already exists" });</span>
+      }
+    }
+&nbsp;
+    const isActive = active !== false;
+    const repo = await createRepo(db, {
+      owner,
+      repo_name,
+      active: isActive,
+      base_branch,
+      base_branch_parent,
+      require_pr,
+      github_token,
+      is_local_folder,
+      local_path,
+      on_failure,
+      max_retries,
+      on_parent_child_fail,
+      ordering_mode,
+    });
+&nbsp;
+    return res.status(201).json(repo);
+  } catch (err) {
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: (err as Error).message });</span>
+  }
+});
+&nbsp;
+// PATCH /api/repos/:id — update a repo
+reposRouter.patch("/:id", async (req: Request, res: Response) =&gt; {
+  try {
+    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!secrets) {
+<span class="cstat-no" title="statement not covered" >      return res.status(500).json({ error: "Secrets not loaded" });</span>
+    }
+&nbsp;
+    const id = parseInt(req.params.id, 10);
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (isNaN(id)) {
+<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ error: "Invalid id" });</span>
+    }
+&nbsp;
+    const db = getDb();
+    const existing = await getRepoById(db, id);
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!existing) {
+<span class="cstat-no" title="statement not covered" >      return res.status(404).json({ error: "Repo not found" });</span>
+    }
+&nbsp;
+    const data = req.body as Partial&lt;{
+      active: boolean;
+      owner: string;
+      repo_name: string;
+      base_branch: string;
+      base_branch_parent: string;
+      require_pr: boolean;
+      github_token: string | null;
+      is_local_folder: boolean;
+      local_path: string | null;
+      on_failure: RepoOnFailure;
+      max_retries: number;
+      on_parent_child_fail: RepoOnParentChildFail;
+      ordering_mode: OrderingMode;
+    }&gt;;
+&nbsp;
+    if (
+      data.on_failure !== undefined &amp;&amp;
+      !VALID_ON_FAILURE.includes(data.on_failure)
+    ) {
+      return res.status(400).json({ error: "Invalid on_failure" });
+    }
+    if (
+      data.on_parent_child_fail !== undefined &amp;&amp;
+      !VALID_ON_PARENT_CHILD_FAIL.includes(data.on_parent_child_fail)
+    ) {
+      return res.status(400).json({ error: "Invalid on_parent_child_fail" });
+    }
+    if (
+      data.max_retries !== undefined &amp;&amp;
+      (!Number.isInteger(data.max_retries) || data.max_retries &lt; 0)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "max_retries must be a non-negative integer" });
+    }
+    if (
+      data.ordering_mode !== undefined &amp;&amp;
+      !VALID_ORDERING_MODE.includes(data.ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
+    }
+&nbsp;
+    const updated = await updateRepo(db, id, data);
+&nbsp;
+    return res.status(200).json(updated);
+  } catch (err) {
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: (err as Error).message });</span>
+  }
+});
+&nbsp;
+// POST /api/repos/:id/advance — manually kick the queue for a repo (stub — queue logic pending)
+reposRouter.post("/:id/advance", <span class="fstat-no" title="function not covered" >async </span>(req: Request, res: Response) =&gt; {
+<span class="cstat-no" title="statement not covered" >  try {</span>
+    const id = <span class="cstat-no" title="statement not covered" >parseInt(req.params.id, 10);</span>
+<span class="cstat-no" title="statement not covered" >    <span class="missing-if-branch" title="if path not taken" >I</span>if (isNaN(id)) {</span>
+<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ error: "Invalid id" });</span>
+    }
+&nbsp;
+    const db = <span class="cstat-no" title="statement not covered" >getDb();</span>
+    const existing = <span class="cstat-no" title="statement not covered" >await getRepoById(db, id);</span>
+<span class="cstat-no" title="statement not covered" >    <span class="missing-if-branch" title="if path not taken" >I</span>if (!existing) {</span>
+<span class="cstat-no" title="statement not covered" >      return res.status(404).json({ error: "Repo not found" });</span>
+    }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    return res.status(200).json({ ok: true });</span>
+  } catch (err) {
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: (err as Error).message });</span>
+  }
+});
+&nbsp;
+// DELETE /api/repos/:id — delete a repo
+reposRouter.delete("/:id", async (req: Request, res: Response) =&gt; {
+  try {
+    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!secrets) {
+<span class="cstat-no" title="statement not covered" >      return res.status(500).json({ error: "Secrets not loaded" });</span>
+    }
+&nbsp;
+    const id = parseInt(req.params.id, 10);
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (isNaN(id)) {
+<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ error: "Invalid id" });</span>
+    }
+&nbsp;
+    const db = getDb();
+    const existing = await getRepoById(db, id);
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!existing) {
+<span class="cstat-no" title="statement not covered" >      return res.status(404).json({ error: "Repo not found" });</span>
+    }
+&nbsp;
+    await deleteRepo(db, id);
+    return res.status(204).send();
+  } catch (err) {
+<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: (err as Error).message });</span>
+  }
+});
+&nbsp;
+export default reposRouter;
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -988,16 +829,16 @@ export async function autoCompleteParentTasks(
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-25T18:01:58.094Z
+                at 2026-04-25T18:04:08.963Z
             </div>
-        <script src="../prettify.js"></script>
+        <script src="../../prettify.js"></script>
         <script>
             window.onload = function () {
                 prettyPrint();
             };
         </script>
-        <script src="../sorter.js"></script>
-        <script src="../block-navigation.js"></script>
+        <script src="../../sorter.js"></script>
+        <script src="../../block-navigation.js"></script>
     </body>
 </html>
     
