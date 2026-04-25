@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import { Task } from "../interfaces";
+import { OrderingMode, Task } from "../interfaces";
 
 export async function getTasksByRepoId(
   db: Knex,
@@ -34,6 +34,7 @@ export async function createTask(
     title: string;
     description?: string;
     order_position?: number;
+    ordering_mode?: OrderingMode | null;
   }
 ): Promise<Task> {
   let orderPosition = data.order_position;
@@ -62,6 +63,7 @@ export async function createTask(
       title: data.title,
       description: data.description ?? "",
       order_position: orderPosition,
+      ordering_mode: data.ordering_mode ?? null,
     })
     .returning("*");
 
@@ -80,6 +82,7 @@ export async function updateTask(
       | "title"
       | "description"
       | "pr_url"
+      | "ordering_mode"
     >
   >
 ): Promise<Task> {

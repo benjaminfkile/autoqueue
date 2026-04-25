@@ -55,6 +55,7 @@ const mockTask = {
   status: "pending" as const,
   retry_count: 0,
   pr_url: null,
+  ordering_mode: null,
   created_at: new Date(),
 };
 
@@ -130,6 +131,57 @@ describe("tasksRouter", () => {
       expect(res.body).toHaveProperty("id", 1);
       expect(res.body.acceptanceCriteria).toHaveLength(1);
     });
+
+    it("accepts ordering_mode and passes it through to createTask", async () => {
+      (createTask as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        ordering_mode: "parallel",
+      });
+
+      const res = await request(app)
+        .post("/api/tasks")
+        .set("x-api-key", API_KEY)
+        .send({
+          repo_id: 1,
+          title: "Phase parent",
+          ordering_mode: "parallel",
+        });
+      expect(res.status).toBe(201);
+      expect(createTask).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ ordering_mode: "parallel" })
+      );
+      expect(res.body.ordering_mode).toBe("parallel");
+    });
+
+    it("creates a task without ordering_mode (override null) so the repo default applies", async () => {
+      (createTask as jest.Mock).mockResolvedValue(mockTask);
+
+      const res = await request(app)
+        .post("/api/tasks")
+        .set("x-api-key", API_KEY)
+        .send({ repo_id: 1, title: "child" });
+
+      expect(res.status).toBe(201);
+      expect(createTask).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ ordering_mode: undefined })
+      );
+      expect(res.body.ordering_mode).toBeNull();
+    });
+
+    it("rejects an invalid ordering_mode", async () => {
+      const res = await request(app)
+        .post("/api/tasks")
+        .set("x-api-key", API_KEY)
+        .send({
+          repo_id: 1,
+          title: "bad",
+          ordering_mode: "chaotic",
+        });
+      expect(res.status).toBe(400);
+      expect(createTask).not.toHaveBeenCalled();
+    });
   });
 
   // GET /api/tasks/:id
@@ -168,6 +220,34 @@ describe("tasksRouter", () => {
         .send({ title: "Updated" });
       expect(res.status).toBe(200);
       expect(res.body.title).toBe("Updated");
+    });
+
+    it("accepts ordering_mode and passes it through to updateTask", async () => {
+      const updated = { ...mockTask, ordering_mode: "parallel" };
+      (updateTask as jest.Mock).mockResolvedValue(updated);
+
+      const res = await request(app)
+        .patch("/api/tasks/1")
+        .set("x-api-key", API_KEY)
+        .send({ ordering_mode: "parallel" });
+
+      expect(res.status).toBe(200);
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({ ordering_mode: "parallel" })
+      );
+      expect(res.body.ordering_mode).toBe("parallel");
+    });
+
+    it("rejects an invalid ordering_mode value", async () => {
+      const res = await request(app)
+        .patch("/api/tasks/1")
+        .set("x-api-key", API_KEY)
+        .send({ ordering_mode: "anarchy" });
+
+      expect(res.status).toBe(400);
+      expect(updateTask).not.toHaveBeenCalled();
     });
   });
 

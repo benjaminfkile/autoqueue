@@ -25,6 +25,9 @@ export interface IDBSecrets {
 export type RepoOnFailure = "halt_repo" | "halt_subtree" | "retry" | "continue";
 export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 
+// ---- Ordering mode (per-repo default; per-task override) ----
+export type OrderingMode = "sequential" | "parallel";
+
 // ---- Repos table row ----
 export interface Repo {
   id: number;
@@ -40,6 +43,7 @@ export interface Repo {
   on_failure: RepoOnFailure;
   max_retries: number;
   on_parent_child_fail: RepoOnParentChildFail;
+  ordering_mode: OrderingMode;
   created_at: Date;
 }
 
@@ -56,6 +60,7 @@ export interface Task {
   pr_url: string | null;
   worker_id: string | null;
   leased_until: Date | null;
+  ordering_mode: OrderingMode | null;
   created_at: Date;
 }
 

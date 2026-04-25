@@ -14,6 +14,9 @@ import {
   updateCriterion,
   deleteCriterion,
 } from "../db/acceptanceCriteria";
+import { OrderingMode } from "../interfaces";
+
+const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
 
 const tasksRouter = express.Router();
 
@@ -73,18 +76,34 @@ tasksRouter.get("/:id", async (req: Request, res: Response) => {
 // POST /api/tasks — create a task with optional acceptanceCriteria
 tasksRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { repo_id, parent_id, title, description, order_position, acceptanceCriteria } =
-      req.body as {
-        repo_id: number;
-        parent_id?: number | null;
-        title: string;
-        description?: string;
-        order_position?: number;
-        acceptanceCriteria?: string[];
-      };
+    const {
+      repo_id,
+      parent_id,
+      title,
+      description,
+      order_position,
+      ordering_mode,
+      acceptanceCriteria,
+    } = req.body as {
+      repo_id: number;
+      parent_id?: number | null;
+      title: string;
+      description?: string;
+      order_position?: number;
+      ordering_mode?: OrderingMode | null;
+      acceptanceCriteria?: string[];
+    };
 
     if (!repo_id || !title) {
       return res.status(400).json({ error: "repo_id and title are required" });
+    }
+
+    if (
+      ordering_mode !== undefined &&
+      ordering_mode !== null &&
+      !VALID_ORDERING_MODE.includes(ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
     }
 
     const db = getDb();
@@ -94,6 +113,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       title,
       description,
       order_position,
+      ordering_mode,
     });
 
     let criteria: Awaited<ReturnType<typeof createCriterion>>[] = [];
@@ -127,7 +147,16 @@ tasksRouter.patch("/:id", async (req: Request, res: Response) => {
       description: string;
       order_position: number;
       status: "pending" | "active" | "done" | "failed";
+      ordering_mode: OrderingMode | null;
     }>;
+
+    if (
+      data.ordering_mode !== undefined &&
+      data.ordering_mode !== null &&
+      !VALID_ORDERING_MODE.includes(data.ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
+    }
 
     const db = getDb();
     const task = await updateTask(db, id, data);

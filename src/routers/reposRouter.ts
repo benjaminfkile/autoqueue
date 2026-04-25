@@ -8,7 +8,12 @@ import {
   getRepoById,
   updateRepo,
 } from "../db/repos";
-import { IAppSecrets, RepoOnFailure, RepoOnParentChildFail } from "../interfaces";
+import {
+  IAppSecrets,
+  OrderingMode,
+  RepoOnFailure,
+  RepoOnParentChildFail,
+} from "../interfaces";
 
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
@@ -21,6 +26,7 @@ const VALID_ON_PARENT_CHILD_FAIL: RepoOnParentChildFail[] = [
   "mark_partial",
   "ignore",
 ];
+const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
 
 const reposRouter = express.Router();
 
@@ -53,6 +59,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       on_failure,
       max_retries,
       on_parent_child_fail,
+      ordering_mode,
     } = req.body as {
       owner?: string;
       repo_name?: string;
@@ -66,6 +73,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       on_failure?: RepoOnFailure;
       max_retries?: number;
       on_parent_child_fail?: RepoOnParentChildFail;
+      ordering_mode?: OrderingMode;
     };
 
     if (!is_local_folder && (!owner || !repo_name)) {
@@ -89,6 +97,12 @@ reposRouter.post("/", async (req: Request, res: Response) => {
         .status(400)
         .json({ error: "max_retries must be a non-negative integer" });
     }
+    if (
+      ordering_mode !== undefined &&
+      !VALID_ORDERING_MODE.includes(ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
+    }
 
     if (!is_local_folder) {
       const existing = await getRepoByOwnerAndName(db, owner as string, repo_name as string);
@@ -111,6 +125,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       on_failure,
       max_retries,
       on_parent_child_fail,
+      ordering_mode,
     });
 
     return res.status(201).json(repo);
@@ -151,6 +166,7 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       on_failure: RepoOnFailure;
       max_retries: number;
       on_parent_child_fail: RepoOnParentChildFail;
+      ordering_mode: OrderingMode;
     }>;
 
     if (
@@ -172,6 +188,12 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       return res
         .status(400)
         .json({ error: "max_retries must be a non-negative integer" });
+    }
+    if (
+      data.ordering_mode !== undefined &&
+      !VALID_ORDERING_MODE.includes(data.ordering_mode)
+    ) {
+      return res.status(400).json({ error: "Invalid ordering_mode" });
     }
 
     const updated = await updateRepo(db, id, data);
