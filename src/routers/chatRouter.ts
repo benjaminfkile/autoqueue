@@ -5,7 +5,8 @@ import {
   buildSystemPrompt,
   ChatMessage,
   loadChatContext,
-  streamChatTextDeltas,
+  PROPOSE_TASK_TREE_TOOL,
+  streamChatEvents,
 } from "../services/chatService";
 
 const VALID_ROLES: ChatMessage["role"][] = ["user", "assistant"];
@@ -85,14 +86,27 @@ chatRouter.post("/", async (req: Request, res: Response) => {
   });
 
   try {
-    for await (const delta of streamChatTextDeltas({
+    for await (const event of streamChatEvents({
       apiKey,
       system,
       messages: validated,
+      tools: [PROPOSE_TASK_TREE_TOOL],
     })) {
       if (aborted) break;
-      res.write(`event: delta\n`);
-      res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
+      if (event.type === "text") {
+        res.write(`event: delta\n`);
+        res.write(`data: ${JSON.stringify({ text: event.text })}\n\n`);
+      } else if (event.type === "proposal") {
+        res.write(`event: proposal\n`);
+        res.write(
+          `data: ${JSON.stringify({ proposal: event.proposal })}\n\n`
+        );
+      } else if (event.type === "proposal_error") {
+        res.write(`event: proposal_error\n`);
+        res.write(
+          `data: ${JSON.stringify({ error: event.error })}\n\n`
+        );
+      }
     }
     if (!aborted) {
       res.write(`event: done\n`);
