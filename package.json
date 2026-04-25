@@ -8,7 +8,11 @@
     "build": "rimraf dist && tsc",
     "start": "npm run build && node dist/index.js",
     "test": "jest --runInBand --detectOpenHandles",
-    "coverage": "jest --runInBand --detectOpenHandles --coverage"
+    "coverage": "jest --runInBand --detectOpenHandles --coverage",
+    "install:web": "npm --prefix web install",
+    "build:web": "npm --prefix web run build",
+    "dev:web": "npm --prefix web run dev",
+    "test:web": "npm --prefix web test"
   },
   "keywords": [],
   "author": "",
