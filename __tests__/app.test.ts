@@ -17,18 +17,28 @@ jest.mock("../src/db/health", () => ({
 }));
 
 describe("app basic routes", () => {
-  it("GET / returns service name with -dev suffix when NODE_ENV is not production", async () => {
+  it("GET / falls back to service name with -dev suffix when web build is absent and NODE_ENV is not production", async () => {
     app.set("secrets", { NODE_ENV: "development" });
     const res = await request(app).get("/");
+    // When /web/dist/index.html exists the SPA shell is served instead;
+    // otherwise the legacy banner is returned. Either is a valid 200.
     expect(res.status).toBe(200);
-    expect(res.text).toBe("grunt-api-dev");
+    if (res.type === "text/html") {
+      expect(res.text).toMatch(/<div id="root"><\/div>/);
+    } else {
+      expect(res.text).toBe("grunt-api-dev");
+    }
   });
 
-  it("GET / returns service name without suffix when NODE_ENV is production", async () => {
+  it("GET / falls back to service name without suffix when web build is absent and NODE_ENV is production", async () => {
     app.set("secrets", { NODE_ENV: "production" });
     const res = await request(app).get("/");
     expect(res.status).toBe(200);
-    expect(res.text).toBe("grunt-api");
+    if (res.type === "text/html") {
+      expect(res.text).toMatch(/<div id="root"><\/div>/);
+    } else {
+      expect(res.text).toBe("grunt-api");
+    }
   });
 
   it("GET /api/health returns 200 with ok status", async () => {
