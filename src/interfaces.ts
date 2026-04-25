@@ -12,6 +12,10 @@ export interface IAppSecrets {
   POLL_INTERVAL_SECONDS?: string;
   CLAUDE_PATH?: string;
   IS_WORKER?: string;
+  // Selects which auth provider chain protects the API. Comma-separated list;
+  // providers are tried in the order listed. When omitted, defaults to
+  // 'apikey' for backwards compatibility.
+  AUTH_PROVIDER?: "apikey" | "cognito" | "apikey,cognito" | "cognito,apikey";
   // Cognito auth provider config (optional — only required when AUTH_PROVIDER
   // selects Cognito).
   COGNITO_USER_POOL_ID?: string;
