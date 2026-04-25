@@ -139,6 +139,8 @@ export async function claimNextPendingLeafTask(
         SELECT t.id
         FROM tasks t
         JOIN task_path tp ON t.id = tp.id
+        JOIN repos r ON r.id = t.repo_id
+        LEFT JOIN tasks parent ON parent.id = t.parent_id
         WHERE t.repo_id = ?
           AND t.status = 'pending'
           AND NOT EXISTS (
@@ -150,6 +152,16 @@ export async function claimNextPendingLeafTask(
             SELECT 1 FROM tasks failed
             WHERE failed.repo_id = ?
               AND failed.status = 'failed'
+          )
+          AND (
+            COALESCE(parent.ordering_mode, r.ordering_mode) = 'parallel'
+            OR NOT EXISTS (
+              SELECT 1 FROM tasks sibling
+              WHERE sibling.repo_id = t.repo_id
+                AND sibling.parent_id IS NOT DISTINCT FROM t.parent_id
+                AND sibling.order_position < t.order_position
+                AND sibling.status IN ('pending', 'active')
+            )
           )
         ORDER BY tp.path ASC
         LIMIT 1

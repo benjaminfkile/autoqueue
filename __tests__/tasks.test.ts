@@ -276,6 +276,100 @@ describe("claimNextPendingLeafTask", () => {
     expect(sql).toContain("failed.status = 'failed'");
   });
 
+  // -------------------------------------------------------------------------
+  // ordering_mode policy (task #187)
+  //
+  // The leaf-pick CTE must respect each parent's ordering_mode when deciding
+  // which pending leaf is eligible:
+  //   - 'sequential' parents → only the lowest-order_position pending child
+  //     may be claimed; a sibling with a smaller order_position that is
+  //     pending or active blocks the rest of the lane.
+  //   - 'parallel' parents → any pending child is eligible regardless of
+  //     order_position (and concurrent claims are still serialized by the
+  //     existing FOR UPDATE OF t SKIP LOCKED).
+  // The effective ordering_mode is the parent task's override if set,
+  // otherwise the repo-level default.
+  // -------------------------------------------------------------------------
+  it("joins repos so the repo-level ordering_mode default is available as a fallback", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The repos row must be joined to the candidate row so that
+    // r.ordering_mode is in scope as the fallback.
+    expect(sql).toMatch(/JOIN\s+repos\s+r\s+ON\s+r\.id\s*=\s*t\.repo_id/);
+  });
+
+  it("left-joins the parent task so a parent-level ordering_mode override can be read (NULL when no parent)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // LEFT JOIN ensures root tasks (parent_id IS NULL) still produce a row
+    // whose parent.ordering_mode is NULL — the COALESCE then falls back to
+    // the repo-level default.
+    expect(sql).toMatch(
+      /LEFT\s+JOIN\s+tasks\s+parent\s+ON\s+parent\.id\s*=\s*t\.parent_id/
+    );
+  });
+
+  it("prefers the parent's ordering_mode when set, falling back to the repo's via COALESCE", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // COALESCE(parent.ordering_mode, r.ordering_mode) is the contract for
+    // "parent override wins, repo default otherwise". This is the exact
+    // expression the task description prescribes.
+    expect(sql).toMatch(
+      /COALESCE\s*\(\s*parent\.ordering_mode\s*,\s*r\.ordering_mode\s*\)/
+    );
+  });
+
+  it("treats a candidate as eligible when its effective ordering_mode is 'parallel' (no order_position gate)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The eligibility predicate is a disjunction: parallel mode short-circuits
+    // past the sibling-NOT-EXISTS guard. We assert the disjunction shape so a
+    // refactor cannot collapse it back into pure-sequential behavior.
+    expect(sql).toMatch(
+      /COALESCE\s*\([^)]+\)\s*=\s*'parallel'\s*OR\s+NOT\s+EXISTS/
+    );
+  });
+
+  it("for sequential mode, blocks a candidate when an earlier-order_position sibling is still pending or active", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // Sibling guard: same parent_id (or both NULL → root tasks), strictly
+    // smaller order_position, status pending OR active. IS NOT DISTINCT FROM
+    // is required so the comparison works for root tasks where parent_id is
+    // NULL on both sides.
+    expect(sql).toMatch(/SELECT\s+1\s+FROM\s+tasks\s+sibling/);
+    expect(sql).toMatch(
+      /sibling\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+t\.parent_id/
+    );
+    expect(sql).toMatch(
+      /sibling\.order_position\s*<\s*t\.order_position/
+    );
+    expect(sql).toMatch(
+      /sibling\.status\s+IN\s*\(\s*'pending'\s*,\s*'active'\s*\)/
+    );
+  });
+
   it("two concurrent claim calls never return the same task (FOR UPDATE SKIP LOCKED contract)", async () => {
     // Simulate two concurrent workers polling. The first transaction's
     // candidate CTE locks row 5; the second transaction's SKIP LOCKED
