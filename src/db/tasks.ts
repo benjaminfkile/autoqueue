@@ -94,12 +94,21 @@ export async function deleteTask(db: Knex, id: number): Promise<void> {
   await db<Task>("tasks").where({ id }).delete();
 }
 
-export async function resetActiveTasks(db: Knex): Promise<number> {
-  const rows = await db<Task>("tasks")
-    .where({ status: "active" })
-    .update({ status: "pending" })
-    .returning("id");
-  return rows.length;
+export async function reconcileOrphanedTasks(
+  db: Knex,
+  workerId: string
+): Promise<number> {
+  const result = await db.raw<{ rows: Array<{ id: number }> }>(
+    `UPDATE tasks
+     SET status = 'pending',
+         worker_id = NULL,
+         leased_until = NULL
+     WHERE status = 'active'
+       AND (worker_id = ? OR leased_until IS NULL OR leased_until < NOW())
+     RETURNING id`,
+    [workerId]
+  );
+  return result.rows.length;
 }
 
 export async function claimNextPendingLeafTask(

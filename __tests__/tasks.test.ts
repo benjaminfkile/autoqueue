@@ -1,6 +1,6 @@
 import {
   createTask,
-  resetActiveTasks,
+  reconcileOrphanedTasks,
   autoCompleteParentTasks,
   claimNextPendingLeafTask,
   renewTaskLease,
@@ -115,18 +115,58 @@ describe("createTask", () => {
 });
 
 // ---------------------------------------------------------------------------
-// resetActiveTasks
+// reconcileOrphanedTasks — startup orphan reconciliation
 // ---------------------------------------------------------------------------
-describe("resetActiveTasks", () => {
-  it("updates active tasks to pending and returns count", async () => {
-    const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
+describe("reconcileOrphanedTasks", () => {
+  it("issues a single UPDATE that reclaims active tasks owned by this worker, with expired leases, or with null leases, and clears worker_id and leased_until", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }] });
 
-    const count = await resetActiveTasks(knex as any);
+    const count = await reconcileOrphanedTasks(knex as any, "host:123");
 
-    expect(chain.where).toHaveBeenCalledWith({ status: "active" });
-    expect(chain.update).toHaveBeenCalledWith({ status: "pending" });
-    expect(count).toBe(2);
+    expect(knex.raw).toHaveBeenCalledTimes(1);
+    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
+    expect(sql).toMatch(/UPDATE tasks/);
+    expect(sql).toMatch(/SET\s+status\s*=\s*'pending'/);
+    expect(sql).toContain("worker_id = NULL");
+    expect(sql).toContain("leased_until = NULL");
+    expect(sql).toMatch(/WHERE\s+status\s*=\s*'active'/);
+    expect(sql).toContain("worker_id = ?");
+    expect(sql).toContain("leased_until IS NULL");
+    expect(sql).toContain("leased_until < NOW()");
+    expect(sql).toContain("RETURNING id");
+    expect(bindings).toEqual(["host:123"]);
+    expect(count).toBe(3);
+  });
+
+  it("returns 0 when there are no orphans to reclaim", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    const count = await reconcileOrphanedTasks(knex as any, "host:123");
+
+    expect(count).toBe(0);
+  });
+
+  it("does NOT touch tasks held by a different live worker (the predicate excludes them)", async () => {
+    // We can't run real SQL here, but we can prove the predicate shape: the
+    // WHERE clause matches OUR worker_id OR an expired/null lease — never an
+    // unrelated worker_id with a future lease. This guards acceptance
+    // criterion 710 (don't steal from live workers) at the contract level.
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await reconcileOrphanedTasks(knex as any, "host:123");
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // Other workers are excluded unless their lease is expired/null. The
+    // worker_id = ? branch must use the parameter (i.e. THIS worker), not a
+    // wildcard.
+    expect(sql).toMatch(
+      /worker_id\s*=\s*\?\s+OR\s+leased_until\s+IS\s+NULL\s+OR\s+leased_until\s*<\s*NOW\(\)/
+    );
+    // Sanity: the predicate is scoped to status='active'.
+    expect(sql).toMatch(/WHERE\s+status\s*=\s*'active'/);
   });
 });
 
