@@ -28,6 +28,7 @@ export interface Repo {
   repo_name: string | null;
   active: boolean;
   base_branch: string;
+  base_branch_parent: string;
   require_pr: boolean;
   github_token: string | null;
   is_local_folder: boolean;
