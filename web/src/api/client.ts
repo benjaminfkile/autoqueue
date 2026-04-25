@@ -1,4 +1,4 @@
-import type { Repo, RepoInput, TaskSummary } from "./types";
+import type { Repo, RepoInput, TaskSummary, TaskUpdateInput } from "./types";
 
 export const API_KEY_STORAGE_KEY = "grunt_api_key";
 
@@ -80,4 +80,9 @@ export const reposApi = {
 export const tasksApi = {
   listByRepo: (repoId: number) =>
     apiFetch<TaskSummary[]>(`/api/tasks?repo_id=${repoId}`),
+  update: (id: number, input: TaskUpdateInput) =>
+    apiFetch<TaskSummary>(`/api/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 };

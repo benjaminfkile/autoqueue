@@ -77,7 +77,13 @@ describe("countTasksByStatus", () => {
       makeTask({ id: 5, status: "failed" }),
       makeTask({ id: 6, status: "failed" }),
     ]);
-    expect(counts).toEqual({ pending: 1, active: 2, done: 1, failed: 2 });
+    expect(counts).toEqual({
+      pending: 1,
+      active: 2,
+      done: 1,
+      failed: 2,
+      interrupted: 0,
+    });
   });
 
   it("returns zeros for an empty list", () => {
@@ -86,6 +92,7 @@ describe("countTasksByStatus", () => {
       active: 0,
       done: 0,
       failed: 0,
+      interrupted: 0,
     });
   });
 });

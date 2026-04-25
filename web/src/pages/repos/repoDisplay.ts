@@ -5,6 +5,7 @@ export const TASK_STATUSES: TaskStatus[] = [
   "active",
   "done",
   "failed",
+  "interrupted",
 ];
 
 export type RepoStatusCounts = Record<TaskStatus, number>;
@@ -22,8 +23,19 @@ export function repoDisplayName(repo: Repo): string {
 }
 
 export function emptyCounts(): RepoStatusCounts {
-  return { pending: 0, active: 0, done: 0, failed: 0 };
+  return { pending: 0, active: 0, done: 0, failed: 0, interrupted: 0 };
 }
+
+export const TASK_STATUS_CHIP_COLOR: Record<
+  TaskStatus,
+  "default" | "primary" | "success" | "error" | "warning"
+> = {
+  pending: "default",
+  active: "primary",
+  done: "success",
+  failed: "error",
+  interrupted: "warning",
+};
 
 export function countTasksByStatus(tasks: TaskSummary[]): RepoStatusCounts {
   const counts = emptyCounts();
