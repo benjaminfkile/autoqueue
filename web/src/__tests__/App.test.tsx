@@ -12,6 +12,19 @@ describe("App", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (url.startsWith("/api/system/worker-status")) {
+        return new Response(
+          JSON.stringify({
+            mode: "orchestrator",
+            this_worker_id: null,
+            active_workers: [],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
       return new Response("[]", {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -37,6 +50,15 @@ describe("App", () => {
       expect(
         screen.getByRole("heading", { level: 1, name: /repos/i })
       ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the worker mode chip in the header", async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId("worker-mode-chip")).toHaveTextContent(
+        /orchestrator/i
+      );
     });
   });
 });
