@@ -46,7 +46,7 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
     try {
       const repos = await getActiveRepos(db);
       for (const repo of repos) {
-        await autoCompleteParentTasks(db, repo.id);
+        await autoCompleteParentTasks(db, repo.id, repo.on_parent_child_fail);
       }
 
       const workQueue = await buildWorkQueue(db, WORKER_ID, LEASE_SECONDS);

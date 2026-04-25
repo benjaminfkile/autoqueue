@@ -176,9 +176,13 @@ describe("reconcileOrphanedTasks", () => {
 });
 
 // ---------------------------------------------------------------------------
-// autoCompleteParentTasks — loops until rowCount is 0
+// autoCompleteParentTasks — policy-driven rollup (task #188)
+//
+// The function consumes the repo's `on_parent_child_fail` policy and rolls up
+// parent statuses accordingly. The default policy ('ignore') preserves the
+// pre-task #188 behavior so callers that haven't been updated keep working.
 // ---------------------------------------------------------------------------
-describe("autoCompleteParentTasks", () => {
+describe("autoCompleteParentTasks (default 'ignore' policy)", () => {
   it("loops until rowCount is 0", async () => {
     const { knex } = createMockKnex();
 
@@ -201,6 +205,120 @@ describe("autoCompleteParentTasks", () => {
 
     expect(knex.raw).toHaveBeenCalledTimes(1);
     expect(total).toBe(0);
+  });
+
+  it("preserves the pre-task-#188 rollup contract: parent → done when all children are terminal (done OR failed)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rowCount: 0 });
+
+    await autoCompleteParentTasks(knex as any, 7, "ignore");
+
+    expect(knex.raw).toHaveBeenCalledTimes(1);
+    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
+    // The 'ignore' policy is the legacy behavior: any terminal mix of children
+    // (done OR failed) promotes the parent to 'done'. The NOT IN ('done','failed')
+    // child predicate is the contract for "no children still pending/active".
+    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
+    expect(sql).toMatch(/child\.status\s+NOT\s+IN\s*\(\s*'done'\s*,\s*'failed'\s*\)/);
+    expect(bindings).toEqual([7]);
+  });
+});
+
+describe("autoCompleteParentTasks (policy='cascade_fail')", () => {
+  it("issues a failure-cascade UPDATE before the done-rollup so a failed child propagates upward", async () => {
+    const { knex } = createMockKnex();
+    // Loop iteration 1: cascade-fail update marks 1 parent failed; done update finds nothing.
+    // Loop iteration 2: both updates find nothing → exit.
+    knex.raw
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+
+    const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
+
+    // 4 raw calls: 2 per iteration × 2 iterations.
+    expect(knex.raw).toHaveBeenCalledTimes(4);
+    expect(total).toBe(1);
+
+    const failSql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The first call is the failure-cascade: SET status = 'failed' guarded by
+    // (a) all children terminal AND (b) at least one child failed.
+    expect(failSql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'failed'/);
+    expect(failSql).toMatch(/child\.status\s*=\s*'failed'/);
+    // It must NOT also mark parents done in the same statement — that is a
+    // separate UPDATE and would race with this one.
+    expect(failSql).not.toMatch(/SET\s+status\s*=\s*'done'/);
+  });
+
+  it("propagates failure transitively: a parent marked failed in iteration N causes its grandparent to be re-evaluated in iteration N+1", async () => {
+    const { knex } = createMockKnex();
+    // Iter 1: cascade_fail marks 1 (a parent), done marks 0.
+    // Iter 2: cascade_fail marks 1 (the grandparent, now eligible), done marks 0.
+    // Iter 3: both 0 → exit.
+    knex.raw
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+
+    const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
+
+    expect(total).toBe(2);
+    expect(knex.raw).toHaveBeenCalledTimes(6);
+  });
+
+  it("still promotes a parent to 'done' when all of its children completed successfully (no failed mix)", async () => {
+    const { knex } = createMockKnex();
+    knex.raw
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+
+    const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
+
+    expect(total).toBe(1);
+    const doneSql = (knex.raw as jest.Mock).mock.calls[1][0] as string;
+    // Done branch under cascade_fail requires ALL children to be 'done'
+    // (not merely terminal) — otherwise the failure cascade should have fired.
+    expect(doneSql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
+    expect(doneSql).toMatch(/child\.status\s*!=\s*'done'/);
+  });
+});
+
+describe("autoCompleteParentTasks (policy='mark_partial')", () => {
+  it("only promotes a parent to 'done' when ALL children are 'done' — a failed child leaves the parent pending", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rowCount: 0 });
+
+    await autoCompleteParentTasks(knex as any, 1, "mark_partial");
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
+    // The "any failed child blocks rollup" contract: the predicate forbids any
+    // child whose status is anything other than 'done'. A 'failed' child is
+    // therefore disqualifying — guarding the mark_partial acceptance criterion.
+    expect(sql).toMatch(/child\.status\s*!=\s*'done'/);
+    // Conversely, this policy must NOT fall back to NOT IN ('done','failed'),
+    // which would treat 'failed' as acceptable and mask failure.
+    expect(sql).not.toMatch(/child\.status\s+NOT\s+IN\s*\(\s*'done'\s*,\s*'failed'\s*\)/);
+    // mark_partial never marks parents 'failed' — failure stays at the leaf.
+    expect(sql).not.toMatch(/SET\s+status\s*=\s*'failed'/);
+  });
+
+  it("loops once per round of newly-completed parents and exits when nothing changes", async () => {
+    const { knex } = createMockKnex();
+    knex.raw
+      .mockResolvedValueOnce({ rowCount: 2 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+
+    const total = await autoCompleteParentTasks(knex as any, 1, "mark_partial");
+
+    expect(total).toBe(2);
+    expect(knex.raw).toHaveBeenCalledTimes(2);
   });
 });
 
