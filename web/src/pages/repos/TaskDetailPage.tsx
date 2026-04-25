@@ -30,8 +30,10 @@ import type {
   TaskEvent,
   TaskNote,
   TaskSummary,
+  TaskUsageResponse,
 } from "../../api/types";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
+import UsagePanel from "./UsagePanel";
 
 export interface TaskDetailPageProps {
   taskId: number;
@@ -95,6 +97,10 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
   const [logError, setLogError] = useState<string | null>(null);
   const [logStreaming, setLogStreaming] = useState(false);
 
+  const [usage, setUsage] = useState<TaskUsageResponse | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
+
   const [notes, setNotes] = useState<TaskNote[]>([]);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [noteDraftContent, setNoteDraftContent] = useState("");
@@ -115,6 +121,21 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
     }
   }, [taskId]);
 
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      const data = await tasksApi.usage(taskId);
+      setUsage(data);
+    } catch (err) {
+      setUsageError(
+        err instanceof Error ? err.message : "Failed to load usage"
+      );
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [taskId]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -132,6 +153,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
       setTask(detail);
       setEvents(evs);
       setNotes(noteList);
+      void loadUsage();
       const repoTasks = await tasksApi.listByRepo(detail.repo_id);
       const sibs = repoTasks
         .filter(
@@ -150,7 +172,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
     } finally {
       setLoading(false);
     }
-  }, [taskId]);
+  }, [taskId, loadUsage]);
 
   useEffect(() => {
     void load();
@@ -733,6 +755,61 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
                 )}
               </Box>
             </Stack>
+          </Box>
+
+          <Divider />
+
+          <Box>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 1 }}
+            >
+              <Typography variant="subtitle1" component="h3">
+                Token usage
+              </Typography>
+              <Tooltip title="Refresh usage">
+                <IconButton
+                  size="small"
+                  aria-label="Refresh usage"
+                  onClick={() => void loadUsage()}
+                >
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+            {usageError && (
+              <Alert
+                severity="error"
+                sx={{ mb: 1 }}
+                onClose={() => setUsageError(null)}
+              >
+                {usageError}
+              </Alert>
+            )}
+            <UsagePanel
+              testId="task-detail-usage"
+              loading={usageLoading && !usage}
+              totals={
+                usage?.totals ?? {
+                  input_tokens: 0,
+                  output_tokens: 0,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0,
+                  run_count: 0,
+                }
+              }
+              caption={
+                usage
+                  ? usage.totals.run_count === 0
+                    ? "No agent runs recorded yet."
+                    : `Across ${usage.totals.run_count} agent run${
+                        usage.totals.run_count === 1 ? "" : "s"
+                      }.`
+                  : undefined
+              }
+            />
           </Box>
 
           <Divider />

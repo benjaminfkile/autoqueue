@@ -23,6 +23,10 @@ jest.mock("../src/db/taskNotes", () => ({
   createNote: jest.fn(),
 }));
 
+jest.mock("../src/db/taskUsage", () => ({
+  recordTaskUsage: jest.fn(),
+}));
+
 jest.mock("../src/services/git", () => ({
   cloneOrPull: jest.fn(),
   checkoutBaseBranch: jest.fn(),
@@ -51,6 +55,7 @@ import {
 import { getCriteriaByTaskId } from "../src/db/acceptanceCriteria";
 import { recordEvent } from "../src/db/taskEvents";
 import { createNote, getNotesForTask } from "../src/db/taskNotes";
+import { recordTaskUsage } from "../src/db/taskUsage";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -74,6 +79,7 @@ const renewTaskLeaseMock = renewTaskLease as jest.Mock;
 const recordEventMock = recordEvent as jest.Mock;
 const getNotesForTaskMock = getNotesForTask as jest.Mock;
 const createNoteMock = createNote as jest.Mock;
+const recordTaskUsageMock = recordTaskUsage as jest.Mock;
 const cloneOrPullMock = cloneOrPull as jest.Mock;
 const checkoutBaseBranchMock = checkoutBaseBranch as jest.Mock;
 const createTaskBranchMock = createTaskBranch as jest.Mock;
@@ -90,6 +96,7 @@ beforeEach(() => {
   recordEventMock.mockResolvedValue(undefined);
   getNotesForTaskMock.mockResolvedValue([]);
   createNoteMock.mockResolvedValue({ id: 1 });
+  recordTaskUsageMock.mockResolvedValue({ id: 1 });
 });
 
 describe("runTask", () => {
@@ -926,6 +933,146 @@ describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
       expect(createNoteMock).toHaveBeenCalledTimes(2);
       // The status_change to 'done' must still be recorded — note persistence
       // failures shouldn't block task completion.
+      const statusDone = recordEventMock.mock.calls.find(
+        (c) =>
+          c[1] === 42 &&
+          c[2] === "status_change" &&
+          (c[3] as { to?: string })?.to === "done"
+      );
+      expect(statusDone).toBeDefined();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token usage persistence (task #218): runTask records a task_usage row
+// whenever the agent run produces a usage block on the result. The row scopes
+// the usage to both task_id and repo_id so per-task and per-repo aggregations
+// don't have to JOIN tasks at query time.
+// ---------------------------------------------------------------------------
+describe("runTask records token usage after each agent run", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  const sampleUsage = {
+    input_tokens: 100,
+    output_tokens: 200,
+    cache_creation_input_tokens: 50,
+    cache_read_input_tokens: 1000,
+  };
+
+  function setupHappyPathMocks() {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    updateTaskMock.mockResolvedValue(baseTask);
+  }
+
+  it("calls recordTaskUsage with task_id, repo_id, and the usage block from the agent result", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({
+      success: true,
+      output: "ok",
+      notes: [],
+      usage: sampleUsage,
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(recordTaskUsageMock).toHaveBeenCalledTimes(1);
+    expect(recordTaskUsageMock).toHaveBeenCalledWith(expect.anything(), {
+      task_id: 42,
+      repo_id: 1,
+      usage: sampleUsage,
+    });
+  });
+
+  it("does NOT call recordTaskUsage when the agent result has usage: null (no usable info from the CLI)", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({
+      success: true,
+      output: "ok",
+      notes: [],
+      usage: null,
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(recordTaskUsageMock).not.toHaveBeenCalled();
+  });
+
+  it("records usage on a FAILED agent run too (failed runs cost tokens — per-repo totals must reflect that)", async () => {
+    // retry_count = 2 → MAX_ATTEMPTS=3 means this is the final attempt; the
+    // run resolves to 'halted' but should still persist usage before bailing.
+    getTaskByIdMock.mockResolvedValue({ ...baseTask, retry_count: 2 });
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    updateTaskMock.mockResolvedValue(baseTask);
+    runClaudeMock.mockResolvedValue({
+      success: false,
+      output: "boom",
+      notes: [],
+      usage: sampleUsage,
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const result = await runTask({} as any, secrets, 1, 42);
+
+    expect(result).toBe("halted");
+    expect(recordTaskUsageMock).toHaveBeenCalledWith(expect.anything(), {
+      task_id: 42,
+      repo_id: 1,
+      usage: sampleUsage,
+    });
+  });
+
+  it("a failure inside recordTaskUsage does not abort the task (usage tracking is best-effort)", async () => {
+    setupHappyPathMocks();
+    runClaudeMock.mockResolvedValue({
+      success: true,
+      output: "ok",
+      notes: [],
+      usage: sampleUsage,
+    });
+    recordTaskUsageMock.mockRejectedValueOnce(new Error("db down"));
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const result = await runTask({} as any, secrets, 1, 42);
+
+      expect(result).toBe("success");
+      // status_change to 'done' must still be recorded — usage failures must
+      // not block the task from completing.
       const statusDone = recordEventMock.mock.calls.find(
         (c) =>
           c[1] === 42 &&

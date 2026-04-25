@@ -7,6 +7,7 @@ import type {
   MaterializedTaskTree,
   Repo,
   RepoInput,
+  RepoUsageResponse,
   TaskDetail,
   TaskEvent,
   TaskNote,
@@ -14,6 +15,7 @@ import type {
   TaskSummary,
   TaskTreeProposal,
   TaskUpdateInput,
+  TaskUsageResponse,
   WorkerStatus,
 } from "./types";
 
@@ -103,6 +105,8 @@ export const reposApi = {
     }),
   delete: (id: number) =>
     apiFetch<void>(`/api/repos/${id}`, { method: "DELETE" }),
+  usage: (id: number) =>
+    apiFetch<RepoUsageResponse>(`/api/repos/${id}/usage`),
 };
 
 export const tasksApi = {
@@ -115,6 +119,8 @@ export const tasksApi = {
       body: JSON.stringify(input),
     }),
   events: (id: number) => apiFetch<TaskEvent[]>(`/api/tasks/${id}/events`),
+  usage: (id: number) =>
+    apiFetch<TaskUsageResponse>(`/api/tasks/${id}/usage`),
   log: async (id: number): Promise<string> => {
     const headers: Record<string, string> = { Accept: "text/plain" };
     Object.assign(headers, authHeader());

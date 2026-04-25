@@ -22,12 +22,13 @@ import AddIcon from "@mui/icons-material/Add";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { reposApi, tasksApi } from "../api/client";
-import type { Repo, RepoInput } from "../api/types";
+import type { Repo, RepoInput, TokenUsageTotals } from "../api/types";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
 import RepoSettingsPanel from "./repos/RepoSettingsPanel";
 import TaskTreeView from "./repos/TaskTreeView";
 import TaskDetailPage from "./repos/TaskDetailPage";
+import UsagePanel from "./repos/UsagePanel";
 import {
   countTasksByStatus,
   emptyCounts,
@@ -44,6 +45,7 @@ interface RepoRowState {
   lastActivity: string | null;
   loading: boolean;
   error: string | null;
+  usage: TokenUsageTotals | null;
 }
 
 export default function ReposPage() {
@@ -69,10 +71,17 @@ export default function ReposPage() {
         lastActivity: prev[repoId]?.lastActivity ?? null,
         loading: true,
         error: null,
+        usage: prev[repoId]?.usage ?? null,
       },
     }));
     try {
-      const tasks = await tasksApi.listByRepo(repoId);
+      // Fetch tasks (for status counts) and usage totals in parallel; surface
+      // task errors prominently while letting usage failures degrade silently
+      // — usage is supplementary, not required for the row to render.
+      const [tasks, usageResp] = await Promise.all([
+        tasksApi.listByRepo(repoId),
+        reposApi.usage(repoId).catch(() => null),
+      ]);
       setRepoStats((prev) => ({
         ...prev,
         [repoId]: {
@@ -80,6 +89,7 @@ export default function ReposPage() {
           lastActivity: lastActivityIso(tasks),
           loading: false,
           error: null,
+          usage: usageResp?.totals ?? null,
         },
       }));
     } catch (err) {
@@ -90,6 +100,7 @@ export default function ReposPage() {
           lastActivity: prev[repoId]?.lastActivity ?? null,
           loading: false,
           error: err instanceof Error ? err.message : "Failed to load tasks",
+          usage: prev[repoId]?.usage ?? null,
         },
       }));
     }
@@ -279,6 +290,7 @@ export default function ReposPage() {
                 <TableCell>Base branch</TableCell>
                 <TableCell>Active</TableCell>
                 <TableCell>Tasks</TableCell>
+                <TableCell>Token usage</TableCell>
                 <TableCell>Last activity</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -340,6 +352,31 @@ export default function ReposPage() {
                           {stats.error}
                         </Typography>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <UsagePanel
+                        density="compact"
+                        testId={`repo-usage-${repo.id}`}
+                        loading={stats?.loading && !stats?.usage}
+                        totals={
+                          stats?.usage ?? {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: 0,
+                            run_count: 0,
+                          }
+                        }
+                        caption={
+                          stats?.usage
+                            ? stats.usage.run_count === 0
+                              ? "No runs yet"
+                              : `${stats.usage.run_count} run${
+                                  stats.usage.run_count === 1 ? "" : "s"
+                                }`
+                            : undefined
+                        }
+                      />
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">

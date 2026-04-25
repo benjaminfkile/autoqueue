@@ -17,6 +17,10 @@ import {
 } from "../db/acceptanceCriteria";
 import { getEventsByTaskId } from "../db/taskEvents";
 import { createNote, deleteNote, getNotesForTask } from "../db/taskNotes";
+import {
+  getUsageRowsForTask,
+  getUsageTotalsForTask,
+} from "../db/taskUsage";
 import { NoteAuthor, NoteVisibility, OrderingMode } from "../interfaces";
 
 const LOG_STREAM_POLL_INTERVAL_MS = 500;
@@ -337,6 +341,27 @@ tasksRouter.get("/:id/log/stream", async (req: Request, res: Response) => {
     }
     res.end();
     return;
+  }
+});
+
+// GET /api/tasks/:id/usage — return token usage totals (and per-run rows) for
+// a task. Returns zeroed totals when no agent run has produced usage yet, so
+// the GUI can render a single shape without null-checks.
+tasksRouter.get("/:id/usage", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const [totals, runs] = await Promise.all([
+      getUsageTotalsForTask(db, taskId),
+      getUsageRowsForTask(db, taskId),
+    ]);
+    return res.status(200).json({ totals, runs });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
   }
 });
 

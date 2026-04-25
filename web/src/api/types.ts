@@ -105,6 +105,34 @@ export interface TaskDetail {
   children: TaskChildSummary[];
 }
 
+export interface TokenUsageTotals {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  run_count: number;
+}
+
+export interface TaskUsageRun {
+  id: number;
+  task_id: number;
+  repo_id: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  created_at: string;
+}
+
+export interface TaskUsageResponse {
+  totals: TokenUsageTotals;
+  runs: TaskUsageRun[];
+}
+
+export interface RepoUsageResponse {
+  totals: TokenUsageTotals;
+}
+
 export interface TaskEvent {
   id: number;
   task_id: number;
