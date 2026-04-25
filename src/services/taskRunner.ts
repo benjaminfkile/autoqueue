@@ -11,7 +11,7 @@ import {
 } from "../db/tasks";
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import { recordEvent } from "../db/taskEvents";
-import { getNotesForTask } from "../db/taskNotes";
+import { createNote, getNotesForTask } from "../db/taskNotes";
 import {
   cloneOrPull,
   checkoutBaseBranch,
@@ -161,7 +161,7 @@ async function runTaskBody(
       "_logs",
       `task-${task.id}.log`
     );
-    const { success, output: claudeOutput } = await runClaudeOnTask({
+    const { success, output: claudeOutput, notes: agentNotes = [] } = await runClaudeOnTask({
       workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
@@ -179,6 +179,22 @@ async function runTaskBody(
     await recordEvent(db, task.id, "claude_finished", { attempt, success });
 
     if (success) {
+      for (const n of agentNotes) {
+        try {
+          await createNote(db, {
+            task_id: task.id,
+            author: "agent",
+            visibility: n.visibility,
+            content: n.content,
+            tags: n.tags,
+          });
+        } catch (err) {
+          console.error(
+            `[taskRunner] Failed to persist agent note for task #${task.id}:`,
+            err
+          );
+        }
+      }
       // 10. On success
       if (repo.is_local_folder) {
         await updateTask(db, task.id, { status: "done" });

@@ -103,6 +103,16 @@ export interface TaskNote {
   created_at: Date;
 }
 
+// ---- Notes emitted by the agent via the NOTES_TO_SAVE protocol ----
+// The agent embeds a <NOTES_TO_SAVE>...</NOTES_TO_SAVE> JSON-array block in its
+// stdout. claudeRunner parses these into ParsedAgentNote entries; taskRunner
+// then persists them with author='agent' and task_id=<current task>.
+export interface ParsedAgentNote {
+  visibility: NoteVisibility;
+  content: string;
+  tags?: string[];
+}
+
 // ---- Task payload for agent ----
 export interface TaskPayloadNote {
   id: number;
