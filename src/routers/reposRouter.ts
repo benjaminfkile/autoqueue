@@ -13,11 +13,19 @@ import {
   OrderingMode,
   RepoOnFailure,
   RepoOnParentChildFail,
+  WebhookEvent,
 } from "../interfaces";
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
 import { getTemplateById } from "../db/taskTemplates";
 import { getUsageTotalsForRepo } from "../db/taskUsage";
+import {
+  createWebhook,
+  deleteWebhook,
+  getWebhookById,
+  getWebhooksByRepoId,
+  updateWebhook,
+} from "../db/repoWebhooks";
 
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
@@ -31,6 +39,35 @@ const VALID_ON_PARENT_CHILD_FAIL: RepoOnParentChildFail[] = [
   "ignore",
 ];
 const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
+const VALID_WEBHOOK_EVENTS: WebhookEvent[] = ["done", "failed", "halted"];
+
+function validateWebhookEvents(input: unknown): WebhookEvent[] | string {
+  if (!Array.isArray(input) || input.length === 0) {
+    return "events must be a non-empty array";
+  }
+  const seen = new Set<string>();
+  const out: WebhookEvent[] = [];
+  for (const e of input) {
+    if (typeof e !== "string" || !VALID_WEBHOOK_EVENTS.includes(e as WebhookEvent)) {
+      return `Invalid webhook event: ${String(e)}`;
+    }
+    if (!seen.has(e)) {
+      seen.add(e);
+      out.push(e as WebhookEvent);
+    }
+  }
+  return out;
+}
+
+function isHttpUrl(url: unknown): url is string {
+  if (typeof url !== "string" || url.trim() === "") return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 const reposRouter = express.Router();
 
@@ -319,6 +356,160 @@ reposRouter.get("/:id/usage", async (req: Request, res: Response) => {
     return res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// GET /api/repos/:id/webhooks — list webhooks configured on the repo
+reposRouter.get("/:id/webhooks", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const repo = await getRepoById(db, id);
+    if (!repo) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const webhooks = await getWebhooksByRepoId(db, id);
+    return res.status(200).json(webhooks);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/repos/:id/webhooks — register a new webhook on the repo
+reposRouter.post("/:id/webhooks", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const repo = await getRepoById(db, id);
+    if (!repo) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const { url, events, active } = req.body as {
+      url?: unknown;
+      events?: unknown;
+      active?: unknown;
+    };
+
+    if (!isHttpUrl(url)) {
+      return res
+        .status(400)
+        .json({ error: "url must be a valid http/https URL" });
+    }
+    const validatedEvents = validateWebhookEvents(events);
+    if (typeof validatedEvents === "string") {
+      return res.status(400).json({ error: validatedEvents });
+    }
+    if (active !== undefined && typeof active !== "boolean") {
+      return res.status(400).json({ error: "active must be boolean" });
+    }
+
+    const webhook = await createWebhook(db, {
+      repo_id: id,
+      url: url as string,
+      events: validatedEvents,
+      active: active as boolean | undefined,
+    });
+    return res.status(201).json(webhook);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PATCH /api/repos/:id/webhooks/:webhookId — update a webhook
+reposRouter.patch(
+  "/:id/webhooks/:webhookId",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const webhookId = parseInt(req.params.webhookId, 10);
+      if (isNaN(id) || isNaN(webhookId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+      const existing = await getWebhookById(db, webhookId);
+      if (!existing || existing.repo_id !== id) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      const { url, events, active } = req.body as {
+        url?: unknown;
+        events?: unknown;
+        active?: unknown;
+      };
+
+      const patch: { url?: string; events?: WebhookEvent[]; active?: boolean } =
+        {};
+      if (url !== undefined) {
+        if (!isHttpUrl(url)) {
+          return res
+            .status(400)
+            .json({ error: "url must be a valid http/https URL" });
+        }
+        patch.url = url;
+      }
+      if (events !== undefined) {
+        const validated = validateWebhookEvents(events);
+        if (typeof validated === "string") {
+          return res.status(400).json({ error: validated });
+        }
+        patch.events = validated;
+      }
+      if (active !== undefined) {
+        if (typeof active !== "boolean") {
+          return res.status(400).json({ error: "active must be boolean" });
+        }
+        patch.active = active;
+      }
+
+      const updated = await updateWebhook(db, webhookId, patch);
+      return res.status(200).json(updated);
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
+
+// DELETE /api/repos/:id/webhooks/:webhookId — remove a webhook
+reposRouter.delete(
+  "/:id/webhooks/:webhookId",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const webhookId = parseInt(req.params.webhookId, 10);
+      if (isNaN(id) || isNaN(webhookId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+      const existing = await getWebhookById(db, webhookId);
+      if (!existing || existing.repo_id !== id) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      await deleteWebhook(db, webhookId);
+      return res.status(204).send();
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
 
 // DELETE /api/repos/:id — delete a repo
 reposRouter.delete("/:id", async (req: Request, res: Response) => {

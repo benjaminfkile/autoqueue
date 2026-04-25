@@ -169,6 +169,21 @@ export interface TokenUsage {
   cache_read_input_tokens: number;
 }
 
+// ---- Webhooks (Phase 7: notify external systems on task state changes) ----
+// Per-repo Slack-compatible webhook endpoints. Delivery is fire-and-forget with
+// a small retry on 5xx responses; misconfigured URLs do not block the task
+// pipeline.
+export type WebhookEvent = "done" | "failed" | "halted";
+
+export interface RepoWebhook {
+  id: number;
+  repo_id: number;
+  url: string;
+  events: WebhookEvent[];
+  active: boolean;
+  created_at: Date;
+}
+
 // ---- task_usage table row ----
 // One row per agent run (success or failure). Aggregations for the GUI live in
 // dedicated DB helpers (sum per task, sum per repo) rather than denormalised
