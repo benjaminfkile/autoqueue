@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 import { TaskPayload } from "../interfaces";
 
 const TIMEOUT_MS = 1_800_000;
@@ -8,8 +10,17 @@ export function runClaudeOnTask(options: {
   taskPayload: TaskPayload;
   anthropicApiKey?: string;
   claudePath?: string;
+  logFilePath?: string;
+  onFirstByte?: () => void;
 }): Promise<{ success: boolean; output: string }> {
-  const { workDir, taskPayload, anthropicApiKey, claudePath } = options;
+  const {
+    workDir,
+    taskPayload,
+    anthropicApiKey,
+    claudePath,
+    logFilePath,
+    onFirstByte,
+  } = options;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (anthropicApiKey) env.ANTHROPIC_API_KEY = anthropicApiKey;
@@ -28,6 +39,25 @@ Instructions:
   // Prefer explicit arg, then .env/process env, then PATH lookup.
   const resolvedClaudePath = claudePath ?? process.env.CLAUDE_PATH ?? "claude";
 
+  let logStream: fs.WriteStream | null = null;
+  if (logFilePath) {
+    fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+    logStream = fs.createWriteStream(logFilePath, { flags: "a" });
+  }
+
+  let firstByteSeen = false;
+  const handleFirstByte = () => {
+    if (firstByteSeen) return;
+    firstByteSeen = true;
+    if (onFirstByte) {
+      try {
+        onFirstByte();
+      } catch (err) {
+        console.error("[claudeRunner] onFirstByte callback failed:", err);
+      }
+    }
+  };
+
   return new Promise((resolve) => {
     let output = "";
     let settled = false;
@@ -35,7 +65,12 @@ Instructions:
     const settle = (result: { success: boolean; output: string }) => {
       if (settled) return;
       settled = true;
-      resolve(result);
+      if (logStream) {
+        const stream = logStream;
+        stream.end(() => resolve(result));
+      } else {
+        resolve(result);
+      }
     };
 
     const child = spawn(resolvedClaudePath, ["--print", "--dangerously-skip-permissions", prompt], {
@@ -44,11 +79,15 @@ Instructions:
     });
 
     child.stdout.on("data", (data: Buffer) => {
+      handleFirstByte();
       output += data.toString();
+      if (logStream) logStream.write(data);
     });
 
     child.stderr.on("data", (data: Buffer) => {
+      handleFirstByte();
       output += data.toString();
+      if (logStream) logStream.write(data);
     });
 
     const timer = setTimeout(() => {

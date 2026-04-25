@@ -1,4 +1,7 @@
 import request from "supertest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import app from "../src/app";
 import bcrypt from "bcrypt";
 
@@ -320,6 +323,146 @@ describe("tasksRouter", () => {
         .set("x-api-key", API_KEY);
       expect(res.status).toBe(204);
     });
+  });
+
+  // GET /api/tasks/:id/log
+  describe("GET /api/tasks/:id/log", () => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "grunt-router-log-"));
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    });
+
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app)
+        .get("/api/tasks/abc/log")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid id/i);
+    });
+
+    it("returns 404 when the task does not exist", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .get("/api/tasks/1/log")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 when log_path is null on the task", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        log_path: null,
+      });
+      const res = await request(app)
+        .get("/api/tasks/1/log")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 when the log file is missing on disk", async () => {
+      const missing = path.join(tmpRoot, "missing.log");
+      (getTaskById as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        log_path: missing,
+      });
+      const res = await request(app)
+        .get("/api/tasks/1/log")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+    });
+
+    it("streams the file contents when the log exists on disk", async () => {
+      const logFile = path.join(tmpRoot, "task-1.log");
+      const expected = "line one\nline two\n";
+      fs.writeFileSync(logFile, expected);
+      (getTaskById as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        log_path: logFile,
+      });
+
+      const res = await request(app)
+        .get("/api/tasks/1/log")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/text\/plain/);
+      expect(res.text).toBe(expected);
+    });
+  });
+
+  // GET /api/tasks/:id/log/stream
+  describe("GET /api/tasks/:id/log/stream", () => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "grunt-router-sse-"));
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    });
+
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app)
+        .get("/api/tasks/abc/log/stream")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 when the task does not exist", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .get("/api/tasks/1/log/stream")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 when log_path is null on the task", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        log_path: null,
+      });
+      const res = await request(app)
+        .get("/api/tasks/1/log/stream")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(404);
+    });
+
+    it("opens an SSE stream that emits existing log content for an active task and closes when the task is no longer active", async () => {
+      const logFile = path.join(tmpRoot, "task-1.log");
+      fs.writeFileSync(logFile, "first chunk\n");
+
+      let calls = 0;
+      (getTaskById as jest.Mock).mockImplementation(async () => {
+        calls += 1;
+        // First call: tell the handler the task exists with a log_path and is active.
+        // Subsequent status polls: report 'done' so the handler closes.
+        if (calls === 1) {
+          return { ...mockTask, status: "active", log_path: logFile };
+        }
+        return { ...mockTask, status: "done", log_path: logFile };
+      });
+
+      const res = await request(app)
+        .get("/api/tasks/1/log/stream")
+        .set("x-api-key", API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+      expect(res.text).toContain("first chunk");
+    }, 15_000);
   });
 
   // GET /api/tasks/:id/events

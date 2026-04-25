@@ -83,6 +83,7 @@ export async function updateTask(
       | "description"
       | "pr_url"
       | "ordering_mode"
+      | "log_path"
     >
   >
 ): Promise<Task> {

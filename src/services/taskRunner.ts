@@ -140,11 +140,25 @@ async function runTaskBody(
       : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
 
     await recordEvent(db, task.id, "claude_started", { attempt });
+    const logFilePath = path.join(
+      secrets.REPOS_PATH,
+      "_logs",
+      `task-${task.id}.log`
+    );
     const { success, output: claudeOutput } = await runClaudeOnTask({
       workDir,
       taskPayload,
       anthropicApiKey: secrets.ANTHROPIC_API_KEY,
       claudePath: secrets.CLAUDE_PATH,
+      logFilePath,
+      onFirstByte: () => {
+        updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
+          console.error(
+            `[taskRunner] Failed to set log_path for task #${task.id}:`,
+            err
+          );
+        });
+      },
     });
     await recordEvent(db, task.id, "claude_finished", { attempt, success });
 
