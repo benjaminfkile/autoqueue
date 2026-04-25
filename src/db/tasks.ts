@@ -156,6 +156,19 @@ export async function claimNextPendingLeafTask(
   });
 }
 
+export async function renewTaskLease(
+  db: Knex,
+  taskId: number,
+  leaseSeconds: number
+): Promise<void> {
+  await db.raw(
+    `UPDATE tasks
+     SET leased_until = NOW() + (? * interval '1 second')
+     WHERE id = ?`,
+    [leaseSeconds, taskId]
+  );
+}
+
 export async function autoCompleteParentTasks(
   db: Knex,
   repoId: number
