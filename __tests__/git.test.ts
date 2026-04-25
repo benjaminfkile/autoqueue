@@ -3,14 +3,20 @@ type GitMock = {
   branchLocal: jest.Mock;
   deleteLocalBranch: jest.Mock;
   checkout: jest.Mock;
+  listRemote: jest.Mock;
+  fetch: jest.Mock;
+  pull: jest.Mock;
+  push: jest.Mock;
 };
 
 const mockState: {
   instances: GitMock[];
   nextBranches: string[];
+  nextRemoteHeads: string;
 } = {
   instances: [],
   nextBranches: [],
+  nextRemoteHeads: "",
 };
 
 jest.mock("simple-git", () => {
@@ -24,6 +30,12 @@ jest.mock("simple-git", () => {
           .mockImplementation(async () => ({ all: mockState.nextBranches })),
         deleteLocalBranch: jest.fn().mockResolvedValue(undefined),
         checkout: jest.fn().mockResolvedValue(undefined),
+        listRemote: jest
+          .fn()
+          .mockImplementation(async () => mockState.nextRemoteHeads),
+        fetch: jest.fn().mockResolvedValue(undefined),
+        pull: jest.fn().mockResolvedValue(undefined),
+        push: jest.fn().mockResolvedValue(undefined),
       };
       mockState.instances.push(git);
       return git;
@@ -31,12 +43,13 @@ jest.mock("simple-git", () => {
   };
 });
 
-import { createTaskBranch } from "../src/services/git";
+import { checkoutBaseBranch, createTaskBranch } from "../src/services/git";
 import * as path from "path";
 
 beforeEach(() => {
   mockState.instances = [];
   mockState.nextBranches = [];
+  mockState.nextRemoteHeads = "";
 });
 
 describe("createTaskBranch", () => {
@@ -96,5 +109,118 @@ describe("createTaskBranch", () => {
     expect(a).toBe("grunt/task-5");
     expect(b).toBe("grunt/task-5");
     expect(a).toBe(b);
+  });
+});
+
+describe("checkoutBaseBranch", () => {
+  it("when baseBranch already exists locally, just checks out and pulls (existing flow unchanged)", async () => {
+    mockState.nextBranches = ["main", "develop"];
+
+    await checkoutBaseBranch("/repos", "octocat", "hello", "develop", "main");
+
+    const git = mockState.instances[0];
+    expect(git.listRemote).not.toHaveBeenCalled();
+    expect(git.fetch).not.toHaveBeenCalled();
+    expect(git.push).not.toHaveBeenCalled();
+    expect(git.checkout).toHaveBeenCalledTimes(1);
+    expect(git.checkout).toHaveBeenCalledWith("develop");
+    expect(git.pull).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens simple-git against the resolved repo path", async () => {
+    mockState.nextBranches = ["develop"];
+
+    await checkoutBaseBranch("/repos", "octocat", "hello", "develop", "main");
+
+    expect(mockState.instances).toHaveLength(1);
+    expect(mockState.instances[0].dir).toBe(
+      path.join("/repos", "octocat", "hello")
+    );
+  });
+
+  it("when baseBranch is missing locally but exists on remote, fetches and creates a tracking branch", async () => {
+    mockState.nextBranches = ["main"];
+    mockState.nextRemoteHeads =
+      "abc123\trefs/heads/develop\n";
+
+    await checkoutBaseBranch("/repos", "octocat", "hello", "develop", "main");
+
+    const git = mockState.instances[0];
+    expect(git.listRemote).toHaveBeenCalledWith([
+      "--heads",
+      "origin",
+      "develop",
+    ]);
+    expect(git.fetch).toHaveBeenCalledWith(["origin", "develop"]);
+    expect(git.checkout).toHaveBeenCalledWith([
+      "-b",
+      "develop",
+      "origin/develop",
+    ]);
+    expect(git.push).not.toHaveBeenCalled();
+  });
+
+  it("when baseBranch is missing both locally and on remote, creates it from baseBranchParent and pushes with --set-upstream", async () => {
+    mockState.nextBranches = ["main"];
+    mockState.nextRemoteHeads = "";
+
+    await checkoutBaseBranch("/repos", "octocat", "hello", "develop", "main");
+
+    const git = mockState.instances[0];
+
+    expect(git.listRemote).toHaveBeenCalledWith([
+      "--heads",
+      "origin",
+      "develop",
+    ]);
+    expect(git.fetch).not.toHaveBeenCalled();
+
+    const checkoutCalls = git.checkout.mock.calls;
+    // 1) checkout parent  2) checkout -b develop  3) final checkout develop
+    expect(checkoutCalls[0]).toEqual(["main"]);
+    expect(checkoutCalls[1]).toEqual([["-b", "develop"]]);
+    expect(checkoutCalls[2]).toEqual(["develop"]);
+
+    expect(git.push).toHaveBeenCalledWith([
+      "--set-upstream",
+      "origin",
+      "develop",
+    ]);
+
+    // Pull is called once on the parent before creating the branch, and once
+    // again at the end on the now-current base branch.
+    expect(git.pull).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats whitespace-only ls-remote output as 'branch does not exist on remote'", async () => {
+    mockState.nextBranches = ["main"];
+    mockState.nextRemoteHeads = "   \n";
+
+    await checkoutBaseBranch("/repos", "octocat", "hello", "develop", "main");
+
+    const git = mockState.instances[0];
+    expect(git.fetch).not.toHaveBeenCalled();
+    expect(git.push).toHaveBeenCalledWith([
+      "--set-upstream",
+      "origin",
+      "develop",
+    ]);
+  });
+
+  it("uses the supplied baseBranchParent (not hard-coded 'main') when creating the new base branch", async () => {
+    mockState.nextBranches = ["release"];
+    mockState.nextRemoteHeads = "";
+
+    await checkoutBaseBranch(
+      "/repos",
+      "octocat",
+      "hello",
+      "develop",
+      "release"
+    );
+
+    const git = mockState.instances[0];
+    expect(git.checkout.mock.calls[0]).toEqual(["release"]);
+    expect(git.checkout.mock.calls[1]).toEqual([["-b", "develop"]]);
   });
 });
