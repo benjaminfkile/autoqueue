@@ -1,8 +1,8 @@
-import { createNote, getNotesForTask } from "../src/db/taskNotes";
+import { createNote, deleteNote, getNotesForTask } from "../src/db/taskNotes";
 
 function createMockKnex() {
   const chain: Record<string, jest.Mock> = {};
-  const methods = ["where", "insert", "returning", "orderBy"];
+  const methods = ["where", "insert", "returning", "orderBy", "delete"];
   for (const m of methods) {
     chain[m] = jest.fn().mockReturnThis();
   }
@@ -92,6 +92,32 @@ describe("createNote", () => {
     const calls = chain.insert.mock.calls.map((c) => c[0]);
     expect(calls[0]).toEqual(expect.objectContaining({ author: "agent" }));
     expect(calls[1]).toEqual(expect.objectContaining({ author: "user" }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteNote
+// ---------------------------------------------------------------------------
+describe("deleteNote", () => {
+  it("deletes the row in task_notes whose id matches", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.delete.mockResolvedValueOnce(1);
+
+    const result = await deleteNote(knex as any, 17);
+
+    expect(knex).toHaveBeenCalledWith("task_notes");
+    expect(chain.where).toHaveBeenCalledWith({ id: 17 });
+    expect(chain.delete).toHaveBeenCalledTimes(1);
+    expect(result).toBe(1);
+  });
+
+  it("resolves to 0 when no row matches the supplied id (idempotent delete)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.delete.mockResolvedValueOnce(0);
+
+    const result = await deleteNote(knex as any, 999);
+
+    expect(result).toBe(0);
   });
 });
 

@@ -45,6 +45,14 @@ import {
 jest.mock("../src/db/taskEvents");
 import { getEventsByTaskId } from "../src/db/taskEvents";
 
+// Mock task notes DB layer
+jest.mock("../src/db/taskNotes");
+import {
+  createNote,
+  deleteNote,
+  getNotesForTask,
+} from "../src/db/taskNotes";
+
 // Allow all requests through protectedRoute by mocking bcrypt.compare
 jest.mock("bcrypt", () => ({
   compare: jest.fn().mockResolvedValue(true),
@@ -523,6 +531,198 @@ describe("tasksRouter", () => {
         .set("x-api-key", API_KEY);
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
+    });
+  });
+
+  // GET /api/tasks/:id/notes
+  describe("GET /api/tasks/:id/notes", () => {
+    const noteRow = {
+      id: 9,
+      task_id: 1,
+      author: "agent",
+      visibility: "siblings",
+      tags: ["context"],
+      content: "heads up",
+      created_at: new Date("2026-04-25T10:00:00Z"),
+    };
+
+    it("requires the API key (returns 401 when unauthorized)", async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+      const res = await request(app)
+        .get("/api/tasks/1/notes")
+        .set("x-api-key", "wrong-key");
+      expect(res.status).toBe(401);
+      expect(getNotesForTask).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app)
+        .get("/api/tasks/abc/notes")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid id/i);
+      expect(getNotesForTask).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with the visible-notes array from getNotesForTask", async () => {
+      (getNotesForTask as jest.Mock).mockResolvedValue([noteRow]);
+
+      const res = await request(app)
+        .get("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(200);
+      expect(getNotesForTask).toHaveBeenCalledWith(expect.anything(), 1);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        id: 9,
+        author: "agent",
+        visibility: "siblings",
+      });
+    });
+
+    it("returns 200 with an empty array when no notes are visible", async () => {
+      (getNotesForTask as jest.Mock).mockResolvedValue([]);
+
+      const res = await request(app)
+        .get("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+  });
+
+  // POST /api/tasks/:id/notes
+  describe("POST /api/tasks/:id/notes", () => {
+    const created = {
+      id: 5,
+      task_id: 1,
+      author: "user",
+      visibility: "self",
+      tags: [],
+      content: "private",
+      created_at: new Date(),
+    };
+
+    it("requires the API key (returns 401 when unauthorized)", async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", "wrong-key")
+        .send({ author: "user", visibility: "self", content: "x" });
+      expect(res.status).toBe(401);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for an invalid task id", async () => {
+      const res = await request(app)
+        .post("/api/tasks/abc/notes")
+        .set("x-api-key", API_KEY)
+        .send({ author: "user", visibility: "self", content: "x" });
+      expect(res.status).toBe(400);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when required fields are missing", async () => {
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY)
+        .send({ visibility: "self", content: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/author.*visibility.*content/i);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid author", async () => {
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY)
+        .send({ author: "robot", visibility: "self", content: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/author/i);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid visibility", async () => {
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY)
+        .send({ author: "user", visibility: "everyone", content: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/visibility/i);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("rejects tags that are not an array of strings", async () => {
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY)
+        .send({
+          author: "user",
+          visibility: "self",
+          content: "x",
+          tags: [1, 2, 3],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/tags/i);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("returns 201 with the created note when the body is valid", async () => {
+      (createNote as jest.Mock).mockResolvedValue(created);
+
+      const res = await request(app)
+        .post("/api/tasks/1/notes")
+        .set("x-api-key", API_KEY)
+        .send({
+          author: "user",
+          visibility: "self",
+          content: "private",
+          tags: ["a"],
+        });
+
+      expect(res.status).toBe(201);
+      expect(createNote).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          task_id: 1,
+          author: "user",
+          visibility: "self",
+          content: "private",
+          tags: ["a"],
+        })
+      );
+      expect(res.body).toMatchObject({ id: 5, author: "user" });
+    });
+  });
+
+  // DELETE /api/tasks/:taskId/notes/:noteId
+  describe("DELETE /api/tasks/:taskId/notes/:noteId", () => {
+    it("requires the API key (returns 401 when unauthorized)", async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+      const res = await request(app)
+        .delete("/api/tasks/1/notes/5")
+        .set("x-api-key", "wrong-key");
+      expect(res.status).toBe(401);
+      expect(deleteNote).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for an invalid noteId", async () => {
+      const res = await request(app)
+        .delete("/api/tasks/1/notes/abc")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(400);
+      expect(deleteNote).not.toHaveBeenCalled();
+    });
+
+    it("returns 204 and calls deleteNote with the note id", async () => {
+      (deleteNote as jest.Mock).mockResolvedValue(1);
+
+      const res = await request(app)
+        .delete("/api/tasks/1/notes/5")
+        .set("x-api-key", API_KEY);
+      expect(res.status).toBe(204);
+      expect(deleteNote).toHaveBeenCalledWith(expect.anything(), 5);
     });
   });
 });

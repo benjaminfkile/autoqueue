@@ -1,6 +1,13 @@
 import { Knex } from "knex";
 import { NoteAuthor, NoteVisibility, TaskNote } from "../interfaces";
 
+export async function deleteNote(
+  db: Knex,
+  id: number
+): Promise<number> {
+  return db<TaskNote>("task_notes").where({ id }).delete();
+}
+
 export async function createNote(
   db: Knex,
   data: {

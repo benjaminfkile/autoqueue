@@ -16,12 +16,22 @@ import {
   deleteCriterion,
 } from "../db/acceptanceCriteria";
 import { getEventsByTaskId } from "../db/taskEvents";
-import { OrderingMode } from "../interfaces";
+import { createNote, deleteNote, getNotesForTask } from "../db/taskNotes";
+import { NoteAuthor, NoteVisibility, OrderingMode } from "../interfaces";
 
 const LOG_STREAM_POLL_INTERVAL_MS = 500;
 const LOG_STREAM_STATUS_POLL_MS = 2000;
 
 const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
+
+const VALID_NOTE_AUTHOR: NoteAuthor[] = ["agent", "user"];
+const VALID_NOTE_VISIBILITY: NoteVisibility[] = [
+  "self",
+  "siblings",
+  "descendants",
+  "ancestors",
+  "all",
+];
 
 const tasksRouter = express.Router();
 
@@ -423,6 +433,93 @@ tasksRouter.delete(
 
       const db = getDb();
       await deleteCriterion(db, criterionId);
+      return res.status(204).send();
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
+
+// --- Notes sub-routes ---
+
+// GET /api/tasks/:id/notes — return notes visible to a task in chronological order
+tasksRouter.get("/:id/notes", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const notes = await getNotesForTask(db, taskId);
+    return res.status(200).json(notes);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/tasks/:id/notes — create a note on a task
+tasksRouter.post("/:id/notes", async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const { author, visibility, content, tags } = req.body as {
+      author: NoteAuthor;
+      visibility: NoteVisibility;
+      content: string;
+      tags?: string[];
+    };
+
+    if (!author || !visibility || !content) {
+      return res
+        .status(400)
+        .json({ error: "author, visibility, and content are required" });
+    }
+
+    if (!VALID_NOTE_AUTHOR.includes(author)) {
+      return res.status(400).json({ error: "Invalid author" });
+    }
+
+    if (!VALID_NOTE_VISIBILITY.includes(visibility)) {
+      return res.status(400).json({ error: "Invalid visibility" });
+    }
+
+    if (tags !== undefined) {
+      if (!Array.isArray(tags) || tags.some((t) => typeof t !== "string")) {
+        return res.status(400).json({ error: "tags must be an array of strings" });
+      }
+    }
+
+    const db = getDb();
+    const note = await createNote(db, {
+      task_id: taskId,
+      author,
+      visibility,
+      content,
+      tags,
+    });
+
+    return res.status(201).json(note);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// DELETE /api/tasks/:taskId/notes/:noteId — delete a note
+tasksRouter.delete(
+  "/:taskId/notes/:noteId",
+  async (req: Request, res: Response) => {
+    try {
+      const noteId = parseInt(req.params.noteId, 10);
+      if (isNaN(noteId)) {
+        return res.status(400).json({ error: "Invalid noteId" });
+      }
+
+      const db = getDb();
+      await deleteNote(db, noteId);
       return res.status(204).send();
     } catch (err) {
       return res.status(500).json({ error: (err as Error).message });
