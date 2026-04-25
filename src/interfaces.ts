@@ -82,6 +82,7 @@ export interface Task {
   leased_until: Date | null;
   ordering_mode: OrderingMode | null;
   log_path: string | null;
+  requires_approval: boolean;
   created_at: Date;
 }
 

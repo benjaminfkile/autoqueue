@@ -50,6 +50,7 @@ export interface TaskSummary {
   status: TaskStatus;
   order_position: number;
   children_count: number;
+  requires_approval: boolean;
   created_at: string;
 }
 
@@ -59,6 +60,7 @@ export interface TaskUpdateInput {
   order_position?: number;
   status?: TaskStatus;
   ordering_mode?: OrderingMode | null;
+  requires_approval?: boolean;
 }
 
 export interface AcceptanceCriterion {
@@ -97,6 +99,7 @@ export interface TaskDetail {
   leased_until: string | null;
   ordering_mode: OrderingMode | null;
   log_path: string | null;
+  requires_approval: boolean;
   created_at: string;
   acceptanceCriteria: AcceptanceCriterion[];
   children: TaskChildSummary[];

@@ -264,6 +264,52 @@ describe("tasksRouter", () => {
       expect(res.status).toBe(400);
       expect(updateTask).not.toHaveBeenCalled();
     });
+
+    it("accepts requires_approval=true and passes it through to updateTask (gate raised)", async () => {
+      const updated = { ...mockTask, requires_approval: true };
+      (updateTask as jest.Mock).mockResolvedValue(updated);
+
+      const res = await request(app)
+        .patch("/api/tasks/1")
+        .set("x-api-key", API_KEY)
+        .send({ requires_approval: true });
+
+      expect(res.status).toBe(200);
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({ requires_approval: true })
+      );
+      expect(res.body.requires_approval).toBe(true);
+    });
+
+    it("accepts requires_approval=false (the GUI 'Approve to run' flow) and passes it through", async () => {
+      const updated = { ...mockTask, requires_approval: false };
+      (updateTask as jest.Mock).mockResolvedValue(updated);
+
+      const res = await request(app)
+        .patch("/api/tasks/1")
+        .set("x-api-key", API_KEY)
+        .send({ requires_approval: false });
+
+      expect(res.status).toBe(200);
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({ requires_approval: false })
+      );
+      expect(res.body.requires_approval).toBe(false);
+    });
+
+    it("rejects a non-boolean requires_approval", async () => {
+      const res = await request(app)
+        .patch("/api/tasks/1")
+        .set("x-api-key", API_KEY)
+        .send({ requires_approval: "yes" });
+
+      expect(res.status).toBe(400);
+      expect(updateTask).not.toHaveBeenCalled();
+    });
   });
 
   // DELETE /api/tasks/:id

@@ -13,6 +13,7 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import StopIcon from "@mui/icons-material/Stop";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
@@ -122,6 +123,36 @@ export default function TaskTreeView({
       }
     },
     [updateLocalStatus]
+  );
+
+  const handleApprove = useCallback(
+    async (task: TaskSummary) => {
+      setActionError(null);
+      const previous = task.requires_approval;
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id ? { ...t, requires_approval: false } : t
+        )
+      );
+      try {
+        const updated = await tasksApi.update(task.id, {
+          requires_approval: false,
+        });
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, ...updated } : t))
+        );
+      } catch (err) {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === task.id ? { ...t, requires_approval: previous } : t
+          )
+        );
+        setActionError(
+          err instanceof Error ? err.message : "Failed to approve task"
+        );
+      }
+    },
+    []
   );
 
   const handleAbandon = useCallback(
@@ -239,6 +270,7 @@ export default function TaskTreeView({
             onToggleExpand={toggleExpanded}
             onRerun={handleRerun}
             onAbandon={handleAbandon}
+            onApprove={handleApprove}
             onViewDetail={onViewDetail}
             draggingId={draggingId}
             dropTargetId={dropTargetId}
@@ -259,6 +291,7 @@ interface TaskTreeNodeProps {
   onToggleExpand: (id: number) => void;
   onRerun: (task: TaskSummary) => void;
   onAbandon: (task: TaskSummary) => void;
+  onApprove: (task: TaskSummary) => void;
   onViewDetail?: (task: TaskSummary) => void;
   draggingId: number | null;
   dropTargetId: number | null;
@@ -274,6 +307,7 @@ function TaskTreeNode({
   onToggleExpand,
   onRerun,
   onAbandon,
+  onApprove,
   onViewDetail,
   draggingId,
   dropTargetId,
@@ -373,6 +407,18 @@ function TaskTreeNode({
           aria-label={`Status of ${task.title}: ${task.status}`}
           data-testid={`task-status-${task.id}`}
         />
+        <Tooltip title="Approve to run">
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => onApprove(task)}
+              disabled={!task.requires_approval}
+              aria-label={`Approve ${task.title} to run`}
+            >
+              <CheckCircleIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Re-run">
           <span>
             <IconButton
@@ -421,6 +467,7 @@ function TaskTreeNode({
               onToggleExpand={onToggleExpand}
               onRerun={onRerun}
               onAbandon={onAbandon}
+              onApprove={onApprove}
               onViewDetail={onViewDetail}
               draggingId={draggingId}
               dropTargetId={dropTargetId}

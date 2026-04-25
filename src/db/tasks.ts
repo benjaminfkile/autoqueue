@@ -84,6 +84,7 @@ export async function updateTask(
       | "pr_url"
       | "ordering_mode"
       | "log_path"
+      | "requires_approval"
     >
   >
 ): Promise<Task> {
@@ -146,6 +147,7 @@ export async function claimNextPendingLeafTask(
         LEFT JOIN tasks parent ON parent.id = t.parent_id
         WHERE t.repo_id = ?
           AND t.status = 'pending'
+          AND NOT t.requires_approval
           AND NOT EXISTS (
             SELECT 1 FROM tasks child
             WHERE child.parent_id = t.id

@@ -144,6 +144,7 @@ const taskFixture: Task = {
   leased_until: null,
   ordering_mode: null,
   log_path: null,
+  requires_approval: false,
   created_at: new Date("2026-04-20T00:00:00Z"),
 };
 

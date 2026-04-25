@@ -581,6 +581,28 @@ describe("claimNextPendingLeafTask", () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // requires_approval gate (task #216)
+  //
+  // A task with requires_approval=true must be skipped by the scheduler. The
+  // gate is enforced inside the candidate CTE: the predicate excludes any
+  // pending task whose requires_approval column is true. Once a user flips
+  // the flag back to false (via the GUI's PATCH), the task becomes eligible
+  // again on the next scheduler cycle.
+  // -------------------------------------------------------------------------
+  it("excludes pending tasks with requires_approval=true from the candidate set", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The gate sits alongside the existing status='pending' check inside the
+    // candidate CTE. NOT t.requires_approval is the predicate; relying on the
+    // scheduler-side check would be racy under multiple workers.
+    expect(sql).toMatch(/AND\s+NOT\s+t\.requires_approval/);
+  });
+
   it("two concurrent claim calls never return the same task (FOR UPDATE SKIP LOCKED contract)", async () => {
     // Simulate two concurrent workers polling. The first transaction's
     // candidate CTE locks row 5; the second transaction's SKIP LOCKED
