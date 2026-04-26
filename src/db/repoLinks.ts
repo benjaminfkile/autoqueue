@@ -22,6 +22,13 @@ export async function listLinksForRepo(
     .orderBy("id", "asc");
 }
 
+export async function getLinkById(
+  db: Knex,
+  id: number
+): Promise<RepoLink | undefined> {
+  return db<RepoLink>("repo_links").where({ id }).first();
+}
+
 export async function createLink(
   db: Knex,
   a: number,

@@ -12,10 +12,18 @@ import {
 } from "../db/repos";
 import {
   OrderingMode,
+  RepoLinkPermission,
   RepoOnFailure,
   RepoOnParentChildFail,
   WebhookEvent,
 } from "../interfaces";
+import {
+  createLink,
+  deleteLink,
+  getLinkById,
+  listLinksForRepo,
+  updateLinkPermission,
+} from "../db/repoLinks";
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
 import { cloneRepoFresh } from "../services/git";
@@ -42,6 +50,7 @@ const VALID_ON_PARENT_CHILD_FAIL: RepoOnParentChildFail[] = [
 ];
 const VALID_ORDERING_MODE: OrderingMode[] = ["sequential", "parallel"];
 const VALID_WEBHOOK_EVENTS: WebhookEvent[] = ["done", "failed", "halted"];
+const VALID_LINK_PERMISSIONS: RepoLinkPermission[] = ["read", "write"];
 
 function validateWebhookEvents(input: unknown): WebhookEvent[] | string {
   if (!Array.isArray(input) || input.length === 0) {
@@ -634,6 +643,178 @@ reposRouter.delete(
       }
 
       await deleteWebhook(db, webhookId);
+      return res.status(204).send();
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
+
+// GET /api/repos/:id/links — list links where this repo appears on either side
+reposRouter.get("/:id/links", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const repo = await getRepoById(db, id);
+    if (!repo) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const links = await listLinksForRepo(db, id);
+    return res.status(200).json(links);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/repos/:id/links — create a symmetric link to another repo
+reposRouter.post("/:id/links", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const repo = await getRepoById(db, id);
+    if (!repo) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+
+    const { other_repo_id, role, permission } = req.body as {
+      other_repo_id?: unknown;
+      role?: unknown;
+      permission?: unknown;
+    };
+
+    if (typeof other_repo_id !== "number" || !Number.isInteger(other_repo_id)) {
+      return res
+        .status(400)
+        .json({ error: "other_repo_id must be an integer" });
+    }
+    // A link is a relationship between two distinct repos. Without this guard
+    // the canonical (min,max) pair would be (id,id), which is meaningless and
+    // would also block any future legitimate link from this repo through the
+    // unique-pair index until removed.
+    if (other_repo_id === id) {
+      return res.status(400).json({ error: "Cannot link a repo to itself" });
+    }
+    if (
+      role !== undefined &&
+      role !== null &&
+      typeof role !== "string"
+    ) {
+      return res.status(400).json({ error: "role must be a string or null" });
+    }
+    if (
+      permission !== undefined &&
+      !VALID_LINK_PERMISSIONS.includes(permission as RepoLinkPermission)
+    ) {
+      return res.status(400).json({ error: "Invalid permission" });
+    }
+
+    const otherRepo = await getRepoById(db, other_repo_id);
+    if (!otherRepo) {
+      return res.status(404).json({ error: "Other repo not found" });
+    }
+
+    try {
+      const link = await createLink(
+        db,
+        id,
+        other_repo_id,
+        role as string | null | undefined,
+        permission as RepoLinkPermission | undefined
+      );
+      return res.status(201).json(link);
+    } catch (insertErr) {
+      // The unique expression index on (MIN(a,b), MAX(a,b)) raises when a link
+      // for the same logical pair already exists — surface that as a 409 so
+      // callers can distinguish "already linked" from a real failure.
+      const message = (insertErr as Error).message ?? "";
+      if (/unique|UNIQUE/.test(message)) {
+        return res.status(409).json({ error: "Link already exists" });
+      }
+      throw insertErr;
+    }
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PATCH /api/repos/:id/links/:linkId — update the permission on a link
+reposRouter.patch(
+  "/:id/links/:linkId",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const linkId = parseInt(req.params.linkId, 10);
+      if (isNaN(id) || isNaN(linkId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+      const existing = await getLinkById(db, linkId);
+      if (
+        !existing ||
+        (existing.repo_a_id !== id && existing.repo_b_id !== id)
+      ) {
+        return res.status(404).json({ error: "Link not found" });
+      }
+
+      const { permission } = req.body as { permission?: unknown };
+      if (
+        permission === undefined ||
+        !VALID_LINK_PERMISSIONS.includes(permission as RepoLinkPermission)
+      ) {
+        return res.status(400).json({ error: "Invalid permission" });
+      }
+
+      const updated = await updateLinkPermission(
+        db,
+        linkId,
+        permission as RepoLinkPermission
+      );
+      return res.status(200).json(updated);
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
+
+// DELETE /api/repos/:id/links/:linkId — remove a link
+reposRouter.delete(
+  "/:id/links/:linkId",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const linkId = parseInt(req.params.linkId, 10);
+      if (isNaN(id) || isNaN(linkId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+      const existing = await getLinkById(db, linkId);
+      if (
+        !existing ||
+        (existing.repo_a_id !== id && existing.repo_b_id !== id)
+      ) {
+        return res.status(404).json({ error: "Link not found" });
+      }
+
+      await deleteLink(db, linkId);
       return res.status(204).send();
     } catch (err) {
       return res.status(500).json({ error: (err as Error).message });

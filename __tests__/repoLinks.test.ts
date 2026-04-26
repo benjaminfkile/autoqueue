@@ -1,6 +1,7 @@
 import {
   createLink,
   deleteLink,
+  getLinkById,
   listLinksForRepo,
   updateLinkPermission,
 } from "../src/db/repoLinks";
@@ -55,6 +56,30 @@ describe("listLinksForRepo", () => {
     expect(chain.orWhere).toHaveBeenCalledWith({ repo_b_id: 1 });
     expect(chain.orderBy).toHaveBeenCalledWith("id", "asc");
     expect(result).toEqual(rows);
+  });
+});
+
+describe("getLinkById", () => {
+  it("looks up a link by id and returns the first row", async () => {
+    const { knex, chain } = createMockKnex();
+    const row = rowFixture({ id: 7, repo_a_id: 1, repo_b_id: 2 });
+    chain.first.mockResolvedValueOnce(row);
+
+    const result = await getLinkById(knex as any, 7);
+
+    expect(knex).toHaveBeenCalledWith("repo_links");
+    expect(chain.where).toHaveBeenCalledWith({ id: 7 });
+    expect(chain.first).toHaveBeenCalled();
+    expect(result).toEqual(row);
+  });
+
+  it("returns undefined when no link matches", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce(undefined);
+
+    const result = await getLinkById(knex as any, 999);
+
+    expect(result).toBeUndefined();
   });
 });
 
