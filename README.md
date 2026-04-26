@@ -5,8 +5,6 @@ App secrets (`AWS_SECRET_ARN`):
 {
   "NODE_ENV": "production",
   "PORT": "8000",
-  "DB_NAME": "grunt",
-  "DB_HOST": "your-db-host",
   "API_KEY_HASH": "bcrypt-hash-of-your-api-key",
   "GH_PAT": "github_pat_...",
   "ANTHROPIC_API_KEY": "sk-ant-...",
@@ -14,6 +12,18 @@ App secrets (`AWS_SECRET_ARN`):
   "POLL_INTERVAL_SECONDS": "300"
 }
 ```
+
+## Database
+
+Grunt uses an embedded SQLite database (via `better-sqlite3`). No external database server is required — the file is created automatically on first run inside the OS-standard user data directory:
+
+| Platform | Location |
+| --- | --- |
+| Windows | `%APPDATA%\grunt\grunt.sqlite` (typically `C:\Users\<you>\AppData\Roaming\grunt\grunt.sqlite`) |
+| macOS | `~/Library/Application Support/grunt/grunt.sqlite` |
+| Linux | `$XDG_DATA_HOME/grunt/grunt.sqlite` (defaults to `~/.local/share/grunt/grunt.sqlite`) |
+
+WAL mode and `foreign_keys = ON` are enabled on every connection. To redirect the database to a different file (useful for tests or ad-hoc tooling), set `GRUNT_DB_PATH` to an absolute file path before starting the API.
 
 ## Windows Boot Startup Task
 
