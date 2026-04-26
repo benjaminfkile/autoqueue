@@ -8,13 +8,11 @@ import fs from "fs";
 //import cors from "cors";
 //import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
-import authRouter from "./routers/authRouter";
 import reposRouter from "./routers/reposRouter";
 import tasksRouter from "./routers/tasksRouter";
 import systemRouter from "./routers/systemRouter";
 import chatRouter from "./routers/chatRouter";
 import templatesRouter from "./routers/templatesRouter";
-import protectedRoute from "./middleware/protectedRoute";
 
 const app: Express = express();
 
@@ -23,19 +21,12 @@ const app: Express = express();
 
 app.use(express.json());
 
-// The auth provider chain is resolved at request time from
-// app.get("authProviders"), which is populated at startup based on the
-// AUTH_PROVIDER config. See src/auth/buildAuthProviders.ts.
 app.use("/api/health", healthRouter);
-// Auth router exposes /config (which auth flow to drive) and /login (in-app
-// USER_PASSWORD_AUTH flow). Both must be reachable before the user has a
-// token, so they sit outside protectedRoute.
-app.use("/api/auth", authRouter);
-app.use("/api/repos", protectedRoute(), reposRouter);
-app.use("/api/tasks", protectedRoute(), tasksRouter);
-app.use("/api/system", protectedRoute(), systemRouter);
-app.use("/api/chat", protectedRoute(), chatRouter);
-app.use("/api/templates", protectedRoute(), templatesRouter);
+app.use("/api/repos", reposRouter);
+app.use("/api/tasks", tasksRouter);
+app.use("/api/system", systemRouter);
+app.use("/api/chat", chatRouter);
+app.use("/api/templates", templatesRouter);
 
 // Static SPA serving for the React + MUI GUI built under /web/dist.
 // Resolves both when running compiled (<repo>/dist/src/app.js) and when
