@@ -190,6 +190,24 @@ export interface RepoWebhook {
   created_at: Date;
 }
 
+// ---- Repo links (Phase 8: symmetric repo-to-repo links) ----
+// Links are stored as a single row per pair regardless of which side initiated
+// the relationship. The CRUD layer normalizes to (min,max) on insert so that
+// (a=1,b=2) and (a=2,b=1) collapse to the same row, matching the unique
+// expression index on (MIN(repo_a_id, repo_b_id), MAX(repo_a_id, repo_b_id)).
+// `permission` is reserved for Phase 10 cross-repo write authorization;
+// `read` is the default and the only value the chat tools currently honor.
+export type RepoLinkPermission = "read" | "write";
+
+export interface RepoLink {
+  id: number;
+  repo_a_id: number;
+  repo_b_id: number;
+  role: string | null;
+  permission: RepoLinkPermission;
+  created_at: Date;
+}
+
 // ---- task_usage table row ----
 // One row per agent run (success or failure). Aggregations for the GUI live in
 // dedicated DB helpers (sum per task, sum per repo) rather than denormalised
