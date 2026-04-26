@@ -1,6 +1,5 @@
 import request from "supertest";
 import app from "../src/app";
-import bcrypt from "bcrypt";
 
 jest.mock("../src/db/db", () => ({
   getDb: jest.fn().mockReturnValue({}),
@@ -21,29 +20,19 @@ import { getActiveWorkers } from "../src/db/workers";
 
 import { WORKER_ID } from "../src/services/scheduler";
 
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
-const API_KEY = "test-key";
-
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 });
 
 describe("systemRouter GET /api/system/worker-status", () => {
   it("reports orchestrator mode and an empty active_workers list when no workers are leased", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       IS_WORKER: "false",
     });
     (getActiveWorkers as jest.Mock).mockResolvedValue([]);
 
-    const res = await request(app)
-      .get("/api/system/worker-status")
-      .set("x-api-key", API_KEY);
+    const res = await request(app).get("/api/system/worker-status");
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -57,7 +46,6 @@ describe("systemRouter GET /api/system/worker-status", () => {
   it("reports worker mode with this instance's worker id and serializes active workers", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       IS_WORKER: "true",
     });
     const lease1 = new Date("2026-04-25T12:34:56Z");
@@ -79,9 +67,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
       },
     ]);
 
-    const res = await request(app)
-      .get("/api/system/worker-status")
-      .set("x-api-key", API_KEY);
+    const res = await request(app).get("/api/system/worker-status");
 
     expect(res.status).toBe(200);
     expect(res.body.mode).toBe("worker");
@@ -108,7 +94,6 @@ describe("systemRouter GET /api/system/worker-status", () => {
   it("never marks a worker as is_self when this instance is not a worker", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       IS_WORKER: "false",
     });
     (getActiveWorkers as jest.Mock).mockResolvedValue([
@@ -121,9 +106,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
       },
     ]);
 
-    const res = await request(app)
-      .get("/api/system/worker-status")
-      .set("x-api-key", API_KEY);
+    const res = await request(app).get("/api/system/worker-status");
 
     expect(res.status).toBe(200);
     expect(res.body.this_worker_id).toBeNull();
@@ -133,7 +116,6 @@ describe("systemRouter GET /api/system/worker-status", () => {
   it("coerces non-Date leased_until values to a string", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       IS_WORKER: "true",
     });
     (getActiveWorkers as jest.Mock).mockResolvedValue([
@@ -146,9 +128,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
       },
     ]);
 
-    const res = await request(app)
-      .get("/api/system/worker-status")
-      .set("x-api-key", API_KEY);
+    const res = await request(app).get("/api/system/worker-status");
 
     expect(res.status).toBe(200);
     expect(res.body.active_workers[0].leased_until).toBe(
@@ -159,26 +139,14 @@ describe("systemRouter GET /api/system/worker-status", () => {
   it("returns 500 with the error message when the workers query throws", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       IS_WORKER: "true",
     });
     (getActiveWorkers as jest.Mock).mockRejectedValue(new Error("db down"));
 
-    const res = await request(app)
-      .get("/api/system/worker-status")
-      .set("x-api-key", API_KEY);
+    const res = await request(app).get("/api/system/worker-status");
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/db down/);
   });
 
-  it("rejects requests without an API key", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
-      IS_WORKER: "true",
-    });
-    const res = await request(app).get("/api/system/worker-status");
-    expect(res.status).toBe(401);
-  });
 });

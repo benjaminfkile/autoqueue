@@ -1,5 +1,4 @@
 import request from "supertest";
-import bcrypt from "bcrypt";
 
 jest.mock("../src/db/db", () => ({
   getDb: jest.fn().mockReturnValue({}),
@@ -25,10 +24,6 @@ jest.mock("../src/services/chatService", () => {
   };
 });
 
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
 import app from "../src/app";
 import {
   loadChatContext,
@@ -36,8 +31,6 @@ import {
   buildSystemPrompt,
   PROPOSE_TASK_TREE_TOOL,
 } from "../src/services/chatService";
-
-const API_KEY = "test-key";
 
 const repoFixture = {
   id: 7,
@@ -60,14 +53,12 @@ const repoFixture = {
 beforeAll(() => {
   app.set("secrets", {
     NODE_ENV: "development",
-    API_KEY_HASH: "$2b$10$fakehash",
     ANTHROPIC_API_KEY: "sk-ant-test",
   });
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
   (loadChatContext as jest.Mock).mockResolvedValue({});
   (streamChatEvents as jest.Mock).mockImplementation(() =>
     asyncIterable([
@@ -82,34 +73,17 @@ async function* asyncIterable<T>(items: T[]) {
 }
 
 describe("POST /api/chat", () => {
-  it("returns 401 when the API key is missing/invalid", async () => {
-    (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-    const res = await request(app)
-      .post("/api/chat")
-      .set("x-api-key", "wrong")
-      .send({ messages: [{ role: "user", content: "hi" }] });
-    expect(res.status).toBe(401);
-    expect(streamChatEvents).not.toHaveBeenCalled();
-  });
-
   it("returns 400 when messages is missing or empty", async () => {
-    const res1 = await request(app)
-      .post("/api/chat")
-      .set("x-api-key", API_KEY)
-      .send({});
+    const res1 = await request(app).post("/api/chat").send({});
     expect(res1.status).toBe(400);
 
-    const res2 = await request(app)
-      .post("/api/chat")
-      .set("x-api-key", API_KEY)
-      .send({ messages: [] });
+    const res2 = await request(app).post("/api/chat").send({ messages: [] });
     expect(res2.status).toBe(400);
   });
 
   it("returns 400 when a message has an invalid role", async () => {
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "system", content: "hi" }] });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/role/);
@@ -118,7 +92,6 @@ describe("POST /api/chat", () => {
   it("returns 400 when a message has missing/empty content", async () => {
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "" }] });
     expect(res.status).toBe(400);
   });
@@ -126,7 +99,6 @@ describe("POST /api/chat", () => {
   it("returns 400 when repo_id is provided but not numeric", async () => {
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({
         messages: [{ role: "user", content: "hi" }],
         repo_id: "abc",
@@ -138,18 +110,15 @@ describe("POST /api/chat", () => {
   it("returns 500 when ANTHROPIC_API_KEY is not configured", async () => {
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
     });
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/ANTHROPIC_API_KEY/);
     // Restore the key for subsequent tests.
     app.set("secrets", {
       NODE_ENV: "development",
-      API_KEY_HASH: "$2b$10$fakehash",
       ANTHROPIC_API_KEY: "sk-ant-test",
     });
   });
@@ -157,7 +126,6 @@ describe("POST /api/chat", () => {
   it("streams Claude text deltas back as SSE events", async () => {
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     expect(res.status).toBe(200);
@@ -180,7 +148,6 @@ describe("POST /api/chat", () => {
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     expect(res.status).toBe(200);
@@ -213,7 +180,6 @@ describe("POST /api/chat", () => {
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({
         messages: [{ role: "user", content: "plan a feature" }],
         repo_id: 7,
@@ -241,7 +207,6 @@ describe("POST /api/chat", () => {
 
     await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
@@ -253,7 +218,6 @@ describe("POST /api/chat", () => {
   it("uses the user's last assistant turn as part of the message history (multi-turn)", async () => {
     await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({
         messages: [
           { role: "user", content: "first" },
@@ -276,7 +240,6 @@ describe("POST /api/chat", () => {
 
     await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({
         messages: [{ role: "user", content: "hi" }],
         repo_id: 7,
@@ -288,7 +251,6 @@ describe("POST /api/chat", () => {
   it("registers the propose_task_tree tool with each model call", async () => {
     await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
@@ -323,7 +285,6 @@ describe("POST /api/chat", () => {
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "build login" }] });
 
     expect(res.status).toBe(200);
@@ -346,7 +307,6 @@ describe("POST /api/chat", () => {
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "build login" }] });
 
     expect(res.status).toBe(200);

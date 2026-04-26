@@ -1,5 +1,4 @@
 import request from "supertest";
-import bcrypt from "bcrypt";
 
 jest.mock("../src/db/db", () => ({
   getDb: jest.fn().mockReturnValue({}),
@@ -32,13 +31,7 @@ import { buildTemplateFromRepo } from "../src/services/taskTemplateBuilder";
 jest.mock("../src/services/taskTreeMaterializer");
 import { materializeTaskTree } from "../src/services/taskTreeMaterializer";
 
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
 import app from "../src/app";
-
-const API_KEY = "test-key";
 
 const mockRepo = {
   id: 1,
@@ -77,13 +70,11 @@ const mockTemplate = {
 beforeAll(() => {
   app.set("secrets", {
     NODE_ENV: "development",
-    API_KEY_HASH: "$2b$10$fakehash",
   });
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 });
 
 describe("templatesRouter", () => {
@@ -92,28 +83,17 @@ describe("templatesRouter", () => {
       (getAllTemplates as jest.Mock).mockResolvedValue([mockTemplate]);
 
       const res = await request(app)
-        .get("/api/templates")
-        .set("x-api-key", API_KEY);
+        .get("/api/templates");
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0]).toMatchObject({ id: 10, name: "Bug fix" });
     });
 
-    it("returns 401 without a valid API key", async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-      const res = await request(app)
-        .get("/api/templates")
-        .set("x-api-key", "wrong");
-      expect(res.status).toBe(401);
-      expect(getAllTemplates).not.toHaveBeenCalled();
-    });
-
     it("returns 500 when the DB layer throws", async () => {
       (getAllTemplates as jest.Mock).mockRejectedValue(new Error("db down"));
       const res = await request(app)
-        .get("/api/templates")
-        .set("x-api-key", API_KEY);
+        .get("/api/templates");
       expect(res.status).toBe(500);
       expect(res.body.error).toMatch(/db down/);
     });
@@ -139,7 +119,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "My template", description: "desc", tree: validTree });
 
       expect(res.status).toBe(201);
@@ -161,7 +140,6 @@ describe("templatesRouter", () => {
     it("rejects when name is missing", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ tree: validTree });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/name/);
@@ -171,7 +149,6 @@ describe("templatesRouter", () => {
     it("rejects when name is empty/whitespace-only", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "   ", tree: validTree });
       expect(res.status).toBe(400);
       expect(createTemplate).not.toHaveBeenCalled();
@@ -180,7 +157,6 @@ describe("templatesRouter", () => {
     it("rejects when neither tree nor repo_id is supplied", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x" });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/tree.*repo_id|repo_id.*tree/);
@@ -190,7 +166,6 @@ describe("templatesRouter", () => {
     it("rejects when both tree AND repo_id are supplied (ambiguous source)", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", tree: validTree, repo_id: 1 });
       expect(res.status).toBe(400);
       expect(createTemplate).not.toHaveBeenCalled();
@@ -199,7 +174,6 @@ describe("templatesRouter", () => {
     it("returns 400 when the supplied tree fails proposal validation", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", tree: { parents: [] } });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/parents/);
@@ -209,7 +183,6 @@ describe("templatesRouter", () => {
     it("returns 400 when a node in the tree is missing a title", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", tree: { parents: [{}] } });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/title/);
@@ -237,7 +210,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "From repo", repo_id: 1 });
 
       expect(res.status).toBe(201);
@@ -259,7 +231,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "Subset", repo_id: 1, root_task_ids: [42, 99] });
 
       expect(res.status).toBe(201);
@@ -275,7 +246,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", repo_id: 999 });
 
       expect(res.status).toBe(404);
@@ -286,7 +256,6 @@ describe("templatesRouter", () => {
     it("returns 400 when repo_id is not an integer", async () => {
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", repo_id: "not-a-number" });
       expect(res.status).toBe(400);
       expect(buildTemplateFromRepo).not.toHaveBeenCalled();
@@ -297,7 +266,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", repo_id: 1, root_task_ids: ["a", "b"] });
       expect(res.status).toBe(400);
       expect(buildTemplateFromRepo).not.toHaveBeenCalled();
@@ -311,7 +279,6 @@ describe("templatesRouter", () => {
 
       const res = await request(app)
         .post("/api/templates")
-        .set("x-api-key", API_KEY)
         .send({ name: "x", repo_id: 1, root_task_ids: [99] });
 
       expect(res.status).toBe(400);
@@ -325,8 +292,7 @@ describe("templatesRouter", () => {
       (getTemplateById as jest.Mock).mockResolvedValue(mockTemplate);
 
       const res = await request(app)
-        .get("/api/templates/10")
-        .set("x-api-key", API_KEY);
+        .get("/api/templates/10");
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBe(10);
@@ -334,16 +300,14 @@ describe("templatesRouter", () => {
 
     it("returns 400 for a non-numeric id", async () => {
       const res = await request(app)
-        .get("/api/templates/abc")
-        .set("x-api-key", API_KEY);
+        .get("/api/templates/abc");
       expect(res.status).toBe(400);
     });
 
     it("returns 404 when no template matches", async () => {
       (getTemplateById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
-        .get("/api/templates/999")
-        .set("x-api-key", API_KEY);
+        .get("/api/templates/999");
       expect(res.status).toBe(404);
     });
   });
@@ -354,8 +318,7 @@ describe("templatesRouter", () => {
       (deleteTemplate as jest.Mock).mockResolvedValue(1);
 
       const res = await request(app)
-        .delete("/api/templates/10")
-        .set("x-api-key", API_KEY);
+        .delete("/api/templates/10");
 
       expect(res.status).toBe(204);
       expect(deleteTemplate).toHaveBeenCalledWith(expect.anything(), 10);
@@ -364,8 +327,7 @@ describe("templatesRouter", () => {
     it("returns 404 when the template doesn't exist", async () => {
       (getTemplateById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
-        .delete("/api/templates/999")
-        .set("x-api-key", API_KEY);
+        .delete("/api/templates/999");
       expect(res.status).toBe(404);
       expect(deleteTemplate).not.toHaveBeenCalled();
     });
@@ -429,8 +391,7 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     (materializeTaskTree as jest.Mock).mockResolvedValue(materialized);
 
     const res = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/10");
 
     expect(res.status).toBe(201);
     expect(materializeTaskTree).toHaveBeenCalledWith(
@@ -469,11 +430,9 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     });
 
     const a = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/10");
     const b = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/10");
 
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
@@ -485,16 +444,14 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
 
   it("returns 400 for a non-numeric repo id", async () => {
     const res = await request(app)
-      .post("/api/repos/abc/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/abc/instantiate-template/10");
     expect(res.status).toBe(400);
     expect(materializeTaskTree).not.toHaveBeenCalled();
   });
 
   it("returns 400 for a non-numeric template id", async () => {
     const res = await request(app)
-      .post("/api/repos/1/instantiate-template/abc")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/abc");
     expect(res.status).toBe(400);
     expect(materializeTaskTree).not.toHaveBeenCalled();
   });
@@ -504,8 +461,7 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     (getTemplateById as jest.Mock).mockResolvedValue(stored);
 
     const res = await request(app)
-      .post("/api/repos/999/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/999/instantiate-template/10");
     expect(res.status).toBe(404);
     expect(materializeTaskTree).not.toHaveBeenCalled();
   });
@@ -515,8 +471,7 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     (getTemplateById as jest.Mock).mockResolvedValue(undefined);
 
     const res = await request(app)
-      .post("/api/repos/1/instantiate-template/999")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/999");
     expect(res.status).toBe(404);
     expect(materializeTaskTree).not.toHaveBeenCalled();
   });
@@ -529,8 +484,7 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     });
 
     const res = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/10");
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Stored template is invalid/);
     expect(materializeTaskTree).not.toHaveBeenCalled();
@@ -544,18 +498,9 @@ describe("POST /api/repos/:id/instantiate-template/:templateId (AC #802)", () =>
     );
 
     const res = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", API_KEY);
+      .post("/api/repos/1/instantiate-template/10");
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/rolled back/);
   });
 
-  it("returns 401 without a valid API key", async () => {
-    (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-    const res = await request(app)
-      .post("/api/repos/1/instantiate-template/10")
-      .set("x-api-key", "wrong");
-    expect(res.status).toBe(401);
-    expect(materializeTaskTree).not.toHaveBeenCalled();
-  });
 });

@@ -1,6 +1,5 @@
 import request from "supertest";
 import app from "../src/app";
-import bcrypt from "bcrypt";
 
 // Mock DB
 jest.mock("../src/db/db", () => ({
@@ -51,13 +50,6 @@ import {
   updateWebhook,
 } from "../src/db/repoWebhooks";
 
-// Allow all requests through protectedRoute by mocking bcrypt.compare
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
-const API_KEY = "test-key";
-
 const mockRepo = {
   id: 1,
   owner: "octocat",
@@ -79,13 +71,11 @@ const mockRepo = {
 beforeAll(() => {
   app.set("secrets", {
     NODE_ENV: "development",
-    API_KEY_HASH: "$2b$10$fakehash",
   });
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 });
 
 describe("reposRouter", () => {
@@ -99,7 +89,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -120,7 +109,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({ owner: "octocat", repo_name: "hello" });
 
       expect(res.status).toBe(201);
@@ -141,7 +129,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -170,7 +157,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({ owner: "octocat", repo_name: "hello" });
 
       expect(res.status).toBe(201);
@@ -189,7 +175,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -205,7 +190,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -221,7 +205,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -241,7 +224,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -262,7 +244,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({ owner: "octocat", repo_name: "hello" });
 
       expect(res.status).toBe(201);
@@ -278,7 +259,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos")
-        .set("x-api-key", API_KEY)
         .send({
           owner: "octocat",
           repo_name: "hello",
@@ -300,7 +280,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ base_branch_parent: "release" });
 
       expect(res.status).toBe(200);
@@ -323,7 +302,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({
           on_failure: "halt_subtree",
           max_retries: 7,
@@ -350,7 +328,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ on_failure: "nuke" });
 
       expect(res.status).toBe(400);
@@ -362,7 +339,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ on_parent_child_fail: "blowup" });
 
       expect(res.status).toBe(400);
@@ -374,7 +350,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ max_retries: 1.5 });
 
       expect(res.status).toBe(400);
@@ -390,7 +365,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ ordering_mode: "parallel" });
 
       expect(res.status).toBe(200);
@@ -407,7 +381,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1")
-        .set("x-api-key", API_KEY)
         .send({ ordering_mode: "anarchy" });
 
       expect(res.status).toBe(400);
@@ -420,8 +393,7 @@ describe("reposRouter", () => {
       (getAllRepos as jest.Mock).mockResolvedValue([mockRepo]);
 
       const res = await request(app)
-        .get("/api/repos")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos");
 
       expect(res.status).toBe(200);
       expect(res.body[0]).toHaveProperty("base_branch_parent", "main");
@@ -434,8 +406,7 @@ describe("reposRouter", () => {
       (deleteRepo as jest.Mock).mockResolvedValue(undefined);
 
       const res = await request(app)
-        .delete("/api/repos/1")
-        .set("x-api-key", API_KEY);
+        .delete("/api/repos/1");
 
       expect(res.status).toBe(204);
     });
@@ -453,20 +424,9 @@ describe("reposRouter", () => {
       ],
     };
 
-    it("returns 401 without a valid API key", async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-      const res = await request(app)
-        .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", "wrong")
-        .send(validProposal);
-      expect(res.status).toBe(401);
-      expect(materializeTaskTree).not.toHaveBeenCalled();
-    });
-
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
         .post("/api/repos/abc/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send(validProposal);
       expect(res.status).toBe(400);
       expect(materializeTaskTree).not.toHaveBeenCalled();
@@ -476,7 +436,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
         .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send(validProposal);
       expect(res.status).toBe(404);
       expect(materializeTaskTree).not.toHaveBeenCalled();
@@ -487,7 +446,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send({ parents: [] });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/parents/);
@@ -499,7 +457,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send({ parents: [{}] });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/title/);
@@ -533,7 +490,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send(validProposal);
 
       expect(res.status).toBe(201);
@@ -560,7 +516,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos/1/materialize-tree")
-        .set("x-api-key", API_KEY)
         .send(validProposal);
 
       expect(res.status).toBe(500);
@@ -575,8 +530,7 @@ describe("reposRouter", () => {
   describe("GET /api/repos/:id/usage", () => {
     it("returns 400 when id is not numeric", async () => {
       const res = await request(app)
-        .get("/api/repos/abc/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/abc/usage");
       expect(res.status).toBe(400);
       expect(getUsageTotalsForRepo).not.toHaveBeenCalled();
     });
@@ -585,8 +539,7 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(undefined);
 
       const res = await request(app)
-        .get("/api/repos/42/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/42/usage");
 
       expect(res.status).toBe(404);
       expect(getUsageTotalsForRepo).not.toHaveBeenCalled();
@@ -603,8 +556,7 @@ describe("reposRouter", () => {
       });
 
       const res = await request(app)
-        .get("/api/repos/1/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/1/usage");
 
       expect(res.status).toBe(200);
       expect(res.body.totals).toMatchObject({
@@ -628,8 +580,7 @@ describe("reposRouter", () => {
       });
 
       const res = await request(app)
-        .get("/api/repos/1/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/1/usage");
 
       expect(res.status).toBe(200);
       expect(res.body.totals.run_count).toBe(0);
@@ -644,8 +595,7 @@ describe("reposRouter", () => {
   describe("GET /api/repos/:id/webhooks", () => {
     it("returns 400 when id is not numeric", async () => {
       const res = await request(app)
-        .get("/api/repos/abc/webhooks")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/abc/webhooks");
       expect(res.status).toBe(400);
       expect(getWebhooksByRepoId).not.toHaveBeenCalled();
     });
@@ -653,8 +603,7 @@ describe("reposRouter", () => {
     it("returns 404 when the repo does not exist", async () => {
       (getRepoById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
-        .get("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/1/webhooks");
       expect(res.status).toBe(404);
       expect(getWebhooksByRepoId).not.toHaveBeenCalled();
     });
@@ -674,8 +623,7 @@ describe("reposRouter", () => {
       (getWebhooksByRepoId as jest.Mock).mockResolvedValue(rows);
 
       const res = await request(app)
-        .get("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY);
+        .get("/api/repos/1/webhooks");
 
       expect(res.status).toBe(200);
       expect(getWebhooksByRepoId).toHaveBeenCalledWith(expect.anything(), 1);
@@ -696,7 +644,6 @@ describe("reposRouter", () => {
     it("returns 400 when id is not numeric", async () => {
       const res = await request(app)
         .post("/api/repos/abc/webhooks")
-        .set("x-api-key", API_KEY)
         .send(validBody);
       expect(res.status).toBe(400);
       expect(createWebhook).not.toHaveBeenCalled();
@@ -706,7 +653,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send(validBody);
       expect(res.status).toBe(404);
       expect(createWebhook).not.toHaveBeenCalled();
@@ -716,7 +662,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ url: "ftp://wrong/", events: ["done"] });
       expect(res.status).toBe(400);
       expect(createWebhook).not.toHaveBeenCalled();
@@ -726,7 +671,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ events: ["done"] });
       expect(res.status).toBe(400);
     });
@@ -735,7 +679,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ url: validBody.url, events: [] });
       expect(res.status).toBe(400);
     });
@@ -744,7 +687,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ url: validBody.url, events: ["done", "exploded"] });
       expect(res.status).toBe(400);
     });
@@ -753,7 +695,6 @@ describe("reposRouter", () => {
       (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ ...validBody, active: "yes" });
       expect(res.status).toBe(400);
     });
@@ -772,7 +713,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send(validBody);
 
       expect(res.status).toBe(201);
@@ -793,7 +733,6 @@ describe("reposRouter", () => {
 
       await request(app)
         .post("/api/repos/1/webhooks")
-        .set("x-api-key", API_KEY)
         .send({ url: validBody.url, events: ["done", "done", "failed"] });
 
       expect(createWebhook).toHaveBeenCalledWith(
@@ -810,7 +749,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1/webhooks/99")
-        .set("x-api-key", API_KEY)
         .send({ active: false });
       expect(res.status).toBe(404);
       expect(updateWebhook).not.toHaveBeenCalled();
@@ -828,7 +766,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY)
         .send({ active: false });
       expect(res.status).toBe(404);
       expect(updateWebhook).not.toHaveBeenCalled();
@@ -846,7 +783,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY)
         .send({ url: "not-a-url" });
       expect(res.status).toBe(400);
       expect(updateWebhook).not.toHaveBeenCalled();
@@ -872,7 +808,6 @@ describe("reposRouter", () => {
 
       const res = await request(app)
         .patch("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY)
         .send({ events: ["done", "halted"], active: false });
 
       expect(res.status).toBe(200);
@@ -896,8 +831,7 @@ describe("reposRouter", () => {
       (getWebhookById as jest.Mock).mockResolvedValue(undefined);
 
       const res = await request(app)
-        .delete("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY);
+        .delete("/api/repos/1/webhooks/9");
       expect(res.status).toBe(404);
       expect(deleteWebhook).not.toHaveBeenCalled();
     });
@@ -913,8 +847,7 @@ describe("reposRouter", () => {
       });
 
       const res = await request(app)
-        .delete("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY);
+        .delete("/api/repos/1/webhooks/9");
       expect(res.status).toBe(404);
       expect(deleteWebhook).not.toHaveBeenCalled();
     });
@@ -931,8 +864,7 @@ describe("reposRouter", () => {
       (deleteWebhook as jest.Mock).mockResolvedValue(1);
 
       const res = await request(app)
-        .delete("/api/repos/1/webhooks/9")
-        .set("x-api-key", API_KEY);
+        .delete("/api/repos/1/webhooks/9");
 
       expect(res.status).toBe(204);
       expect(deleteWebhook).toHaveBeenCalledWith(expect.anything(), 9);
