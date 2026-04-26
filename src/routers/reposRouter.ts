@@ -122,6 +122,21 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "owner and repo_name are required" });
     }
 
+    if (is_local_folder) {
+      if (typeof local_path !== "string" || local_path.trim() === "") {
+        return res
+          .status(400)
+          .json({ error: "local_path is required when is_local_folder is true" });
+      }
+      try {
+        fs.accessSync(local_path, fs.constants.R_OK);
+      } catch (accessErr) {
+        return res.status(400).json({
+          error: `local_path is not readable: ${local_path} (${(accessErr as Error).message})`,
+        });
+      }
+    }
+
     if (on_failure !== undefined && !VALID_ON_FAILURE.includes(on_failure)) {
       return res.status(400).json({ error: "Invalid on_failure" });
     }
@@ -197,7 +212,7 @@ reposRouter.post("/", async (req: Request, res: Response) => {
         max_retries,
         on_parent_child_fail,
         ordering_mode,
-        clone_status: cloned ? "ready" : undefined,
+        clone_status: cloned || is_local_folder ? "ready" : undefined,
       });
 
       return res.status(201).json(repo);
