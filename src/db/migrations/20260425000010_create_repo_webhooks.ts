@@ -10,9 +10,9 @@ export async function up(knex: Knex): Promise<void> {
       .inTable("repos")
       .onDelete("CASCADE");
     table.text("url").notNullable();
-    table.jsonb("events").notNullable();
+    table.text("events").notNullable();
     table.boolean("active").notNullable().defaultTo(true);
-    table.timestamp("created_at", { useTz: true }).notNullable().defaultTo(knex.fn.now());
+    table.timestamp("created_at").notNullable().defaultTo(knex.fn.now());
 
     table.index(["repo_id"], "idx_repo_webhooks_repo_id");
   });

@@ -2,15 +2,32 @@ import { Knex } from "knex";
 import { TaskTemplate } from "../interfaces";
 import { TaskTreeProposal } from "../services/chatService";
 
+interface TaskTemplateRow extends Omit<TaskTemplate, "tree"> {
+  tree: string;
+}
+
+function decodeTree(raw: string): TaskTemplate["tree"] {
+  return JSON.parse(raw) as TaskTemplate["tree"];
+}
+
+function hydrate(row: TaskTemplateRow): TaskTemplate {
+  return { ...row, tree: decodeTree(row.tree) };
+}
+
 export async function getAllTemplates(db: Knex): Promise<TaskTemplate[]> {
-  return db<TaskTemplate>("task_templates").orderBy("created_at", "desc");
+  const rows = await db<TaskTemplateRow>("task_templates").orderBy(
+    "created_at",
+    "desc"
+  );
+  return rows.map(hydrate);
 }
 
 export async function getTemplateById(
   db: Knex,
   id: number
 ): Promise<TaskTemplate | undefined> {
-  return db<TaskTemplate>("task_templates").where({ id }).first();
+  const row = await db<TaskTemplateRow>("task_templates").where({ id }).first();
+  return row ? hydrate(row) : undefined;
 }
 
 export async function createTemplate(
@@ -21,18 +38,16 @@ export async function createTemplate(
     tree: TaskTreeProposal;
   }
 ): Promise<TaskTemplate> {
-  const [row] = await db<TaskTemplate>("task_templates")
+  const [row] = await db<TaskTemplateRow>("task_templates")
     .insert({
       name: data.name,
       description: data.description ?? "",
-      // Serialize so the pg driver hands the jsonb column a string it accepts
-      // without per-call type-casting (mirrors how task_notes.tags is written).
-      tree: JSON.stringify(data.tree) as unknown as TaskTemplate["tree"],
+      tree: JSON.stringify(data.tree),
     })
     .returning("*");
-  return row;
+  return hydrate(row);
 }
 
 export async function deleteTemplate(db: Knex, id: number): Promise<number> {
-  return db<TaskTemplate>("task_templates").where({ id }).delete();
+  return db<TaskTemplateRow>("task_templates").where({ id }).delete();
 }

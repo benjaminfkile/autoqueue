@@ -74,11 +74,8 @@ describe("migration 20260425000001_alter_tasks_add_lease", () => {
         .value as { nullable: jest.Mock };
       expect(textResult.nullable).toHaveBeenCalled();
 
-      // leased_until timestamptz NULL
-      expect(builder.timestamp).toHaveBeenCalledWith(
-        "leased_until",
-        expect.objectContaining({ useTz: true })
-      );
+      // leased_until timestamp NULL (SQLite-compatible — no useTz options arg)
+      expect(builder.timestamp).toHaveBeenCalledWith("leased_until");
       const tsResult = (builder.timestamp as jest.Mock).mock.results[0]
         .value as { nullable: jest.Mock };
       expect(tsResult.nullable).toHaveBeenCalled();

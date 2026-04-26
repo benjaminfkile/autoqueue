@@ -5,8 +5,8 @@ export async function up(knex: Knex): Promise<void> {
     table.increments("id").primary();
     table.string("name").notNullable();
     table.text("description").notNullable().defaultTo("");
-    table.jsonb("tree").notNullable();
-    table.timestamp("created_at", { useTz: true }).notNullable().defaultTo(knex.fn.now());
+    table.text("tree").notNullable();
+    table.timestamp("created_at").notNullable().defaultTo(knex.fn.now());
 
     table.index(["name"], "idx_task_templates_name");
   });

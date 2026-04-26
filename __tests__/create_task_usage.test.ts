@@ -117,14 +117,14 @@ describe("migration 20260425000009_create_task_usage", () => {
       expect(c!.chain.defaultTo).toHaveBeenCalledWith(0);
     });
 
-    it("defines created_at as timestamptz NOT NULL default now()", async () => {
+    it("defines created_at as a NOT NULL timestamp defaulting to now() (SQLite-compatible, no useTz)", async () => {
       const { knex, calls } = runUpAndCapture();
       await up(knex as any);
       const tsCall = calls.find(
         (c) => c.method === "timestamp" && c.args[0] === "created_at"
       );
       expect(tsCall).toBeDefined();
-      expect(tsCall!.args[1]).toEqual(expect.objectContaining({ useTz: true }));
+      expect(tsCall!.args.length).toBe(1);
       expect(tsCall!.chain.notNullable).toHaveBeenCalled();
       expect(tsCall!.chain.defaultTo).toHaveBeenCalled();
     });

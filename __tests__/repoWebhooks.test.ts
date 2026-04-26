@@ -24,10 +24,25 @@ function createMockKnex() {
   return { knex, chain };
 }
 
+function rowFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    repo_id: 7,
+    url: "https://hooks.slack.com/services/X",
+    events: JSON.stringify(["done"]),
+    active: 1,
+    created_at: new Date(),
+    ...overrides,
+  };
+}
+
 describe("getWebhooksByRepoId", () => {
-  it("returns webhooks scoped to a repo, ordered by id ascending so the GUI list is stable", async () => {
+  it("returns webhooks scoped to a repo with events JSON-decoded and active coerced to a boolean", async () => {
     const { knex, chain } = createMockKnex();
-    const rows = [{ id: 1 }, { id: 2 }];
+    const rows = [
+      rowFixture({ id: 1, events: JSON.stringify(["done"]), active: 1 }),
+      rowFixture({ id: 2, events: JSON.stringify(["failed"]), active: 0 }),
+    ];
     chain.orderBy.mockResolvedValueOnce(rows);
 
     const result = await getWebhooksByRepoId(knex as any, 7);
@@ -35,29 +50,38 @@ describe("getWebhooksByRepoId", () => {
     expect(knex).toHaveBeenCalledWith("repo_webhooks");
     expect(chain.where).toHaveBeenCalledWith({ repo_id: 7 });
     expect(chain.orderBy).toHaveBeenCalledWith("id", "asc");
-    expect(result).toBe(rows);
+    expect(result).toHaveLength(2);
+    expect(result[0].events).toEqual(["done"]);
+    expect(result[0].active).toBe(true);
+    expect(result[1].events).toEqual(["failed"]);
+    // SQLite returns booleans as 0/1 integers; the helper coerces these so
+    // callers can rely on real booleans.
+    expect(result[1].active).toBe(false);
   });
 });
 
 describe("getWebhookById", () => {
-  it("returns the row matching the id, or undefined", async () => {
+  it("returns the row matching the id with events parsed, or undefined", async () => {
     const { knex, chain } = createMockKnex();
-    const row = { id: 1 };
-    chain.first.mockResolvedValueOnce(row);
+    chain.first.mockResolvedValueOnce(
+      rowFixture({ id: 1, events: JSON.stringify(["halted"]), active: 1 })
+    );
 
     const result = await getWebhookById(knex as any, 1);
 
     expect(knex).toHaveBeenCalledWith("repo_webhooks");
     expect(chain.where).toHaveBeenCalledWith({ id: 1 });
-    expect(result).toBe(row);
+    expect(result?.events).toEqual(["halted"]);
+    expect(result?.active).toBe(true);
   });
 });
 
 describe("createWebhook", () => {
-  it("inserts the webhook with events JSON-stringified (jsonb storage convention)", async () => {
+  it("inserts the webhook with events JSON-stringified (text storage convention for SQLite)", async () => {
     const { knex, chain } = createMockKnex();
-    const inserted = { id: 1 };
-    chain.returning.mockResolvedValueOnce([inserted]);
+    chain.returning.mockResolvedValueOnce([
+      rowFixture({ id: 1, events: JSON.stringify(["done", "halted"]), active: 1 }),
+    ]);
 
     const result = await createWebhook(knex as any, {
       repo_id: 7,
@@ -74,12 +98,15 @@ describe("createWebhook", () => {
       active: true,
     });
     expect(chain.returning).toHaveBeenCalledWith("*");
-    expect(result).toBe(inserted);
+    expect(result.events).toEqual(["done", "halted"]);
+    expect(result.active).toBe(true);
   });
 
   it("defaults active to true when not specified (new webhooks are live by default)", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 2 }]);
+    chain.returning.mockResolvedValueOnce([
+      rowFixture({ id: 2, events: JSON.stringify(["done"]), active: 1 }),
+    ]);
 
     await createWebhook(knex as any, {
       repo_id: 1,
@@ -96,7 +123,9 @@ describe("createWebhook", () => {
 describe("updateWebhook", () => {
   it("only patches the columns the caller passed in (omits undefined fields)", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+    chain.returning.mockResolvedValueOnce([
+      rowFixture({ id: 1, active: 0 }),
+    ]);
 
     await updateWebhook(knex as any, 1, { active: false });
 
@@ -106,7 +135,9 @@ describe("updateWebhook", () => {
 
   it("re-stringifies events when patching the events array", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+    chain.returning.mockResolvedValueOnce([
+      rowFixture({ id: 1, events: JSON.stringify(["failed"]) }),
+    ]);
 
     await updateWebhook(knex as any, 1, { events: ["failed"] });
 
@@ -117,7 +148,14 @@ describe("updateWebhook", () => {
 
   it("supports patching url, events, and active in a single call", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+    chain.returning.mockResolvedValueOnce([
+      rowFixture({
+        id: 1,
+        url: "https://new.example.com/h",
+        events: JSON.stringify(["done", "failed"]),
+        active: 0,
+      }),
+    ]);
 
     await updateWebhook(knex as any, 1, {
       url: "https://new.example.com/h",
