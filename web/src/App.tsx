@@ -21,6 +21,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import ReposPage from "./pages/ReposPage";
 import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
+import SettingsPanel from "./pages/SettingsPanel";
 import { setupApi } from "./api/client";
 import type { SetupStatus } from "./api/types";
 import {
@@ -39,6 +40,7 @@ export default function App() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const refreshSetup = useCallback(async () => {
@@ -156,6 +158,15 @@ export default function App() {
             <MenuItem
               onClick={() => {
                 setMenuAnchor(null);
+                setSettingsOpen(true);
+              }}
+              data-testid="manage-secrets-menu-item"
+            >
+              Manage secrets…
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setMenuAnchor(null);
                 setResetError(null);
                 setResetOpen(true);
               }}
@@ -171,6 +182,14 @@ export default function App() {
         <ReposPage />
       </Container>
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      {setupStatus && (
+        <SettingsPanel
+          open={settingsOpen}
+          status={setupStatus}
+          onClose={() => setSettingsOpen(false)}
+          onStatusChange={(next) => setSetupStatus(next)}
+        />
+      )}
       <Dialog
         open={resetOpen}
         onClose={() => (resetting ? undefined : setResetOpen(false))}

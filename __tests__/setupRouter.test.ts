@@ -30,7 +30,7 @@ const setMock = secrets.set as jest.Mock;
 const unsetMock = secrets.unset as jest.Mock;
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
 });
 
 describe("setupRouter GET /api/setup", () => {
@@ -168,6 +168,133 @@ describe("setupRouter POST /api/setup", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/disk full/);
+  });
+});
+
+describe("setupRouter PATCH /api/setup", () => {
+  it("updates a single secret without requiring the others", async () => {
+    getMock.mockImplementation((key: string) => {
+      if (key === "ANTHROPIC_API_KEY") return "sk-new";
+      if (key === "GH_PAT") return "ghp_existing";
+      return undefined;
+    });
+
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ ANTHROPIC_API_KEY: "sk-new" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ready).toBe(true);
+    expect(setMock).toHaveBeenCalledTimes(1);
+    expect(setMock).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "sk-new");
+  });
+
+  it("updates both secrets when both are provided", async () => {
+    getMock.mockReturnValue("ok");
+
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ ANTHROPIC_API_KEY: "sk-new", GH_PAT: "ghp_new" });
+
+    expect(res.status).toBe(200);
+    expect(setMock).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "sk-new");
+    expect(setMock).toHaveBeenCalledWith("GH_PAT", "ghp_new");
+  });
+
+  it("trims whitespace before storing", async () => {
+    getMock.mockReturnValue("ok");
+
+    await request(app)
+      .patch("/api/setup")
+      .send({ GH_PAT: "  ghp_new  " });
+
+    expect(setMock).toHaveBeenCalledWith("GH_PAT", "ghp_new");
+  });
+
+  it("rejects empty strings on provided keys", async () => {
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ ANTHROPIC_API_KEY: "   " });
+
+    expect(res.status).toBe(400);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-string values on provided keys", async () => {
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ GH_PAT: 42 });
+
+    expect(res.status).toBe(400);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty payloads", async () => {
+    const res = await request(app).patch("/api/setup").send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least one secret/i);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores unknown keys", async () => {
+    getMock.mockReturnValue("ok");
+
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ UNKNOWN_KEY: "x", ANTHROPIC_API_KEY: "sk-new" });
+
+    expect(res.status).toBe(200);
+    expect(setMock).toHaveBeenCalledTimes(1);
+    expect(setMock).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "sk-new");
+  });
+
+  it("returns 500 when secrets.set throws", async () => {
+    setMock.mockImplementation(() => {
+      throw new Error("disk full");
+    });
+
+    const res = await request(app)
+      .patch("/api/setup")
+      .send({ ANTHROPIC_API_KEY: "sk-new" });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/disk full/);
+  });
+});
+
+describe("setupRouter DELETE /api/setup/:key", () => {
+  it("clears a single required secret", async () => {
+    getMock.mockImplementation((key: string) =>
+      key === "ANTHROPIC_API_KEY" ? undefined : "ghp_existing"
+    );
+
+    const res = await request(app).delete("/api/setup/ANTHROPIC_API_KEY");
+
+    expect(res.status).toBe(200);
+    expect(res.body.configured.ANTHROPIC_API_KEY).toBe(false);
+    expect(res.body.configured.GH_PAT).toBe(true);
+    expect(unsetMock).toHaveBeenCalledTimes(1);
+    expect(unsetMock).toHaveBeenCalledWith("ANTHROPIC_API_KEY");
+  });
+
+  it("rejects unknown keys", async () => {
+    const res = await request(app).delete("/api/setup/SOMETHING_ELSE");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unknown secret key/i);
+    expect(unsetMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when secrets.unset throws", async () => {
+    unsetMock.mockImplementation(() => {
+      throw new Error("write failed");
+    });
+
+    const res = await request(app).delete("/api/setup/GH_PAT");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/write failed/);
   });
 });
 

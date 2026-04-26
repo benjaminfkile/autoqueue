@@ -137,6 +137,15 @@ export const setupApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  update: (input: Partial<SetupInput>) =>
+    apiFetch<SetupStatus>("/api/setup", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  clear: (key: keyof SetupInput) =>
+    apiFetch<SetupStatus>(`/api/setup/${key}`, {
+      method: "DELETE",
+    }),
   reset: () =>
     apiFetch<SetupStatus>("/api/setup", {
       method: "DELETE",
