@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import * as fs from "fs";
 import { getDb } from "../db/db";
 import {
   createRepo,
@@ -16,6 +17,7 @@ import {
 } from "../interfaces";
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
+import { cloneRepoFresh } from "../services/git";
 import { getTemplateById } from "../db/taskTemplates";
 import { getUsageTotalsForRepo } from "../db/taskUsage";
 import {
@@ -152,23 +154,63 @@ reposRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const isActive = active !== false;
-    const repo = await createRepo(db, {
-      owner,
-      repo_name,
-      active: isActive,
-      base_branch,
-      base_branch_parent,
-      require_pr,
-      github_token,
-      is_local_folder,
-      local_path,
-      on_failure,
-      max_retries,
-      on_parent_child_fail,
-      ordering_mode,
-    });
 
-    return res.status(201).json(repo);
+    // For git-backed repos, clone first so the row only ever exists when the
+    // working tree is on disk. A failed clone returns 422 with the git error
+    // and inserts nothing; a successful clone followed by a failed insert
+    // removes the cloned directory so we don't leak an orphaned tree.
+    let cloned = false;
+    let clonedDir: string | null = null;
+    if (!is_local_folder) {
+      const reposPath = process.env.REPOS_PATH ?? "";
+      if (!reposPath) {
+        return res
+          .status(500)
+          .json({ error: "REPOS_PATH is not configured on the server" });
+      }
+      try {
+        clonedDir = await cloneRepoFresh(
+          reposPath,
+          owner as string,
+          repo_name as string
+        );
+        cloned = true;
+      } catch (cloneErr) {
+        return res.status(422).json({
+          error: `Failed to clone ${owner}/${repo_name}: ${(cloneErr as Error).message}`,
+        });
+      }
+    }
+
+    try {
+      const repo = await createRepo(db, {
+        owner,
+        repo_name,
+        active: isActive,
+        base_branch,
+        base_branch_parent,
+        require_pr,
+        github_token,
+        is_local_folder,
+        local_path,
+        on_failure,
+        max_retries,
+        on_parent_child_fail,
+        ordering_mode,
+        clone_status: cloned ? "ready" : undefined,
+      });
+
+      return res.status(201).json(repo);
+    } catch (insertErr) {
+      if (cloned && clonedDir) {
+        try {
+          fs.rmSync(clonedDir, { recursive: true, force: true });
+        } catch {
+          // best-effort cleanup; the insert failure is what we surface
+        }
+      }
+      return res.status(500).json({ error: (insertErr as Error).message });
+    }
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

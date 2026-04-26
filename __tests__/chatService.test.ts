@@ -37,6 +37,8 @@ const repoFixture: Repo = {
   max_retries: 0,
   on_parent_child_fail: "ignore",
   ordering_mode: "sequential",
+  clone_status: "ready",
+  clone_error: null,
   created_at: new Date("2026-04-01T00:00:00Z"),
 };
 

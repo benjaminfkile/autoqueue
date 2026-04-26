@@ -50,6 +50,22 @@ import {
   updateWebhook,
 } from "../src/db/repoWebhooks";
 
+// Mock the git service so POST /api/repos can run its clone-first flow under
+// test without driving real git. cloneRepoFresh is the only entry point the
+// router uses; the per-function git contract is unit-tested in git.test.ts.
+jest.mock("../src/services/git");
+import { cloneRepoFresh } from "../src/services/git";
+
+// Mock fs.rmSync so we can assert the post-clone cleanup happens on a failed
+// insert without touching the filesystem. The router only uses rmSync from fs;
+// other fs calls in the suite (none here, but other suites share state) stay
+// untouched because we requireActual the rest.
+jest.mock("fs", () => {
+  const actual = jest.requireActual("fs");
+  return { ...actual, rmSync: jest.fn() };
+});
+import * as fs from "fs";
+
 const mockRepo = {
   id: 1,
   owner: "octocat",
@@ -70,6 +86,13 @@ const mockRepo = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // POST /api/repos requires REPOS_PATH on the env when cloning a git-backed
+  // repo. Tests that exercise the success path expect cloneRepoFresh to
+  // resolve; suite-wide default keeps the existing tests unchanged.
+  process.env.REPOS_PATH = "/tmp/grunt-test-repos";
+  (cloneRepoFresh as jest.Mock).mockResolvedValue(
+    "/tmp/grunt-test-repos/octocat/hello"
+  );
 });
 
 describe("reposRouter", () => {
@@ -260,6 +283,114 @@ describe("reposRouter", () => {
         });
 
       expect(res.status).toBe(400);
+      expect(createRepo).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------------------------
+    // Clone-first-then-insert (Phase 6 task #288). For git-backed repos,
+    // POST must clone the working tree before inserting the DB row so
+    // a failed clone never produces an orphan row, and a failed insert
+    // never produces an orphan directory.
+    // ----------------------------------------------------------------
+    it("clones the repo before inserting and persists clone_status='ready' on success", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+      (createRepo as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        clone_status: "ready",
+      });
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ owner: "octocat", repo_name: "hello" });
+
+      expect(res.status).toBe(201);
+      expect(cloneRepoFresh).toHaveBeenCalledWith(
+        "/tmp/grunt-test-repos",
+        "octocat",
+        "hello"
+      );
+      // Clone must happen before the insert, otherwise we could leak DB rows
+      // pointing at directories that don't exist.
+      const cloneOrder = (cloneRepoFresh as jest.Mock).mock.invocationCallOrder[0];
+      const createOrder = (createRepo as jest.Mock).mock.invocationCallOrder[0];
+      expect(cloneOrder).toBeLessThan(createOrder);
+      expect(createRepo).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ clone_status: "ready" })
+      );
+    });
+
+    it("returns 422 with the git error and inserts no row when the clone fails", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+      (cloneRepoFresh as jest.Mock).mockRejectedValue(
+        new Error("fatal: repository 'https://github.com/octocat/missing.git/' not found")
+      );
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ owner: "octocat", repo_name: "missing" });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/octocat\/missing/);
+      expect(res.body.error).toMatch(/repository.*not found/);
+      // No row inserted on clone failure — this is the whole point of the
+      // clone-first ordering.
+      expect(createRepo).not.toHaveBeenCalled();
+    });
+
+    it("removes the cloned directory and returns 500 when the DB insert fails after a successful clone", async () => {
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+      (cloneRepoFresh as jest.Mock).mockResolvedValue(
+        "/tmp/grunt-test-repos/octocat/hello"
+      );
+      (createRepo as jest.Mock).mockRejectedValue(new Error("DB exploded"));
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ owner: "octocat", repo_name: "hello" });
+
+      expect(res.status).toBe(500);
+      expect(fs.rmSync).toHaveBeenCalledWith(
+        "/tmp/grunt-test-repos/octocat/hello",
+        { recursive: true, force: true }
+      );
+    });
+
+    it("does not clone when is_local_folder=true (local-folder repos handled by task #289)", async () => {
+      (createRepo as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        is_local_folder: true,
+        local_path: "/some/path",
+      });
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ is_local_folder: true, local_path: "/some/path" });
+
+      expect(res.status).toBe(201);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
+      expect(createRepo).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          is_local_folder: true,
+          // Local-folder repos do not flip clone_status to 'ready' on this
+          // path; that's task #289's job.
+          clone_status: undefined,
+        })
+      );
+    });
+
+    it("returns 500 with a clear error when REPOS_PATH is not configured", async () => {
+      delete process.env.REPOS_PATH;
+      (getRepoByOwnerAndName as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ owner: "octocat", repo_name: "hello" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/REPOS_PATH/);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
       expect(createRepo).not.toHaveBeenCalled();
     });
   });

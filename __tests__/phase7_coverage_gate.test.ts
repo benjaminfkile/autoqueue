@@ -878,6 +878,8 @@ describe("Phase 7 — webhook retry logic (AC #876)", () => {
       max_retries: 3,
       on_parent_child_fail: "mark_partial",
       ordering_mode: "sequential",
+      clone_status: "ready",
+      clone_error: null,
       created_at: new Date(),
     };
     const baseTask: Task = {

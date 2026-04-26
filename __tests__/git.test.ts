@@ -97,6 +97,13 @@ jest.mock("simple-git", () => {
 const fsMockState = {
   existing: new Set<string>(),
   mkdirCalls: [] as string[],
+  mkdtempCalls: [] as string[],
+  renameCalls: [] as Array<[string, string]>,
+  rmCalls: [] as string[],
+  // Lets a test force the next mkdtempSync to return a deterministic path.
+  // Without it the suffix is random; the per-call counter below picks a
+  // stable suffix so assertions can match exactly.
+  mkdtempCounter: 0,
 };
 
 jest.mock("fs", () => {
@@ -107,12 +114,25 @@ jest.mock("fs", () => {
     mkdirSync: jest.fn((p: string) => {
       fsMockState.mkdirCalls.push(p);
     }),
+    mkdtempSync: jest.fn((prefix: string) => {
+      fsMockState.mkdtempCounter += 1;
+      const dir = `${prefix}${fsMockState.mkdtempCounter}`;
+      fsMockState.mkdtempCalls.push(dir);
+      return dir;
+    }),
+    renameSync: jest.fn((from: string, to: string) => {
+      fsMockState.renameCalls.push([from, to]);
+    }),
+    rmSync: jest.fn((p: string) => {
+      fsMockState.rmCalls.push(p);
+    }),
   };
 });
 
 import {
   checkoutBaseBranch,
   cloneOrPull,
+  cloneRepoFresh,
   commitAndPush,
   commitAndPushTask,
   createIssueBranch,
@@ -138,6 +158,10 @@ beforeEach(() => {
   };
   fsMockState.existing = new Set();
   fsMockState.mkdirCalls = [];
+  fsMockState.mkdtempCalls = [];
+  fsMockState.renameCalls = [];
+  fsMockState.rmCalls = [];
+  fsMockState.mkdtempCounter = 0;
 });
 
 describe("createTaskBranch", () => {
@@ -467,6 +491,81 @@ describe("cloneOrPull", () => {
     expect(fetchGit.dir).toBe(dir);
     expect(fetchGit.fetch).toHaveBeenCalled();
     expect(fetchGit.clone).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cloneRepoFresh — task #288. Clone-first-then-move so a failed clone never
+// leaves a partial directory at the final REPOS_PATH/{owner}/{name} location,
+// and so the caller can tie a DB row insert to the on-disk handshake.
+// ---------------------------------------------------------------------------
+describe("cloneRepoFresh", () => {
+  it("clones into a sibling temp dir and renames into place on success", async () => {
+    const finalDir = path.join("/repos", "octocat", "hello");
+    const result = await cloneRepoFresh("/repos", "octocat", "hello");
+
+    expect(result).toBe(finalDir);
+    // The owner dir is created up-front so mkdtemp + rename are on the same
+    // filesystem (rename across volumes throws EXDEV).
+    expect(fsMockState.mkdirCalls).toContain(path.join("/repos", "octocat"));
+    // mkdtemp prefix lives under the owner dir so the eventual rename to
+    // <owner>/<name> stays on the same filesystem.
+    expect(fsMockState.mkdtempCalls).toHaveLength(1);
+    const tempDir = fsMockState.mkdtempCalls[0];
+    expect(tempDir.startsWith(path.join("/repos", "octocat", ".tmp-hello-"))).toBe(
+      true
+    );
+    // simple-git is invoked at top level (no dir) and clones into the temp.
+    const cloneGit = mockState.instances[0];
+    expect(cloneGit.clone).toHaveBeenCalledWith(
+      "https://pat-token@github.com/octocat/hello.git",
+      tempDir
+    );
+    // Rename promotes the temp to the final location.
+    expect(fsMockState.renameCalls).toEqual([[tempDir, finalDir]]);
+    // Successful path leaves no rmSync cleanup.
+    expect(fsMockState.rmCalls).toEqual([]);
+  });
+
+  it("refuses to clone when the final directory already exists", async () => {
+    const finalDir = path.join("/repos", "octocat", "hello");
+    fsMockState.existing.add(finalDir);
+
+    await expect(cloneRepoFresh("/repos", "octocat", "hello")).rejects.toThrow(
+      /already exists/
+    );
+    // Nothing got staged before the guard fired.
+    expect(fsMockState.mkdtempCalls).toEqual([]);
+    expect(mockState.instances).toHaveLength(0);
+  });
+
+  it("removes the temp dir and rethrows when git clone fails (no orphaned partial)", async () => {
+    // Override the simpleGit factory's clone for the next instance to throw.
+    // The mock's default clone resolves; flipping it on the next created
+    // instance models a real auth/network failure.
+    const originalSimpleGit = jest.requireMock("simple-git").default;
+    const failingFactory = (dir: string) => {
+      const inst = originalSimpleGit(dir);
+      inst.clone = jest
+        .fn()
+        .mockRejectedValue(new Error("fatal: Authentication failed"));
+      return inst;
+    };
+    jest.requireMock("simple-git").default = failingFactory;
+
+    try {
+      await expect(
+        cloneRepoFresh("/repos", "octocat", "hello")
+      ).rejects.toThrow(/Authentication failed/);
+
+      // Temp dir was cleaned up so a retry can re-mkdtemp without colliding.
+      expect(fsMockState.rmCalls).toHaveLength(1);
+      expect(fsMockState.rmCalls[0]).toBe(fsMockState.mkdtempCalls[0]);
+      // Crucially, no rename happened — the final location is still pristine.
+      expect(fsMockState.renameCalls).toEqual([]);
+    } finally {
+      jest.requireMock("simple-git").default = originalSimpleGit;
+    }
   });
 });
 
