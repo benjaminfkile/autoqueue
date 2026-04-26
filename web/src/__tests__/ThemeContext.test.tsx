@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useTheme } from "@mui/material/styles";
-import { ThemeProvider, useThemeMode } from "../theme/ThemeContext";
+import {
+  THEME_STORAGE_KEY,
+  ThemeProvider,
+  useThemeMode,
+} from "../theme/ThemeContext";
 
 interface MockMediaQueryList {
   matches: boolean;
@@ -73,11 +77,13 @@ describe("ThemeContext", () => {
   let mql: MockMediaQueryList;
 
   beforeEach(() => {
+    window.localStorage.clear();
     mql = installMatchMediaMock(false);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it("exposes mode, setMode, and resolvedMode and defaults to system mode", () => {
@@ -139,5 +145,73 @@ describe("ThemeContext", () => {
 
     expect(screen.getByTestId("resolved")).toHaveTextContent("dark");
     expect(screen.getByTestId("mui-mode")).toHaveTextContent("dark");
+  });
+
+  it("defaults to 'system' on first visit when no value is stored", () => {
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId("mode")).toHaveTextContent("system");
+  });
+
+  it("persists mode changes to localStorage", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "set-dark" }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+
+    await user.click(screen.getByRole("button", { name: "set-light" }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+
+    await user.click(screen.getByRole("button", { name: "set-system" }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("system");
+  });
+
+  it("reads the stored mode on mount so the choice survives reloads", () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId("mode")).toHaveTextContent("dark");
+    expect(screen.getByTestId("resolved")).toHaveTextContent("dark");
+    expect(screen.getByTestId("mui-mode")).toHaveTextContent("dark");
+  });
+
+  it("uses the correct mode on the very first render to avoid a flash", () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    let firstRenderMode: string | null = null;
+    function CaptureFirstRender() {
+      const { resolvedMode } = useThemeMode();
+      if (firstRenderMode === null) {
+        firstRenderMode = resolvedMode;
+      }
+      return null;
+    }
+    render(
+      <ThemeProvider>
+        <CaptureFirstRender />
+      </ThemeProvider>
+    );
+    expect(firstRenderMode).toBe("dark");
+  });
+
+  it("ignores invalid values in localStorage and falls back to 'system'", () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "neon");
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId("mode")).toHaveTextContent("system");
   });
 });

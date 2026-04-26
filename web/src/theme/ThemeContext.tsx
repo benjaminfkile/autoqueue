@@ -25,12 +25,40 @@ export interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
+export const THEME_STORAGE_KEY = "grunt_theme_mode";
 
 function getSystemPrefersDark(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return false;
   }
   return window.matchMedia(SYSTEM_DARK_QUERY).matches;
+}
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === "light" || value === "dark" || value === "system";
+}
+
+function readStoredMode(): ThemeMode | null {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return null;
+  }
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return isThemeMode(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredMode(mode: ThemeMode): void {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, mode);
+  } catch {
+    // Ignore storage failures (e.g., quota exceeded, private mode).
+  }
 }
 
 export interface ThemeProviderProps {
@@ -40,9 +68,11 @@ export interface ThemeProviderProps {
 
 export function ThemeProvider({
   children,
-  initialMode = "system",
+  initialMode,
 }: ThemeProviderProps) {
-  const [mode, setModeState] = useState<ThemeMode>(initialMode);
+  const [mode, setModeState] = useState<ThemeMode>(
+    () => initialMode ?? readStoredMode() ?? "system"
+  );
   const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() =>
     getSystemPrefersDark()
   );
@@ -69,6 +99,7 @@ export function ThemeProvider({
 
   const setMode = useCallback((next: ThemeMode) => {
     setModeState(next);
+    writeStoredMode(next);
   }, []);
 
   const contextValue = useMemo<ThemeContextValue>(
