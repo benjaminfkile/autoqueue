@@ -50,6 +50,17 @@ import {
   updateWebhook,
 } from "../src/db/repoWebhooks";
 
+// Mock the repo-links DB layer so /api/repos/:id/links tests stay focused on
+// HTTP plumbing — the persistence contract is unit-tested in repoLinks.test.ts.
+jest.mock("../src/db/repoLinks");
+import {
+  createLink,
+  deleteLink,
+  getLinkById,
+  listLinksForRepo,
+  updateLinkPermission,
+} from "../src/db/repoLinks";
+
 // Mock the git service so POST /api/repos can run its clone-first flow under
 // test without driving real git. cloneRepoFresh is the only entry point the
 // router uses; the per-function git contract is unit-tested in git.test.ts.
@@ -1179,6 +1190,321 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(204);
       expect(deleteWebhook).toHaveBeenCalledWith(expect.anything(), 9);
+    });
+  });
+
+  // --------------------------------------------------------------------
+  // /api/repos/:id/links — symmetric repo-to-repo links. The DB layer is
+  // mocked; these tests pin the HTTP contract: validation (permission
+  // enum, self-link guard, integer other_repo_id), 404 paths for both
+  // repos and the link itself, and pass-through to the DB helpers.
+  // --------------------------------------------------------------------
+  const linkFixture = {
+    id: 7,
+    repo_a_id: 1,
+    repo_b_id: 2,
+    role: null,
+    permission: "read" as const,
+    created_at: new Date(),
+  };
+
+  describe("GET /api/repos/:id/links", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app).get("/api/repos/abc/links");
+      expect(res.status).toBe(400);
+      expect(listLinksForRepo).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app).get("/api/repos/1/links");
+      expect(res.status).toBe(404);
+      expect(listLinksForRepo).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with the links scoped to the repo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (listLinksForRepo as jest.Mock).mockResolvedValue([linkFixture]);
+
+      const res = await request(app).get("/api/repos/1/links");
+
+      expect(res.status).toBe(200);
+      expect(listLinksForRepo).toHaveBeenCalledWith(expect.anything(), 1);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        id: 7,
+        repo_a_id: 1,
+        repo_b_id: 2,
+        permission: "read",
+      });
+    });
+  });
+
+  describe("POST /api/repos/:id/links", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app)
+        .post("/api/repos/abc/links")
+        .send({ other_repo_id: 2 });
+      expect(res.status).toBe(400);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2 });
+      expect(res.status).toBe(404);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing other_repo_id with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app).post("/api/repos/1/links").send({});
+      expect(res.status).toBe(400);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-integer other_repo_id with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 1.5 });
+      expect(res.status).toBe(400);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("rejects linking a repo to itself with 400 (canonical pair would collapse to (id,id))", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 1 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/itself/i);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unknown permission value with 400 (enum is read|write only)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2, permission: "admin" });
+      expect(res.status).toBe(400);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-string role with 400", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2, role: 42 });
+      expect(res.status).toBe(400);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the other repo does not exist", async () => {
+      (getRepoById as jest.Mock)
+        .mockResolvedValueOnce(mockRepo)
+        .mockResolvedValueOnce(undefined);
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 99 });
+      expect(res.status).toBe(404);
+      expect(createLink).not.toHaveBeenCalled();
+    });
+
+    it("creates the link and returns 201 with the inserted row, defaulting role and permission", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (createLink as jest.Mock).mockResolvedValue(linkFixture);
+
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2 });
+
+      expect(res.status).toBe(201);
+      expect(createLink).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        2,
+        undefined,
+        undefined
+      );
+      expect(res.body).toMatchObject({ id: 7, repo_a_id: 1, repo_b_id: 2 });
+    });
+
+    it("passes through an explicit role and permission to the DB layer", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (createLink as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        role: "shared-types",
+        permission: "write",
+      });
+
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2, role: "shared-types", permission: "write" });
+
+      expect(res.status).toBe(201);
+      expect(createLink).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        2,
+        "shared-types",
+        "write"
+      );
+      expect(res.body.permission).toBe("write");
+    });
+
+    it("returns 409 when the unique-pair index rejects a duplicate link", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (createLink as jest.Mock).mockRejectedValue(
+        new Error("SQLITE_CONSTRAINT: UNIQUE constraint failed")
+      );
+
+      const res = await request(app)
+        .post("/api/repos/1/links")
+        .send({ other_repo_id: 2 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/already/i);
+    });
+  });
+
+  describe("PATCH /api/repos/:id/links/:linkId", () => {
+    it("returns 400 when ids are not numeric", async () => {
+      const res = await request(app)
+        .patch("/api/repos/abc/links/9")
+        .send({ permission: "write" });
+      expect(res.status).toBe(400);
+      expect(updateLinkPermission).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the link does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app)
+        .patch("/api/repos/1/links/99")
+        .send({ permission: "write" });
+      expect(res.status).toBe(404);
+      expect(updateLinkPermission).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the link does not include this repo (cross-tenant safety)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        repo_a_id: 555,
+        repo_b_id: 666,
+      });
+      const res = await request(app)
+        .patch("/api/repos/1/links/7")
+        .send({ permission: "write" });
+      expect(res.status).toBe(404);
+      expect(updateLinkPermission).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unknown permission value with 400 (enum is read|write only)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(linkFixture);
+      const res = await request(app)
+        .patch("/api/repos/1/links/7")
+        .send({ permission: "admin" });
+      expect(res.status).toBe(400);
+      expect(updateLinkPermission).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing permission with 400 (it's the only mutable field)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(linkFixture);
+      const res = await request(app).patch("/api/repos/1/links/7").send({});
+      expect(res.status).toBe(400);
+      expect(updateLinkPermission).not.toHaveBeenCalled();
+    });
+
+    it("accepts the link when this repo is on the b-side (symmetric membership)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        repo_a_id: 9,
+        repo_b_id: 1,
+      });
+      (updateLinkPermission as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        repo_a_id: 9,
+        repo_b_id: 1,
+        permission: "write",
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1/links/7")
+        .send({ permission: "write" });
+
+      expect(res.status).toBe(200);
+      expect(updateLinkPermission).toHaveBeenCalledWith(
+        expect.anything(),
+        7,
+        "write"
+      );
+    });
+
+    it("updates the permission and returns the updated row", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(linkFixture);
+      (updateLinkPermission as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        permission: "write",
+      });
+
+      const res = await request(app)
+        .patch("/api/repos/1/links/7")
+        .send({ permission: "write" });
+
+      expect(res.status).toBe(200);
+      expect(updateLinkPermission).toHaveBeenCalledWith(
+        expect.anything(),
+        7,
+        "write"
+      );
+      expect(res.body.permission).toBe("write");
+    });
+  });
+
+  describe("DELETE /api/repos/:id/links/:linkId", () => {
+    it("returns 400 when ids are not numeric", async () => {
+      const res = await request(app).delete("/api/repos/1/links/abc");
+      expect(res.status).toBe(400);
+      expect(deleteLink).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the link does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app).delete("/api/repos/1/links/9");
+      expect(res.status).toBe(404);
+      expect(deleteLink).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the link does not include this repo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue({
+        ...linkFixture,
+        repo_a_id: 100,
+        repo_b_id: 200,
+      });
+      const res = await request(app).delete("/api/repos/1/links/7");
+      expect(res.status).toBe(404);
+      expect(deleteLink).not.toHaveBeenCalled();
+    });
+
+    it("returns 204 on successful delete", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (getLinkById as jest.Mock).mockResolvedValue(linkFixture);
+      (deleteLink as jest.Mock).mockResolvedValue(1);
+
+      const res = await request(app).delete("/api/repos/1/links/7");
+
+      expect(res.status).toBe(204);
+      expect(deleteLink).toHaveBeenCalledWith(expect.anything(), 7);
     });
   });
 });
