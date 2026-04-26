@@ -18,6 +18,12 @@ jest.mock("../src/db/health", () => ({
 jest.mock("../src/db/workers");
 import { getActiveWorkers } from "../src/db/workers";
 
+jest.mock("../src/db/appSettings", () => ({
+  isPullWorkerPaused: jest.fn(),
+  setPullWorkerPaused: jest.fn(),
+}));
+import { isPullWorkerPaused, setPullWorkerPaused } from "../src/db/appSettings";
+
 import { WORKER_ID } from "../src/services/scheduler";
 
 const ORIGINAL_IS_WORKER = process.env.IS_WORKER;
@@ -144,4 +150,86 @@ describe("systemRouter GET /api/system/worker-status", () => {
     expect(res.body.error).toMatch(/db down/);
   });
 
+});
+
+describe("systemRouter GET /api/system/pull-worker", () => {
+  it("returns paused=false when no setting has been written yet", async () => {
+    (isPullWorkerPaused as jest.Mock).mockResolvedValue(false);
+
+    const res = await request(app).get("/api/system/pull-worker");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ paused: false });
+  });
+
+  it("returns paused=true when the worker has been paused via settings", async () => {
+    (isPullWorkerPaused as jest.Mock).mockResolvedValue(true);
+
+    const res = await request(app).get("/api/system/pull-worker");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ paused: true });
+  });
+
+  it("returns 500 with the error message when the settings query throws", async () => {
+    (isPullWorkerPaused as jest.Mock).mockRejectedValue(new Error("db down"));
+
+    const res = await request(app).get("/api/system/pull-worker");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/db down/);
+  });
+});
+
+describe("systemRouter PATCH /api/system/pull-worker", () => {
+  it("persists paused=true and echoes the new state", async () => {
+    (setPullWorkerPaused as jest.Mock).mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .patch("/api/system/pull-worker")
+      .send({ paused: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ paused: true });
+    expect(setPullWorkerPaused).toHaveBeenCalledWith(
+      expect.anything(),
+      true
+    );
+  });
+
+  it("persists paused=false (resume)", async () => {
+    (setPullWorkerPaused as jest.Mock).mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .patch("/api/system/pull-worker")
+      .send({ paused: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ paused: false });
+    expect(setPullWorkerPaused).toHaveBeenCalledWith(
+      expect.anything(),
+      false
+    );
+  });
+
+  it("rejects non-boolean paused values with a 400", async () => {
+    const res = await request(app)
+      .patch("/api/system/pull-worker")
+      .send({ paused: "yes" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/paused must be boolean/);
+    expect(setPullWorkerPaused).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 with the error message when the persistence write throws", async () => {
+    (setPullWorkerPaused as jest.Mock).mockRejectedValue(new Error("db down"));
+
+    const res = await request(app)
+      .patch("/api/system/pull-worker")
+      .send({ paused: true });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/db down/);
+  });
 });

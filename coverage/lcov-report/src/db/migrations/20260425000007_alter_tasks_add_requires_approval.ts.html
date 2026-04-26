@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/db/migrations/20260425000001_alter_tasks_add_lease.ts</title>
+    <title>Code coverage report for src/db/migrations/20260425000007_alter_tasks_add_requires_approval.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../../prettify.css" />
     <link rel="stylesheet" href="../../../base.css" />
@@ -19,13 +19,13 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../../index.html">All files</a> / <a href="index.html">src/db/migrations</a> 20260425000001_alter_tasks_add_lease.ts</h1>
+        <h1><a href="../../../index.html">All files</a> / <a href="index.html">src/db/migrations</a> 20260425000007_alter_tasks_add_requires_approval.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>10/10</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>10/10</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
@@ -76,22 +76,14 @@
 <a name='L11'></a><a href='#L11'>11</a>
 <a name='L12'></a><a href='#L12'>12</a>
 <a name='L13'></a><a href='#L13'>13</a>
-<a name='L14'></a><a href='#L14'>14</a>
-<a name='L15'></a><a href='#L15'>15</a>
-<a name='L16'></a><a href='#L16'>16</a>
-<a name='L17'></a><a href='#L17'>17</a>
-<a name='L18'></a><a href='#L18'>18</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L14'></a><a href='#L14'>14</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -101,17 +93,13 @@
 &nbsp;
 export async function up(knex: Knex): Promise&lt;void&gt; {
   await knex.schema.alterTable("tasks", (table) =&gt; {
-    table.text("worker_id").nullable();
-    table.timestamp("leased_until").nullable();
-    table.index(["status", "leased_until"], "idx_tasks_status_leased_until");
+    table.boolean("requires_approval").notNullable().defaultTo(false);
   });
 }
 &nbsp;
 export async function down(knex: Knex): Promise&lt;void&gt; {
   await knex.schema.alterTable("tasks", (table) =&gt; {
-    table.dropIndex(["status", "leased_until"], "idx_tasks_status_leased_until");
-    table.dropColumn("worker_id");
-    table.dropColumn("leased_until");
+    table.dropColumn("requires_approval");
   });
 }
 &nbsp;</pre></td></tr></table></pre>

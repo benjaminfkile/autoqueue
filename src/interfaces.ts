@@ -10,6 +10,9 @@ export interface IAppSecrets {
   API_KEY_HASH: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS?: string;
+  // How often (in seconds) the background pull worker fetches+pulls each
+  // git-backed repo's clone to keep it fresh. Defaults to 600s when unset.
+  PULL_WORKER_INTERVAL_SECONDS?: string;
   CLAUDE_PATH?: string;
   IS_WORKER?: string;
   // Selects which auth provider chain protects the API. Comma-separated list;

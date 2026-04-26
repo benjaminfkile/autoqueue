@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/db/migrations/20260425000001_alter_tasks_add_lease.ts</title>
+    <title>Code coverage report for src/db/migrations/20260425000008_create_task_templates.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../../prettify.css" />
     <link rel="stylesheet" href="../../../base.css" />
@@ -19,7 +19,7 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../../index.html">All files</a> / <a href="index.html">src/db/migrations</a> 20260425000001_alter_tasks_add_lease.ts</h1>
+        <h1><a href="../../../index.html">All files</a> / <a href="index.html">src/db/migrations</a> 20260425000008_create_task_templates.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
@@ -39,7 +39,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>4/4</span>
+                <span class='fraction'>3/3</span>
             </div>
         
             
@@ -83,36 +83,36 @@
 <a name='L18'></a><a href='#L18'>18</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Knex } from "knex";
 &nbsp;
 export async function up(knex: Knex): Promise&lt;void&gt; {
-  await knex.schema.alterTable("tasks", (table) =&gt; {
-    table.text("worker_id").nullable();
-    table.timestamp("leased_until").nullable();
-    table.index(["status", "leased_until"], "idx_tasks_status_leased_until");
+  await knex.schema.createTable("task_templates", (table) =&gt; {
+    table.increments("id").primary();
+    table.string("name").notNullable();
+    table.text("description").notNullable().defaultTo("");
+    table.text("tree").notNullable();
+    table.timestamp("created_at").notNullable().defaultTo(knex.fn.now());
+&nbsp;
+    table.index(["name"], "idx_task_templates_name");
   });
 }
 &nbsp;
 export async function down(knex: Knex): Promise&lt;void&gt; {
-  await knex.schema.alterTable("tasks", (table) =&gt; {
-    table.dropIndex(["status", "leased_until"], "idx_tasks_status_leased_until");
-    table.dropColumn("worker_id");
-    table.dropColumn("leased_until");
-  });
+  await knex.schema.dropTableIfExists("task_templates");
 }
 &nbsp;</pre></td></tr></table></pre>
 

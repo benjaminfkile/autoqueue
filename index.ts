@@ -8,6 +8,7 @@ import { IAppSecrets } from "./src/interfaces";
 import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
+import { startPullWorker } from "./src/services/pullWorker";
 import * as secrets from "./src/secrets";
 import morgan from "morgan";
 
@@ -28,6 +29,7 @@ function loadAppConfig(): IAppSecrets {
     API_KEY_HASH: process.env.API_KEY_HASH ?? "",
     REPOS_PATH: process.env.REPOS_PATH ?? "",
     POLL_INTERVAL_SECONDS: process.env.POLL_INTERVAL_SECONDS,
+    PULL_WORKER_INTERVAL_SECONDS: process.env.PULL_WORKER_INTERVAL_SECONDS,
     CLAUDE_PATH: process.env.CLAUDE_PATH,
     IS_WORKER: process.env.IS_WORKER,
   };
@@ -84,6 +86,7 @@ async function start() {
     );
 
     startScheduler(getDb(), appConfig);
+    startPullWorker(getDb(), appConfig);
 
     const server = http.createServer(app);
 
