@@ -12,19 +12,18 @@ const health = {
     try {
       await db.raw("SELECT 1+1 AS result");
 
-      const host = db.client.config.connection.host;
-      const connectionUsesProxy = host?.includes("proxy") ?? false;
+      const filename: string | undefined =
+        db.client.config.connection?.filename;
 
       if (verbose) {
         messages.push("Database connection successful");
-        messages.push(`Host: ${host}`);
-        messages.push(`Using proxy: ${connectionUsesProxy}`);
+        messages.push(`File: ${filename}`);
       }
 
       return {
         connected: true,
-        connectionUsesProxy,
-        ...(verbose && { logs: { messages, host, timestamp } }),
+        connectionUsesProxy: false,
+        ...(verbose && { logs: { messages, host: filename, timestamp } }),
       };
     } catch (err: any) {
       if (verbose) {
