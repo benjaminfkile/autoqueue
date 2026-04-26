@@ -57,12 +57,13 @@ jest.mock("../src/services/git");
 import { cloneRepoFresh } from "../src/services/git";
 
 // Mock fs.rmSync so we can assert the post-clone cleanup happens on a failed
-// insert without touching the filesystem. The router only uses rmSync from fs;
-// other fs calls in the suite (none here, but other suites share state) stay
-// untouched because we requireActual the rest.
+// insert without touching the filesystem, and fs.accessSync so the
+// local-folder validation in POST /api/repos can be steered without depending
+// on real paths existing on the host. The router uses only these two fs
+// entry points; everything else falls through to the real module.
 jest.mock("fs", () => {
   const actual = jest.requireActual("fs");
-  return { ...actual, rmSync: jest.fn() };
+  return { ...actual, rmSync: jest.fn(), accessSync: jest.fn() };
 });
 import * as fs from "fs";
 
@@ -356,11 +357,13 @@ describe("reposRouter", () => {
       );
     });
 
-    it("does not clone when is_local_folder=true (local-folder repos handled by task #289)", async () => {
+    it("does not clone when is_local_folder=true and inserts with clone_status='ready' once the path passes validation", async () => {
+      (fs.accessSync as jest.Mock).mockReturnValue(undefined);
       (createRepo as jest.Mock).mockResolvedValue({
         ...mockRepo,
         is_local_folder: true,
         local_path: "/some/path",
+        clone_status: "ready",
       });
 
       const res = await request(app)
@@ -369,15 +372,64 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(201);
       expect(cloneRepoFresh).not.toHaveBeenCalled();
+      // Validation must hit the supplied path with read access, otherwise we
+      // would happily insert a row pointing at a folder we can't read.
+      expect(fs.accessSync).toHaveBeenCalledWith(
+        "/some/path",
+        fs.constants.R_OK
+      );
       expect(createRepo).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           is_local_folder: true,
-          // Local-folder repos do not flip clone_status to 'ready' on this
-          // path; that's task #289's job.
-          clone_status: undefined,
+          local_path: "/some/path",
+          clone_status: "ready",
         })
       );
+    });
+
+    // ----------------------------------------------------------------
+    // Local-folder validation (Phase 6 task #289). When is_local_folder
+    // is true, the router must reject the insert if local_path is
+    // missing or unreadable, and must persist clone_status='ready'
+    // when the path is valid (covered above).
+    // ----------------------------------------------------------------
+    it("rejects is_local_folder=true with a missing local_path (400)", async () => {
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ is_local_folder: true });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/local_path/);
+      // Reject before any side effects — no validation, no insert, no fs probe.
+      expect(fs.accessSync).not.toHaveBeenCalled();
+      expect(createRepo).not.toHaveBeenCalled();
+    });
+
+    it("rejects is_local_folder=true with an empty local_path (400)", async () => {
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ is_local_folder: true, local_path: "   " });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/local_path/);
+      expect(fs.accessSync).not.toHaveBeenCalled();
+      expect(createRepo).not.toHaveBeenCalled();
+    });
+
+    it("rejects is_local_folder=true with an unreadable local_path (400) and inserts no row", async () => {
+      (fs.accessSync as jest.Mock).mockImplementation(() => {
+        throw new Error("EACCES: permission denied, access '/locked/path'");
+      });
+
+      const res = await request(app)
+        .post("/api/repos")
+        .send({ is_local_folder: true, local_path: "/locked/path" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/local_path/);
+      expect(res.body.error).toMatch(/\/locked\/path/);
+      expect(createRepo).not.toHaveBeenCalled();
     });
 
     it("returns 500 with a clear error when REPOS_PATH is not configured", async () => {
