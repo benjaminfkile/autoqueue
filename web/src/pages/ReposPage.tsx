@@ -23,6 +23,7 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput, TokenUsageTotals } from "../api/types";
+import { useVisibilityAwarePolling } from "../hooks/useVisibilityAwarePolling";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
 import RepoSettingsPanel from "./repos/RepoSettingsPanel";
@@ -63,66 +64,99 @@ export default function ReposPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [settingsRepoId, setSettingsRepoId] = useState<number | null>(null);
 
-  const loadStatsForRepo = useCallback(async (repoId: number) => {
-    setRepoStats((prev) => ({
-      ...prev,
-      [repoId]: {
-        counts: prev[repoId]?.counts ?? emptyCounts(),
-        lastActivity: prev[repoId]?.lastActivity ?? null,
-        loading: true,
-        error: null,
-        usage: prev[repoId]?.usage ?? null,
-      },
-    }));
-    try {
-      // Fetch tasks (for status counts) and usage totals in parallel; surface
-      // task errors prominently while letting usage failures degrade silently
-      // — usage is supplementary, not required for the row to render.
-      const [tasks, usageResp] = await Promise.all([
-        tasksApi.listByRepo(repoId),
-        reposApi.usage(repoId).catch(() => null),
-      ]);
-      setRepoStats((prev) => ({
-        ...prev,
-        [repoId]: {
-          counts: countTasksByStatus(tasks),
-          lastActivity: lastActivityIso(tasks),
-          loading: false,
-          error: null,
-          usage: usageResp?.totals ?? null,
-        },
-      }));
-    } catch (err) {
-      setRepoStats((prev) => ({
-        ...prev,
-        [repoId]: {
-          counts: prev[repoId]?.counts ?? emptyCounts(),
-          lastActivity: prev[repoId]?.lastActivity ?? null,
-          loading: false,
-          error: err instanceof Error ? err.message : "Failed to load tasks",
-          usage: prev[repoId]?.usage ?? null,
-        },
-      }));
-    }
-  }, []);
+  const loadStatsForRepo = useCallback(
+    async (repoId: number, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (!silent) {
+        setRepoStats((prev) => ({
+          ...prev,
+          [repoId]: {
+            counts: prev[repoId]?.counts ?? emptyCounts(),
+            lastActivity: prev[repoId]?.lastActivity ?? null,
+            loading: true,
+            error: null,
+            usage: prev[repoId]?.usage ?? null,
+          },
+        }));
+      }
+      try {
+        // Fetch tasks (for status counts) and usage totals in parallel; surface
+        // task errors prominently while letting usage failures degrade silently
+        // — usage is supplementary, not required for the row to render.
+        const [tasks, usageResp] = await Promise.all([
+          tasksApi.listByRepo(repoId),
+          reposApi.usage(repoId).catch(() => null),
+        ]);
+        setRepoStats((prev) => ({
+          ...prev,
+          [repoId]: {
+            counts: countTasksByStatus(tasks),
+            lastActivity: lastActivityIso(tasks),
+            loading: false,
+            error: null,
+            usage: usageResp?.totals ?? null,
+          },
+        }));
+      } catch (err) {
+        setRepoStats((prev) => ({
+          ...prev,
+          [repoId]: {
+            counts: prev[repoId]?.counts ?? emptyCounts(),
+            lastActivity: prev[repoId]?.lastActivity ?? null,
+            loading: false,
+            // During silent polling, preserve the prior error so a transient
+            // failure doesn't replace a still-displayed value with red text.
+            error: silent
+              ? prev[repoId]?.error ?? null
+              : err instanceof Error
+                ? err.message
+                : "Failed to load tasks",
+            usage: prev[repoId]?.usage ?? null,
+          },
+        }));
+      }
+    },
+    []
+  );
 
-  const loadRepos = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const list = await reposApi.list();
-      setRepos(list);
-      setLoading(false);
-      await Promise.all(list.map((r) => loadStatsForRepo(r.id)));
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load repos");
-      setLoading(false);
-    }
-  }, [loadStatsForRepo]);
+  const loadRepos = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (!silent) {
+        setLoading(true);
+        setLoadError(null);
+      }
+      try {
+        const list = await reposApi.list();
+        setRepos(list);
+        if (!silent) {
+          setLoading(false);
+        }
+        await Promise.all(list.map((r) => loadStatsForRepo(r.id, opts)));
+      } catch (err) {
+        if (!silent) {
+          setLoadError(
+            err instanceof Error ? err.message : "Failed to load repos"
+          );
+          setLoading(false);
+        }
+        // Silent polling failures are intentionally swallowed — the next tick
+        // will retry and we don't want a transient network hiccup to surface
+        // a banner alert mid-session.
+      }
+    },
+    [loadStatsForRepo]
+  );
 
   useEffect(() => {
     void loadRepos();
   }, [loadRepos]);
+
+  const pollFetcher = useCallback(
+    () => loadRepos({ silent: true }),
+    [loadRepos]
+  );
+  useVisibilityAwarePolling(pollFetcher);
 
   const sortedRepos = useMemo(
     () =>
