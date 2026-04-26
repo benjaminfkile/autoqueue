@@ -76,8 +76,8 @@ async function start() {
       });
     });
 
-    server.listen(port, () => {
-      console.log(`⚡️[server]: Running at http://localhost:${port}`);
+    server.listen(port, "127.0.0.1", () => {
+      console.log(`⚡️[server]: Running at http://127.0.0.1:${port}`);
     });
   } catch (err) {
     console.error("Failed to start server:", err);
