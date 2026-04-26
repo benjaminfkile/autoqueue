@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import { getActiveWorkers } from "../db/workers";
 import { WORKER_ID } from "../services/scheduler";
+import { isPullWorkerPaused, setPullWorkerPaused } from "../db/appSettings";
 
 const systemRouter = express.Router();
 
@@ -34,6 +35,39 @@ systemRouter.get("/worker-status", async (_req: Request, res: Response) => {
       this_worker_id: isWorker ? WORKER_ID : null,
       active_workers,
     });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * GET /api/system/pull-worker
+ * Reports whether the background clone-refresh worker is currently paused.
+ */
+systemRouter.get("/pull-worker", async (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const paused = await isPullWorkerPaused(db);
+    return res.status(200).json({ paused });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * PATCH /api/system/pull-worker
+ * Pauses or resumes the background pull worker. The flag is persisted in the
+ * app_settings table so the choice survives restarts.
+ */
+systemRouter.patch("/pull-worker", async (req: Request, res: Response) => {
+  try {
+    const { paused } = req.body as { paused?: unknown };
+    if (typeof paused !== "boolean") {
+      return res.status(400).json({ error: "paused must be boolean" });
+    }
+    const db = getDb();
+    await setPullWorkerPaused(db, paused);
+    return res.status(200).json({ paused });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

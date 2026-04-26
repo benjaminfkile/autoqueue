@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/db/acceptanceCriteria.ts</title>
+    <title>Code coverage report for src/services/taskTreeMaterializer.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/db</a> acceptanceCriteria.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/services</a> taskTreeMaterializer.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.41% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>5/17</span>
+                <span class='fraction'>22/22</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/5</span>
+                <span class='fraction'>3/3</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.41% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>5/17</span>
+                <span class='fraction'>19/19</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -133,39 +133,23 @@
 <a name='L68'></a><a href='#L68'>68</a>
 <a name='L69'></a><a href='#L69'>69</a>
 <a name='L70'></a><a href='#L70'>70</a>
-<a name='L71'></a><a href='#L71'>71</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-yes">11x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -173,105 +157,163 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">20x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">45x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">41x</span>
+<span class="cline-any cline-yes">41x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">39x</span>
+<span class="cline-any cline-yes">39x</span>
+<span class="cline-any cline-yes">16x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">37x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Knex } from "knex";
-import { AcceptanceCriterion } from "../interfaces";
+import { createCriterion } from "../db/acceptanceCriteria";
+import { createTask } from "../db/tasks";
+import { ProposedTaskNode, TaskTreeProposal } from "./chatService";
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >getCriteriaByTaskId(</span>
-  db: Knex,
-  taskId: number
-): Promise&lt;AcceptanceCriterion[]&gt; {
-<span class="cstat-no" title="statement not covered" >  return db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ task_id: taskId })
-    .orderBy("order_position", "asc");
+export interface MaterializedTaskNode {
+  id: number;
+  title: string;
+  parent_id: number | null;
+  order_position: number;
+  acceptance_criteria_ids: number[];
+  children: MaterializedTaskNode[];
 }
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >createCriterion(</span>
+export interface MaterializedTaskTree {
+  parents: MaterializedTaskNode[];
+}
+&nbsp;
+// Insert an entire proposed task tree under `repoId` in a single transaction.
+// Either every task + acceptance criterion is persisted, or nothing is — the
+// transaction rolls back on the first failure, so callers never see a half-
+// written tree. The returned shape mirrors the input so the GUI can navigate
+// straight to any of the new tasks by id.
+export async function materializeTaskTree(
   db: Knex,
-  data: {
-    task_id: number;
-    description: string;
-    order_position?: number;
+  repoId: number,
+  proposal: TaskTreeProposal
+): Promise&lt;MaterializedTaskTree&gt; {
+  return db.transaction(async (trx) =&gt; {
+    const parents: MaterializedTaskNode[] = [];
+    for (let i = 0; i &lt; proposal.parents.length; i++) {
+      parents.push(
+        await materializeNode(trx, repoId, proposal.parents[i], null, i)
+      );
+    }
+    return { parents };
+  });
+}
+&nbsp;
+async function materializeNode(
+  trx: Knex,
+  repoId: number,
+  node: ProposedTaskNode,
+  parentId: number | null,
+  order: number
+): Promise&lt;MaterializedTaskNode&gt; {
+  const task = await createTask(trx, {
+    repo_id: repoId,
+    parent_id: parentId,
+    title: node.title,
+    description: node.description ?? "",
+    order_position: order,
+  });
+&nbsp;
+  const acceptance_criteria_ids: number[] = [];
+  if (node.acceptance_criteria) {
+    for (let i = 0; i &lt; node.acceptance_criteria.length; i++) {
+      const criterion = await createCriterion(trx, {
+        task_id: task.id,
+        description: node.acceptance_criteria[i],
+        order_position: i,
+      });
+      acceptance_criteria_ids.push(criterion.id);
+    }
   }
-): Promise&lt;AcceptanceCriterion&gt; {
-  let orderPosition = <span class="cstat-no" title="statement not covered" >data.order_position;</span>
 &nbsp;
-<span class="cstat-no" title="statement not covered" >  <span class="missing-if-branch" title="if path not taken" >I</span>if (orderPosition == null) {</span>
-    const result = <span class="cstat-no" title="statement not covered" >await db("acceptance_criteria")</span>
-      .where({ task_id: data.task_id })
-      .max("order_position as max_pos")
-      .first();
-&nbsp;
-    const maxPos = <span class="cstat-no" title="statement not covered" >result?.max_pos;</span>
-<span class="cstat-no" title="statement not covered" >    orderPosition = maxPos != null ? maxPos + 1 : 0;</span>
+  const children: MaterializedTaskNode[] = [];
+  if (node.children) {
+    for (let i = 0; i &lt; node.children.length; i++) {
+      children.push(
+        await materializeNode(trx, repoId, node.children[i], task.id, i)
+      );
+    }
   }
 &nbsp;
-  const [criterion] = <span class="cstat-no" title="statement not covered" >await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .insert({
-      task_id: data.task_id,
-      description: data.description,
-      order_position: orderPosition,
-    })
-    .returning("*");
-&nbsp;
-<span class="cstat-no" title="statement not covered" >  return criterion;</span>
-}
-&nbsp;
-export async function <span class="fstat-no" title="function not covered" >updateCriterion(</span>
-  db: Knex,
-  id: number,
-  data: Partial&lt;Pick&lt;AcceptanceCriterion, "met" | "description" | "order_position"&gt;&gt;
-): Promise&lt;AcceptanceCriterion&gt; {
-  const [criterion] = <span class="cstat-no" title="statement not covered" >await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ id })
-    .update(data)
-    .returning("*");
-<span class="cstat-no" title="statement not covered" >  return criterion;</span>
-}
-&nbsp;
-export async function <span class="fstat-no" title="function not covered" >deleteCriterion(</span>
-  db: Knex,
-  id: number
-): Promise&lt;void&gt; {
-<span class="cstat-no" title="statement not covered" >  await db&lt;AcceptanceCriterion&gt;("acceptance_criteria").where({ id }).delete();</span>
-}
-&nbsp;
-export async function <span class="fstat-no" title="function not covered" >deleteAllCriteriaForTask(</span>
-  db: Knex,
-  taskId: number
-): Promise&lt;void&gt; {
-<span class="cstat-no" title="statement not covered" >  await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ task_id: taskId })
-    .delete();
+  return {
+    id: task.id,
+    title: task.title,
+    parent_id: parentId,
+    order_position: order,
+    acceptance_criteria_ids,
+    children,
+  };
 }
 &nbsp;</pre></td></tr></table></pre>
 

@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/db/acceptanceCriteria.ts</title>
+    <title>Code coverage report for src/services/taskTemplateBuilder.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/db</a> acceptanceCriteria.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/services</a> taskTemplateBuilder.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.41% </span>
+                <span class="strong">97.87% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>5/17</span>
+                <span class='fraction'>46/47</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">92.59% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>25/27</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/5</span>
+                <span class='fraction'>5/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.41% </span>
+                <span class="strong">97.72% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>5/17</span>
+                <span class='fraction'>43/44</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -133,39 +133,86 @@
 <a name='L68'></a><a href='#L68'>68</a>
 <a name='L69'></a><a href='#L69'>69</a>
 <a name='L70'></a><a href='#L70'>70</a>
-<a name='L71'></a><a href='#L71'>71</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-yes">11x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">32x</span>
+<span class="cline-any cline-yes">32x</span>
+<span class="cline-any cline-yes">32x</span>
+<span class="cline-any cline-yes">32x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">19x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">14x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -173,105 +220,115 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">10x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">13x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">29x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Knex } from "knex";
-import { AcceptanceCriterion } from "../interfaces";
+import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
+import { getTasksByRepoId } from "../db/tasks";
+import { Task } from "../interfaces";
+import { ProposedTaskNode, TaskTreeProposal } from "./chatService";
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >getCriteriaByTaskId(</span>
+// Build a TaskTreeProposal from an existing repo's task tree. The proposal
+// contains only the structural fields the materializer cares about (title,
+// description, acceptance criteria, children) — runtime-only state like
+// status, retry_count, pr_url, log_path, leases, and order_position is
+// intentionally dropped so a template instantiated into a fresh repo starts
+// clean. `rootTaskIds`, when supplied, restricts the captured tree to those
+// roots (each must already be a top-level parent in the repo); otherwise every
+// top-level task in the repo is included.
+export async function buildTemplateFromRepo(
   db: Knex,
-  taskId: number
-): Promise&lt;AcceptanceCriterion[]&gt; {
-<span class="cstat-no" title="statement not covered" >  return db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ task_id: taskId })
-    .orderBy("order_position", "asc");
-}
-&nbsp;
-export async function <span class="fstat-no" title="function not covered" >createCriterion(</span>
-  db: Knex,
-  data: {
-    task_id: number;
-    description: string;
-    order_position?: number;
-  }
-): Promise&lt;AcceptanceCriterion&gt; {
-  let orderPosition = <span class="cstat-no" title="statement not covered" >data.order_position;</span>
-&nbsp;
-<span class="cstat-no" title="statement not covered" >  <span class="missing-if-branch" title="if path not taken" >I</span>if (orderPosition == null) {</span>
-    const result = <span class="cstat-no" title="statement not covered" >await db("acceptance_criteria")</span>
-      .where({ task_id: data.task_id })
-      .max("order_position as max_pos")
-      .first();
-&nbsp;
-    const maxPos = <span class="cstat-no" title="statement not covered" >result?.max_pos;</span>
-<span class="cstat-no" title="statement not covered" >    orderPosition = maxPos != null ? maxPos + 1 : 0;</span>
+  repoId: number,
+  rootTaskIds?: number[]
+): Promise&lt;TaskTreeProposal&gt; {
+  const tasks = await getTasksByRepoId(db, repoId);
+  if (tasks.length === 0) {
+    throw new Error("Repo has no tasks to capture into a template");
   }
 &nbsp;
-  const [criterion] = <span class="cstat-no" title="statement not covered" >await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .insert({
-      task_id: data.task_id,
-      description: data.description,
-      order_position: orderPosition,
-    })
-    .returning("*");
+  const byParent = new Map&lt;number | null, Task[]&gt;();
+  for (const t of tasks) {
+    const key = t.parent_id ?? null;
+    const list = byParent.get(key) ?? [];
+    list.push(t);
+    byParent.set(key, list);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) =&gt; a.order_position - b.order_position);
+  }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >  return criterion;</span>
+  const allRoots = byParent.get(null) ?? <span class="branch-1 cbranch-no" title="branch not covered" >[];</span>
+  let roots = allRoots;
+  if (rootTaskIds &amp;&amp; rootTaskIds.length &gt; 0) {
+    const byId = new Map(allRoots.map((t) =&gt; [t.id, t]));
+    const selected: Task[] = [];
+    for (const id of rootTaskIds) {
+      const root = byId.get(id);
+      if (!root) {
+        throw new Error(
+          `Task ${id} is not a top-level task in repo ${repoId}`
+        );
+      }
+      selected.push(root);
+    }
+    roots = selected;
+  }
+&nbsp;
+  <span class="missing-if-branch" title="if path not taken" >I</span>if (roots.length === 0) {
+<span class="cstat-no" title="statement not covered" >    throw new Error("No top-level tasks selected for template");</span>
+  }
+&nbsp;
+  const parents: ProposedTaskNode[] = [];
+  for (const root of roots) {
+    parents.push(await buildNode(db, root, byParent));
+  }
+  return { parents };
 }
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >updateCriterion(</span>
+async function buildNode(
   db: Knex,
-  id: number,
-  data: Partial&lt;Pick&lt;AcceptanceCriterion, "met" | "description" | "order_position"&gt;&gt;
-): Promise&lt;AcceptanceCriterion&gt; {
-  const [criterion] = <span class="cstat-no" title="statement not covered" >await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ id })
-    .update(data)
-    .returning("*");
-<span class="cstat-no" title="statement not covered" >  return criterion;</span>
-}
+  task: Task,
+  byParent: Map&lt;number | null, Task[]&gt;
+): Promise&lt;ProposedTaskNode&gt; {
+  const node: ProposedTaskNode = { title: task.title };
+  if (task.description &amp;&amp; task.description.length &gt; 0) {
+    node.description = task.description;
+  }
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >deleteCriterion(</span>
-  db: Knex,
-  id: number
-): Promise&lt;void&gt; {
-<span class="cstat-no" title="statement not covered" >  await db&lt;AcceptanceCriterion&gt;("acceptance_criteria").where({ id }).delete();</span>
-}
+  const criteria = await getCriteriaByTaskId(db, task.id);
+  if (criteria.length &gt; 0) {
+    node.acceptance_criteria = criteria.map((c) =&gt; c.description);
+  }
 &nbsp;
-export async function <span class="fstat-no" title="function not covered" >deleteAllCriteriaForTask(</span>
-  db: Knex,
-  taskId: number
-): Promise&lt;void&gt; {
-<span class="cstat-no" title="statement not covered" >  await db&lt;AcceptanceCriterion&gt;("acceptance_criteria")</span>
-    .where({ task_id: taskId })
-    .delete();
+  const children = byParent.get(task.id) ?? [];
+  if (children.length &gt; 0) {
+    const childNodes: ProposedTaskNode[] = [];
+    for (const child of children) {
+      childNodes.push(await buildNode(db, child, byParent));
+    }
+    node.children = childNodes;
+  }
+&nbsp;
+  return node;
 }
 &nbsp;</pre></td></tr></table></pre>
 
