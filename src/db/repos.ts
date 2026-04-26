@@ -2,6 +2,7 @@ import { Knex } from "knex";
 import {
   OrderingMode,
   Repo,
+  RepoCloneStatus,
   RepoOnFailure,
   RepoOnParentChildFail,
 } from "../interfaces";
@@ -45,6 +46,8 @@ export async function createRepo(
     max_retries?: number;
     on_parent_child_fail?: RepoOnParentChildFail;
     ordering_mode?: OrderingMode;
+    clone_status?: RepoCloneStatus;
+    clone_error?: string | null;
   }
 ): Promise<Repo> {
   const [repo] = await db<Repo>("repos").insert(data).returning("*");

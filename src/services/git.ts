@@ -34,6 +34,51 @@ export async function cloneOrPull(
   }
 }
 
+// Clone-first-then-move: clone into a sibling temp directory and only promote
+// it to the final REPOS_PATH/{owner}/{repoName} location once the clone has
+// succeeded. A failed clone leaves no trace at the final path, so the caller
+// can safely tie the DB row insert to "the clone exists on disk" without
+// risking orphaned directories.
+//
+// Why: callers (POST /api/repos) want an all-or-nothing handshake. Cloning
+// straight to the final location and then having the insert fail (or vice
+// versa) leaks state in opposite directions. Staging in a temp dir on the
+// same filesystem keeps the rename atomic.
+export async function cloneRepoFresh(
+  reposPath: string,
+  owner: string,
+  repoName: string
+): Promise<string> {
+  const finalDir = repoPath(reposPath, owner, repoName);
+  if (fs.existsSync(finalDir)) {
+    throw new Error(
+      `Refusing to clone: target directory already exists at ${finalDir}`
+    );
+  }
+  const pat = requireGhPat();
+  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const parentDir = path.join(reposPath, owner);
+  fs.mkdirSync(parentDir, { recursive: true });
+  // Sibling temp dir keeps the eventual rename on the same filesystem
+  // (avoiding EXDEV when REPOS_PATH and the OS temp dir live on different
+  // volumes).
+  const tempDir = fs.mkdtempSync(path.join(parentDir, `.tmp-${repoName}-`));
+
+  try {
+    await simpleGit().clone(remoteUrl, tempDir);
+    fs.renameSync(tempDir, finalDir);
+    return finalDir;
+  } catch (err) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // best-effort: a leftover temp dir is unfortunate but shouldn't mask
+      // the real clone failure
+    }
+    throw err;
+  }
+}
+
 export async function checkoutBaseBranch(
   reposPath: string,
   owner: string,
