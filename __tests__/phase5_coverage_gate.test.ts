@@ -31,7 +31,6 @@
 // ---------------------------------------------------------------------------
 
 import request from "supertest";
-import bcrypt from "bcrypt";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Set up BEFORE importing the modules under test so jest can
@@ -75,10 +74,6 @@ jest.mock("../src/db/acceptanceCriteria", () => ({
   getCriteriaByTaskId: jest.fn(),
 }));
 
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
 // Stub the Anthropic SDK at the import boundary so the chat router exercises
 // real `streamChatEvents` against a fully scripted stream. This is the AC #868
 // boundary — keep one canonical stub here so we don't drift between tests.
@@ -109,8 +104,6 @@ import {
   validateTaskTreeProposal,
 } from "../src/services/chatService";
 import { Repo, Task } from "../src/interfaces";
-
-const API_KEY = "test-key";
 
 const repoFixture: Repo = {
   id: 7,
@@ -151,14 +144,12 @@ const taskFixture: Task = {
 beforeAll(() => {
   app.set("secrets", {
     NODE_ENV: "development",
-    API_KEY_HASH: "$2b$10$fakehash",
     ANTHROPIC_API_KEY: "sk-ant-test",
   });
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 });
 
 async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
@@ -611,7 +602,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({
         parents: [
           {
@@ -643,7 +633,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({
         parents: [
           {
@@ -674,7 +663,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({
         parents: [{ title: "T", acceptance_criteria: ["bad"] }],
       });
@@ -692,7 +680,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({ parents: [{ title: "T1" }, { title: "T2" }] });
 
     expect(res.status).toBe(500);
@@ -715,7 +702,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({
         parents: [
           {
@@ -741,7 +727,6 @@ describe("Phase 5 — materialize endpoint atomicity (AC #869)", () => {
 
     const res = await request(app)
       .post("/api/repos/7/materialize-tree")
-      .set("x-api-key", API_KEY)
       .send({ parents: [{ description: "no title" }] });
 
     expect(res.status).toBe(400);
@@ -794,7 +779,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     expect(res.status).toBe(200);
@@ -854,7 +838,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "go" }] });
 
     expect(res.status).toBe(200);
@@ -884,7 +867,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "go" }] });
 
     expect(res.status).toBe(200);
@@ -898,7 +880,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     expect(res.status).toBe(200);
@@ -939,7 +920,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     const res = await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({ messages: [{ role: "user", content: "hi" }] });
 
     const deltaIdx = res.text.indexOf("event: delta");
@@ -955,7 +935,6 @@ describe("Phase 5 — SSE chat endpoint with stubbed Anthropic client (AC #868)"
 
     await request(app)
       .post("/api/chat")
-      .set("x-api-key", API_KEY)
       .send({
         messages: [
           { role: "user", content: "first" },

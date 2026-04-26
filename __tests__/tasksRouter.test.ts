@@ -3,7 +3,6 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import app from "../src/app";
-import bcrypt from "bcrypt";
 
 // Mock DB
 jest.mock("../src/db/db", () => ({
@@ -60,13 +59,6 @@ import {
   getUsageTotalsForTask,
 } from "../src/db/taskUsage";
 
-// Allow all requests through protectedRoute by mocking bcrypt.compare
-jest.mock("bcrypt", () => ({
-  compare: jest.fn().mockResolvedValue(true),
-}));
-
-const API_KEY = "test-key";
-
 const mockTask = {
   id: 1,
   repo_id: 1,
@@ -93,13 +85,11 @@ const mockCriterion = {
 beforeAll(() => {
   app.set("secrets", {
     NODE_ENV: "development",
-    API_KEY_HASH: "$2b$10$fakehash",
   });
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 });
 
 describe("tasksRouter", () => {
@@ -107,8 +97,7 @@ describe("tasksRouter", () => {
   describe("GET /api/tasks", () => {
     it("returns 400 when repo_id is missing", async () => {
       const res = await request(app)
-        .get("/api/tasks")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/repo_id/);
     });
@@ -118,8 +107,7 @@ describe("tasksRouter", () => {
       (getChildTasks as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks?repo_id=1")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks?repo_id=1");
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body[0]).toHaveProperty("children_count", 0);
@@ -131,7 +119,6 @@ describe("tasksRouter", () => {
     it("returns 400 when repo_id or title is missing", async () => {
       const res = await request(app)
         .post("/api/tasks")
-        .set("x-api-key", API_KEY)
         .send({ description: "no repo or title" });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/repo_id.*title/);
@@ -143,7 +130,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .post("/api/tasks")
-        .set("x-api-key", API_KEY)
         .send({
           repo_id: 1,
           title: "Test task",
@@ -162,7 +148,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .post("/api/tasks")
-        .set("x-api-key", API_KEY)
         .send({
           repo_id: 1,
           title: "Phase parent",
@@ -181,7 +166,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .post("/api/tasks")
-        .set("x-api-key", API_KEY)
         .send({ repo_id: 1, title: "child" });
 
       expect(res.status).toBe(201);
@@ -195,7 +179,6 @@ describe("tasksRouter", () => {
     it("rejects an invalid ordering_mode", async () => {
       const res = await request(app)
         .post("/api/tasks")
-        .set("x-api-key", API_KEY)
         .send({
           repo_id: 1,
           title: "bad",
@@ -214,8 +197,7 @@ describe("tasksRouter", () => {
       (getChildTasks as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks/1")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1");
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("acceptanceCriteria");
       expect(res.body).toHaveProperty("children");
@@ -223,8 +205,7 @@ describe("tasksRouter", () => {
 
     it("returns 400 for invalid id", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Invalid id/i);
     });
@@ -238,7 +219,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ title: "Updated" });
       expect(res.status).toBe(200);
       expect(res.body.title).toBe("Updated");
@@ -250,7 +230,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ ordering_mode: "parallel" });
 
       expect(res.status).toBe(200);
@@ -265,7 +244,6 @@ describe("tasksRouter", () => {
     it("rejects an invalid ordering_mode value", async () => {
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ ordering_mode: "anarchy" });
 
       expect(res.status).toBe(400);
@@ -278,7 +256,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ requires_approval: true });
 
       expect(res.status).toBe(200);
@@ -296,7 +273,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ requires_approval: false });
 
       expect(res.status).toBe(200);
@@ -311,7 +287,6 @@ describe("tasksRouter", () => {
     it("rejects a non-boolean requires_approval", async () => {
       const res = await request(app)
         .patch("/api/tasks/1")
-        .set("x-api-key", API_KEY)
         .send({ requires_approval: "yes" });
 
       expect(res.status).toBe(400);
@@ -325,8 +300,7 @@ describe("tasksRouter", () => {
       (deleteTask as jest.Mock).mockResolvedValue(undefined);
 
       const res = await request(app)
-        .delete("/api/tasks/1")
-        .set("x-api-key", API_KEY);
+        .delete("/api/tasks/1");
       expect(res.status).toBe(204);
     });
   });
@@ -337,8 +311,7 @@ describe("tasksRouter", () => {
       (getCriteriaByTaskId as jest.Mock).mockResolvedValue([mockCriterion]);
 
       const res = await request(app)
-        .get("/api/tasks/1/criteria")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/criteria");
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body[0]).toHaveProperty("description");
@@ -352,7 +325,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .post("/api/tasks/1/criteria")
-        .set("x-api-key", API_KEY)
         .send({ description: "criterion desc" });
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty("id", 2);
@@ -367,7 +339,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .patch("/api/tasks/1/criteria/2")
-        .set("x-api-key", API_KEY)
         .send({ met: true });
       expect(res.status).toBe(200);
       expect(res.body.met).toBe(true);
@@ -380,8 +351,7 @@ describe("tasksRouter", () => {
       (deleteCriterion as jest.Mock).mockResolvedValue(undefined);
 
       const res = await request(app)
-        .delete("/api/tasks/1/criteria/2")
-        .set("x-api-key", API_KEY);
+        .delete("/api/tasks/1/criteria/2");
       expect(res.status).toBe(204);
     });
   });
@@ -404,8 +374,7 @@ describe("tasksRouter", () => {
 
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc/log")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc/log");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Invalid id/i);
     });
@@ -413,8 +382,7 @@ describe("tasksRouter", () => {
     it("returns 404 when the task does not exist", async () => {
       (getTaskById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
-        .get("/api/tasks/1/log")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log");
       expect(res.status).toBe(404);
     });
 
@@ -424,8 +392,7 @@ describe("tasksRouter", () => {
         log_path: null,
       });
       const res = await request(app)
-        .get("/api/tasks/1/log")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log");
       expect(res.status).toBe(404);
     });
 
@@ -436,8 +403,7 @@ describe("tasksRouter", () => {
         log_path: missing,
       });
       const res = await request(app)
-        .get("/api/tasks/1/log")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log");
       expect(res.status).toBe(404);
     });
 
@@ -451,8 +417,7 @@ describe("tasksRouter", () => {
       });
 
       const res = await request(app)
-        .get("/api/tasks/1/log")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log");
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toMatch(/text\/plain/);
       expect(res.text).toBe(expected);
@@ -477,16 +442,14 @@ describe("tasksRouter", () => {
 
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc/log/stream")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc/log/stream");
       expect(res.status).toBe(400);
     });
 
     it("returns 404 when the task does not exist", async () => {
       (getTaskById as jest.Mock).mockResolvedValue(undefined);
       const res = await request(app)
-        .get("/api/tasks/1/log/stream")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log/stream");
       expect(res.status).toBe(404);
     });
 
@@ -496,8 +459,7 @@ describe("tasksRouter", () => {
         log_path: null,
       });
       const res = await request(app)
-        .get("/api/tasks/1/log/stream")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log/stream");
       expect(res.status).toBe(404);
     });
 
@@ -517,8 +479,7 @@ describe("tasksRouter", () => {
       });
 
       const res = await request(app)
-        .get("/api/tasks/1/log/stream")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/log/stream");
 
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
@@ -548,8 +509,7 @@ describe("tasksRouter", () => {
       (getEventsByTaskId as jest.Mock).mockResolvedValue(events);
 
       const res = await request(app)
-        .get("/api/tasks/1/events")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/events");
 
       expect(res.status).toBe(200);
       expect(getEventsByTaskId).toHaveBeenCalledWith(expect.anything(), 1);
@@ -569,8 +529,7 @@ describe("tasksRouter", () => {
 
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc/events")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc/events");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Invalid id/i);
       expect(getEventsByTaskId).not.toHaveBeenCalled();
@@ -580,8 +539,7 @@ describe("tasksRouter", () => {
       (getEventsByTaskId as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks/1/events")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/events");
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
@@ -599,19 +557,9 @@ describe("tasksRouter", () => {
       created_at: new Date("2026-04-25T10:00:00Z"),
     };
 
-    it("requires the API key (returns 401 when unauthorized)", async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-      const res = await request(app)
-        .get("/api/tasks/1/notes")
-        .set("x-api-key", "wrong-key");
-      expect(res.status).toBe(401);
-      expect(getNotesForTask).not.toHaveBeenCalled();
-    });
-
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc/notes")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc/notes");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Invalid id/i);
       expect(getNotesForTask).not.toHaveBeenCalled();
@@ -621,8 +569,7 @@ describe("tasksRouter", () => {
       (getNotesForTask as jest.Mock).mockResolvedValue([noteRow]);
 
       const res = await request(app)
-        .get("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/notes");
       expect(res.status).toBe(200);
       expect(getNotesForTask).toHaveBeenCalledWith(expect.anything(), 1);
       expect(Array.isArray(res.body)).toBe(true);
@@ -638,8 +585,7 @@ describe("tasksRouter", () => {
       (getNotesForTask as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/notes");
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
@@ -657,20 +603,9 @@ describe("tasksRouter", () => {
       created_at: new Date(),
     };
 
-    it("requires the API key (returns 401 when unauthorized)", async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-      const res = await request(app)
-        .post("/api/tasks/1/notes")
-        .set("x-api-key", "wrong-key")
-        .send({ author: "user", visibility: "self", content: "x" });
-      expect(res.status).toBe(401);
-      expect(createNote).not.toHaveBeenCalled();
-    });
-
     it("returns 400 for an invalid task id", async () => {
       const res = await request(app)
         .post("/api/tasks/abc/notes")
-        .set("x-api-key", API_KEY)
         .send({ author: "user", visibility: "self", content: "x" });
       expect(res.status).toBe(400);
       expect(createNote).not.toHaveBeenCalled();
@@ -679,7 +614,6 @@ describe("tasksRouter", () => {
     it("returns 400 when required fields are missing", async () => {
       const res = await request(app)
         .post("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY)
         .send({ visibility: "self", content: "x" });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/author.*visibility.*content/i);
@@ -689,7 +623,6 @@ describe("tasksRouter", () => {
     it("rejects an invalid author", async () => {
       const res = await request(app)
         .post("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY)
         .send({ author: "robot", visibility: "self", content: "x" });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/author/i);
@@ -699,7 +632,6 @@ describe("tasksRouter", () => {
     it("rejects an invalid visibility", async () => {
       const res = await request(app)
         .post("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY)
         .send({ author: "user", visibility: "everyone", content: "x" });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/visibility/i);
@@ -709,7 +641,6 @@ describe("tasksRouter", () => {
     it("rejects tags that are not an array of strings", async () => {
       const res = await request(app)
         .post("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY)
         .send({
           author: "user",
           visibility: "self",
@@ -726,7 +657,6 @@ describe("tasksRouter", () => {
 
       const res = await request(app)
         .post("/api/tasks/1/notes")
-        .set("x-api-key", API_KEY)
         .send({
           author: "user",
           visibility: "self",
@@ -751,19 +681,9 @@ describe("tasksRouter", () => {
 
   // DELETE /api/tasks/:taskId/notes/:noteId
   describe("DELETE /api/tasks/:taskId/notes/:noteId", () => {
-    it("requires the API key (returns 401 when unauthorized)", async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
-      const res = await request(app)
-        .delete("/api/tasks/1/notes/5")
-        .set("x-api-key", "wrong-key");
-      expect(res.status).toBe(401);
-      expect(deleteNote).not.toHaveBeenCalled();
-    });
-
     it("returns 400 for an invalid noteId", async () => {
       const res = await request(app)
-        .delete("/api/tasks/1/notes/abc")
-        .set("x-api-key", API_KEY);
+        .delete("/api/tasks/1/notes/abc");
       expect(res.status).toBe(400);
       expect(deleteNote).not.toHaveBeenCalled();
     });
@@ -772,8 +692,7 @@ describe("tasksRouter", () => {
       (deleteNote as jest.Mock).mockResolvedValue(1);
 
       const res = await request(app)
-        .delete("/api/tasks/1/notes/5")
-        .set("x-api-key", API_KEY);
+        .delete("/api/tasks/1/notes/5");
       expect(res.status).toBe(204);
       expect(deleteNote).toHaveBeenCalledWith(expect.anything(), 5);
     });
@@ -787,8 +706,7 @@ describe("tasksRouter", () => {
   describe("GET /api/tasks/:id/usage", () => {
     it("returns 400 when id is not numeric", async () => {
       const res = await request(app)
-        .get("/api/tasks/abc/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/abc/usage");
       expect(res.status).toBe(400);
       expect(getUsageTotalsForTask).not.toHaveBeenCalled();
       expect(getUsageRowsForTask).not.toHaveBeenCalled();
@@ -828,8 +746,7 @@ describe("tasksRouter", () => {
       (getUsageRowsForTask as jest.Mock).mockResolvedValue(runs);
 
       const res = await request(app)
-        .get("/api/tasks/1/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/usage");
 
       expect(res.status).toBe(200);
       expect(res.body.totals).toMatchObject(totals);
@@ -849,8 +766,7 @@ describe("tasksRouter", () => {
       (getUsageRowsForTask as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks/99/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/99/usage");
 
       expect(res.status).toBe(200);
       expect(res.body.totals.run_count).toBe(0);
@@ -864,8 +780,7 @@ describe("tasksRouter", () => {
       (getUsageRowsForTask as jest.Mock).mockResolvedValue([]);
 
       const res = await request(app)
-        .get("/api/tasks/1/usage")
-        .set("x-api-key", API_KEY);
+        .get("/api/tasks/1/usage");
       expect(res.status).toBe(500);
       expect(res.body.error).toMatch(/db down/);
     });
