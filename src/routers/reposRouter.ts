@@ -9,7 +9,6 @@ import {
   updateRepo,
 } from "../db/repos";
 import {
-  IAppSecrets,
   OrderingMode,
   RepoOnFailure,
   RepoOnParentChildFail,
@@ -178,11 +177,6 @@ reposRouter.post("/", async (req: Request, res: Response) => {
 // PATCH /api/repos/:id — update a repo
 reposRouter.patch("/:id", async (req: Request, res: Response) => {
   try {
-    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-    if (!secrets) {
-      return res.status(500).json({ error: "Secrets not loaded" });
-    }
-
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid id" });
@@ -514,11 +508,6 @@ reposRouter.delete(
 // DELETE /api/repos/:id — delete a repo
 reposRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
-    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-    if (!secrets) {
-      return res.status(500).json({ error: "Secrets not loaded" });
-    }
-
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid id" });

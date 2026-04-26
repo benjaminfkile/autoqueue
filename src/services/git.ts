@@ -1,19 +1,30 @@
 import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
+import * as secrets from "../secrets";
 
 function repoPath(reposPath: string, owner: string, repoName: string): string {
   return path.join(reposPath, owner, repoName);
 }
 
+function requireGhPat(): string {
+  const pat = secrets.get("GH_PAT");
+  if (!pat) {
+    throw new Error(
+      "GH_PAT is not configured — store a GitHub PAT in the encrypted secrets file before running git operations."
+    );
+  }
+  return pat;
+}
+
 export async function cloneOrPull(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string
 ): Promise<void> {
   const dir = repoPath(reposPath, owner, repoName);
   if (!fs.existsSync(dir)) {
+    const pat = requireGhPat();
     const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
     const parentDir = path.join(reposPath, owner);
     fs.mkdirSync(parentDir, { recursive: true });
@@ -70,13 +81,13 @@ export async function createIssueBranch(
 
 export async function commitAndPush(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string,
   issueNumber: number,
   message: string
 ): Promise<void> {
   const branchName = `issue/${issueNumber}`;
+  const pat = requireGhPat();
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
@@ -88,13 +99,13 @@ export async function commitAndPush(
 
 export async function mergeIntoBase(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string,
   baseBranch: string,
   issueNumber: number
 ): Promise<void> {
   const branchName = `issue/${issueNumber}`;
+  const pat = requireGhPat();
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
@@ -107,7 +118,6 @@ export async function mergeIntoBase(
 
 export async function createTaskBranch(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string,
   baseBranch: string,
@@ -130,6 +140,7 @@ export async function createTaskBranch(
   // the stale remote in place causes the next push to fail non-fast-forward.
   // Failure here is non-fatal — the most common cause is the branch simply
   // not existing on the remote yet (first attempt).
+  const pat = requireGhPat();
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   try {
     await git.remote(["set-url", "origin", remoteUrl]);
@@ -146,12 +157,12 @@ export async function createTaskBranch(
 
 export async function commitAndPushTask(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string,
   branchName: string,
   message: string
 ): Promise<void> {
+  const pat = requireGhPat();
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
@@ -163,12 +174,12 @@ export async function commitAndPushTask(
 
 export async function mergeTaskIntoBase(
   reposPath: string,
-  pat: string,
   owner: string,
   repoName: string,
   baseBranch: string,
   branchName: string
 ): Promise<void> {
+  const pat = requireGhPat();
   const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 

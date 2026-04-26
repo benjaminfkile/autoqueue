@@ -37,6 +37,16 @@ import request from "supertest";
 // hoist correctly.
 // ---------------------------------------------------------------------------
 
+jest.mock("../src/secrets", () => ({
+  get: jest.fn((key: string) =>
+    key === "ANTHROPIC_API_KEY" ? "sk-ant-test" : undefined
+  ),
+  init: jest.fn(),
+  set: jest.fn(),
+  unset: jest.fn(),
+  getSecretsFilePath: jest.fn(),
+}));
+
 jest.mock("../src/db/db", () => ({
   getDb: jest.fn(),
 }));
@@ -140,13 +150,6 @@ const taskFixture: Task = {
   requires_approval: false,
   created_at: new Date("2026-04-20T00:00:00Z"),
 };
-
-beforeAll(() => {
-  app.set("secrets", {
-    NODE_ENV: "development",
-    ANTHROPIC_API_KEY: "sk-ant-test",
-  });
-});
 
 beforeEach(() => {
   jest.clearAllMocks();

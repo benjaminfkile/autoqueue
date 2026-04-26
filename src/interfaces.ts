@@ -1,10 +1,13 @@
-// ---- App / API secrets ----
+// ---- App / API runtime config ----
+// Despite the legacy "Secrets" name, this object carries non-secret runtime
+// configuration only (NODE_ENV, ports, paths, worker mode, optional Cognito
+// settings). The actual secrets — ANTHROPIC_API_KEY, GH_PAT — live in the
+// encrypted secrets store (src/secrets) and are read on demand by the modules
+// that need them.
 export interface IAppSecrets {
   NODE_ENV: "development" | "production";
   PORT: string;
   API_KEY_HASH: string;
-  GH_PAT?: string;
-  ANTHROPIC_API_KEY?: string;
   REPOS_PATH: string;
   POLL_INTERVAL_SECONDS?: string;
   CLAUDE_PATH?: string;

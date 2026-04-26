@@ -54,8 +54,7 @@ app.get(/^\/(?!api(\/|$)).*/, (req: Request, res: Response, next: NextFunction) 
     return res.sendFile(WEB_INDEX);
   }
   if (req.path === "/") {
-    const secrets = req.app.get("secrets") as { NODE_ENV?: string } | undefined;
-    const suffix = secrets?.NODE_ENV === "production" ? "" : "-dev";
+    const suffix = process.env.NODE_ENV === "production" ? "" : "-dev";
     return res.send(`grunt-api${suffix}`);
   }
   return res.status(404).send("Not Found");
