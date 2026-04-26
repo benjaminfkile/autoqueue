@@ -39,11 +39,6 @@ function createTableBuilderMock() {
       calls.push({ method: "text", args, chain });
       return chain;
     }),
-    jsonb: jest.fn((...args: unknown[]) => {
-      const chain = createColumnBuilderMock();
-      calls.push({ method: "jsonb", args, chain });
-      return chain;
-    }),
     index: jest.fn((...args: unknown[]) => {
       calls.push({ method: "index", args, chain: null });
     }),
@@ -109,7 +104,7 @@ describe("migration 20260425000004_create_task_events", () => {
       expect(taskIdCall!.chain.onDelete).toHaveBeenCalledWith("CASCADE");
     });
 
-    it("defines ts as timestamptz NOT NULL default now()", async () => {
+    it("defines ts as a NOT NULL timestamp defaulting to now() (SQLite-compatible, no useTz)", async () => {
       const { builder, calls } = createTableBuilderMock();
       const knex = {
         fn: { now: jest.fn(() => "now()") },
@@ -124,7 +119,10 @@ describe("migration 20260425000004_create_task_events", () => {
         (c) => c.method === "timestamp" && c.args[0] === "ts"
       );
       expect(tsCall).toBeDefined();
-      expect(tsCall!.args[1]).toEqual(expect.objectContaining({ useTz: true }));
+      // SQLite has a single TEXT-backed timestamp affinity — passing useTz here
+      // would crash the better-sqlite3 schema builder. Asserting no options
+      // object keeps that contract.
+      expect(tsCall!.args.length).toBe(1);
       expect(tsCall!.chain.notNullable).toHaveBeenCalled();
       expect(tsCall!.chain.defaultTo).toHaveBeenCalled();
     });
@@ -147,7 +145,7 @@ describe("migration 20260425000004_create_task_events", () => {
       expect(eventCall!.chain.notNullable).toHaveBeenCalled();
     });
 
-    it("defines data as jsonb NULL", async () => {
+    it("defines data as text NULL (JSON-encoded at the helper boundary for SQLite)", async () => {
       const { builder, calls } = createTableBuilderMock();
       const knex = {
         fn: { now: jest.fn(() => "now()") },
@@ -159,7 +157,7 @@ describe("migration 20260425000004_create_task_events", () => {
       };
       await up(knex as any);
       const dataCall = calls.find(
-        (c) => c.method === "jsonb" && c.args[0] === "data"
+        (c) => c.method === "text" && c.args[0] === "data"
       );
       expect(dataCall).toBeDefined();
       expect(dataCall!.chain.nullable).toHaveBeenCalled();

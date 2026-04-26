@@ -16,14 +16,14 @@ function createMockKnex() {
 }
 
 describe("recordEvent", () => {
-  it("inserts a row into task_events with task_id, event, and data, returning the inserted row", async () => {
+  it("inserts a row into task_events with task_id, event, and JSON-encoded data, returning the parsed row", async () => {
     const { knex, chain } = createMockKnex();
     const inserted = {
       id: 1,
       task_id: 42,
       ts: new Date(),
       event: "claude_started",
-      data: { attempt: 1 },
+      data: JSON.stringify({ attempt: 1 }),
     };
     chain.returning.mockResolvedValueOnce([inserted]);
 
@@ -35,15 +35,17 @@ describe("recordEvent", () => {
     expect(chain.insert).toHaveBeenCalledWith({
       task_id: 42,
       event: "claude_started",
-      data: { attempt: 1 },
+      // SQLite stores `data` as text, so the helper JSON-encodes on the way
+      // in and JSON-decodes on the way out.
+      data: JSON.stringify({ attempt: 1 }),
     });
     expect(chain.returning).toHaveBeenCalledWith("*");
-    expect(result).toBe(inserted);
+    expect(result.data).toEqual({ attempt: 1 });
   });
 
   it("inserts data as null when no data is provided", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 2 }]);
+    chain.returning.mockResolvedValueOnce([{ id: 2, data: null }]);
 
     await recordEvent(knex as any, 42, "claimed");
 
@@ -56,7 +58,7 @@ describe("recordEvent", () => {
 
   it("normalizes an explicit undefined data argument to null", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 3 }]);
+    chain.returning.mockResolvedValueOnce([{ id: 3, data: null }]);
 
     await recordEvent(knex as any, 42, "retry", undefined);
 
@@ -69,10 +71,16 @@ describe("recordEvent", () => {
 });
 
 describe("getEventsByTaskId", () => {
-  it("filters by task_id and orders chronologically by ts ascending", async () => {
+  it("filters by task_id and orders chronologically by ts ascending, parsing JSON data on the way out", async () => {
     const events = [
       { id: 1, task_id: 7, ts: new Date(), event: "claimed", data: null },
-      { id: 2, task_id: 7, ts: new Date(), event: "claude_started", data: null },
+      {
+        id: 2,
+        task_id: 7,
+        ts: new Date(),
+        event: "claude_started",
+        data: JSON.stringify({ attempt: 1 }),
+      },
     ];
     const { knex, chain } = createMockKnex();
     // The second orderBy call is the terminal in the chain — its return value
@@ -87,7 +95,8 @@ describe("getEventsByTaskId", () => {
     expect(chain.where).toHaveBeenCalledWith({ task_id: 7 });
     // First sort key is ts ascending — this is the chronological contract.
     expect(chain.orderBy).toHaveBeenNthCalledWith(1, "ts", "asc");
-    expect(result).toBe(events);
+    expect(result[0].data).toBeNull();
+    expect(result[1].data).toEqual({ attempt: 1 });
   });
 
   it("uses id as a tiebreaker so events that share a ts retain insertion order", async () => {
@@ -99,7 +108,7 @@ describe("getEventsByTaskId", () => {
     await getEventsByTaskId(knex as any, 7);
 
     // The id ascending tiebreaker keeps two events with identical ts values
-    // (sub-ms inserts share now() in PG) in stable insertion order.
+    // (sub-ms inserts share now()) in stable insertion order.
     expect(chain.orderBy).toHaveBeenNthCalledWith(2, "id", "asc");
   });
 });

@@ -11,10 +11,10 @@ export async function up(knex: Knex): Promise<void> {
       .onDelete("CASCADE");
     table.text("author").notNullable();
     table.text("visibility").notNullable();
-    table.jsonb("tags").notNullable().defaultTo("[]");
+    table.text("tags").notNullable().defaultTo("[]");
     table.text("content").notNullable();
     table
-      .timestamp("created_at", { useTz: true })
+      .timestamp("created_at")
       .notNullable()
       .defaultTo(knex.fn.now());
 

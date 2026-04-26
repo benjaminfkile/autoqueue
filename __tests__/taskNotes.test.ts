@@ -24,7 +24,7 @@ describe("createNote", () => {
       task_id: 42,
       author: "agent",
       visibility: "siblings",
-      tags: ["context", "warning"],
+      tags: JSON.stringify(["context", "warning"]),
       content: "watch out for the migration order",
       created_at: new Date(),
     };
@@ -43,18 +43,18 @@ describe("createNote", () => {
       task_id: 42,
       author: "agent",
       visibility: "siblings",
-      // tags is serialized so the pg driver receives a value the jsonb column
-      // accepts without per-call type-casting.
+      // tags is JSON-encoded for the SQLite text column; the helper decodes
+      // it back into an array on the way out.
       tags: JSON.stringify(["context", "warning"]),
       content: "watch out for the migration order",
     });
     expect(chain.returning).toHaveBeenCalledWith("*");
-    expect(result).toBe(inserted);
+    expect(result.tags).toEqual(["context", "warning"]);
   });
 
-  it("defaults tags to an empty array when omitted (so a NULL is never inserted into the NOT NULL jsonb column)", async () => {
+  it("defaults tags to an empty array when omitted (so a NULL is never inserted into the NOT NULL text column)", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 2 }]);
+    chain.returning.mockResolvedValueOnce([{ id: 2, tags: JSON.stringify([]) }]);
 
     await createNote(knex as any, {
       task_id: 7,
@@ -73,8 +73,12 @@ describe("createNote", () => {
   it("accepts both 'agent' and 'user' as authors", async () => {
     const { knex, chain } = createMockKnex();
     chain.returning
-      .mockResolvedValueOnce([{ id: 10, author: "agent" }])
-      .mockResolvedValueOnce([{ id: 11, author: "user" }]);
+      .mockResolvedValueOnce([
+        { id: 10, author: "agent", tags: JSON.stringify([]) },
+      ])
+      .mockResolvedValueOnce([
+        { id: 11, author: "user", tags: JSON.stringify([]) },
+      ]);
 
     await createNote(knex as any, {
       task_id: 1,
@@ -135,14 +139,37 @@ describe("deleteNote", () => {
 // can't silently break the visibility contract.
 // ---------------------------------------------------------------------------
 describe("getNotesForTask", () => {
-  it("issues a single raw SQL query and returns the rows", async () => {
+  it("issues a single raw SQL query and returns the rows with tags JSON-decoded", async () => {
     const notes = [
       {
         id: 1,
         task_id: 5,
         author: "agent",
         visibility: "all",
-        tags: [],
+        tags: JSON.stringify(["a", "b"]),
+        content: "hi",
+        created_at: new Date(),
+      },
+    ];
+    const { knex } = createMockKnex();
+    // better-sqlite3 returns rows directly as an array.
+    knex.raw.mockResolvedValueOnce(notes);
+
+    const result = await getNotesForTask(knex as any, 5);
+
+    expect(knex.raw).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(1);
+    expect(result[0].tags).toEqual(["a", "b"]);
+  });
+
+  it("still understands the legacy {rows: [...]} shape so a pg-driver result is unwrapped", async () => {
+    const notes = [
+      {
+        id: 1,
+        task_id: 5,
+        author: "agent",
+        visibility: "all",
+        tags: JSON.stringify([]),
         content: "hi",
         created_at: new Date(),
       },
@@ -152,8 +179,8 @@ describe("getNotesForTask", () => {
 
     const result = await getNotesForTask(knex as any, 5);
 
-    expect(knex.raw).toHaveBeenCalledTimes(1);
-    expect(result).toBe(notes);
+    expect(result).toHaveLength(1);
+    expect(result[0].tags).toEqual([]);
   });
 
   it("binds the task id three times (one per CTE that needs the target)", async () => {
@@ -161,7 +188,7 @@ describe("getNotesForTask", () => {
     // CTE seed, the descendants CTE seed, and the target CTE. Three identical
     // bindings is the contract — fewer would mean a CTE is missing the seed.
     const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    knex.raw.mockResolvedValueOnce([]);
 
     await getNotesForTask(knex as any, 42);
 
@@ -171,7 +198,7 @@ describe("getNotesForTask", () => {
 
   it("uses recursive CTEs to walk both ancestor and descendant chains", async () => {
     const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    knex.raw.mockResolvedValueOnce([]);
 
     await getNotesForTask(knex as any, 1);
 
@@ -185,7 +212,7 @@ describe("getNotesForTask", () => {
 
   it("the ancestors CTE seeds with the target's parent_id (strict ancestors only)", async () => {
     const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    knex.raw.mockResolvedValueOnce([]);
 
     await getNotesForTask(knex as any, 1);
 

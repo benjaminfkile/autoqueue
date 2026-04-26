@@ -34,11 +34,6 @@ function createTableBuilderMock() {
       calls.push({ method: "text", args, chain });
       return chain;
     }),
-    jsonb: jest.fn((...args: unknown[]) => {
-      const chain = createColumnBuilderMock();
-      calls.push({ method: "jsonb", args, chain });
-      return chain;
-    }),
     timestamp: jest.fn((...args: unknown[]) => {
       const chain = createColumnBuilderMock();
       calls.push({ method: "timestamp", args, chain });
@@ -125,7 +120,7 @@ describe("migration 20260425000008_create_task_templates", () => {
       expect(descCall!.chain.defaultTo).toHaveBeenCalledWith("");
     });
 
-    it("defines tree as jsonb NOT NULL", async () => {
+    it("defines tree as text NOT NULL (JSON-encoded at the helper boundary for SQLite)", async () => {
       const { builder, calls } = createTableBuilderMock();
       const knex = {
         fn: { now: jest.fn(() => "now()") },
@@ -137,13 +132,13 @@ describe("migration 20260425000008_create_task_templates", () => {
       };
       await up(knex as any);
       const treeCall = calls.find(
-        (c) => c.method === "jsonb" && c.args[0] === "tree"
+        (c) => c.method === "text" && c.args[0] === "tree"
       );
       expect(treeCall).toBeDefined();
       expect(treeCall!.chain.notNullable).toHaveBeenCalled();
     });
 
-    it("defines created_at as timestamptz NOT NULL default now()", async () => {
+    it("defines created_at as a NOT NULL timestamp defaulting to now() (SQLite-compatible, no useTz)", async () => {
       const { builder, calls } = createTableBuilderMock();
       const knex = {
         fn: { now: jest.fn(() => "now()") },
@@ -158,7 +153,7 @@ describe("migration 20260425000008_create_task_templates", () => {
         (c) => c.method === "timestamp" && c.args[0] === "created_at"
       );
       expect(tsCall).toBeDefined();
-      expect(tsCall!.args[1]).toEqual(expect.objectContaining({ useTz: true }));
+      expect(tsCall!.args.length).toBe(1);
       expect(tsCall!.chain.notNullable).toHaveBeenCalled();
       expect(tsCall!.chain.defaultTo).toHaveBeenCalled();
     });

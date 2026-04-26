@@ -1,11 +1,20 @@
 import { Knex } from "knex";
 import { NoteAuthor, NoteVisibility, TaskNote } from "../interfaces";
 
+interface TaskNoteRow extends Omit<TaskNote, "tags"> {
+  tags: string;
+}
+
+function decodeTags(raw: string | null | undefined): string[] {
+  if (raw == null) return [];
+  return JSON.parse(raw) as string[];
+}
+
 export async function deleteNote(
   db: Knex,
   id: number
 ): Promise<number> {
-  return db<TaskNote>("task_notes").where({ id }).delete();
+  return db<TaskNoteRow>("task_notes").where({ id }).delete();
 }
 
 export async function createNote(
@@ -18,16 +27,16 @@ export async function createNote(
     tags?: string[];
   }
 ): Promise<TaskNote> {
-  const [row] = await db<TaskNote>("task_notes")
+  const [row] = await db<TaskNoteRow>("task_notes")
     .insert({
       task_id: data.task_id,
       author: data.author,
       visibility: data.visibility,
-      tags: JSON.stringify(data.tags ?? []) as unknown as string[],
+      tags: JSON.stringify(data.tags ?? []),
       content: data.content,
     })
     .returning("*");
-  return row;
+  return { ...row, tags: decodeTags(row.tags) };
 }
 
 // Resolves visibility against the task tree. A note authored on task N is
@@ -43,7 +52,7 @@ export async function getNotesForTask(
   db: Knex,
   taskId: number
 ): Promise<TaskNote[]> {
-  const result = await db.raw<{ rows: TaskNote[] }>(
+  const result = await db.raw(
     `WITH RECURSIVE
      ancestors_of_target AS (
        SELECT t.parent_id AS id
@@ -94,5 +103,11 @@ export async function getNotesForTask(
      ORDER BY n.created_at ASC, n.id ASC`,
     [taskId, taskId, taskId]
   );
-  return result.rows;
+  // better-sqlite3 returns rows directly as an array; older code paths may
+  // still wrap them under .rows. Accept either shape so the helper works
+  // against both drivers without leaking the shape into the caller.
+  const rows: TaskNoteRow[] = Array.isArray(result)
+    ? result
+    : (result?.rows ?? []);
+  return rows.map((r) => ({ ...r, tags: decodeTags(r.tags) }));
 }

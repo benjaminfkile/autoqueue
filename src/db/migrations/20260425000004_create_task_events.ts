@@ -9,9 +9,9 @@ export async function up(knex: Knex): Promise<void> {
       .references("id")
       .inTable("tasks")
       .onDelete("CASCADE");
-    table.timestamp("ts", { useTz: true }).notNullable().defaultTo(knex.fn.now());
+    table.timestamp("ts").notNullable().defaultTo(knex.fn.now());
     table.text("event").notNullable();
-    table.jsonb("data").nullable();
+    table.text("data").nullable();
 
     table.index(["task_id", "ts"], "idx_task_events_task_id_ts");
   });

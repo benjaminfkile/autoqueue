@@ -3,7 +3,7 @@ import { Knex } from "knex";
 export async function up(knex: Knex): Promise<void> {
   await knex.schema.alterTable("tasks", (table) => {
     table.text("worker_id").nullable();
-    table.timestamp("leased_until", { useTz: true }).nullable();
+    table.timestamp("leased_until").nullable();
     table.index(["status", "leased_until"], "idx_tasks_status_leased_until");
   });
 }

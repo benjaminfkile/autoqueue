@@ -34,11 +34,6 @@ function createTableBuilderMock() {
       calls.push({ method: "text", args, chain });
       return chain;
     }),
-    jsonb: jest.fn((...args: unknown[]) => {
-      const chain = createColumnBuilderMock();
-      calls.push({ method: "jsonb", args, chain });
-      return chain;
-    }),
     boolean: jest.fn((...args: unknown[]) => {
       const chain = createColumnBuilderMock();
       calls.push({ method: "boolean", args, chain });
@@ -113,11 +108,11 @@ describe("migration 20260425000010_create_repo_webhooks", () => {
       expect(urlCall!.chain.notNullable).toHaveBeenCalled();
     });
 
-    it("defines events as NOT NULL jsonb so the array of subscribed event names is queryable", async () => {
+    it("defines events as NOT NULL text (JSON-encoded array of subscribed event names for SQLite)", async () => {
       const { knex, calls } = runUpAndCapture();
       await up(knex as any);
       const eventsCall = calls.find(
-        (c) => c.method === "jsonb" && c.args[0] === "events"
+        (c) => c.method === "text" && c.args[0] === "events"
       );
       expect(eventsCall).toBeDefined();
       expect(eventsCall!.chain.notNullable).toHaveBeenCalled();
@@ -134,14 +129,14 @@ describe("migration 20260425000010_create_repo_webhooks", () => {
       expect(activeCall!.chain.defaultTo).toHaveBeenCalledWith(true);
     });
 
-    it("defines created_at as timestamptz NOT NULL default now()", async () => {
+    it("defines created_at as a NOT NULL timestamp defaulting to now() (SQLite-compatible, no useTz)", async () => {
       const { knex, calls } = runUpAndCapture();
       await up(knex as any);
       const tsCall = calls.find(
         (c) => c.method === "timestamp" && c.args[0] === "created_at"
       );
       expect(tsCall).toBeDefined();
-      expect(tsCall!.args[1]).toEqual(expect.objectContaining({ useTz: true }));
+      expect(tsCall!.args.length).toBe(1);
       expect(tsCall!.chain.notNullable).toHaveBeenCalled();
       expect(tsCall!.chain.defaultTo).toHaveBeenCalled();
     });

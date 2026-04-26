@@ -25,36 +25,40 @@ function createMockKnex() {
 describe("createTemplate", () => {
   it("inserts a row into task_templates with name, description, and serialized tree", async () => {
     const { knex, chain } = createMockKnex();
-    const inserted = {
-      id: 1,
-      name: "Bug fix template",
-      description: "Standard bug fix layout",
-      tree: { parents: [{ title: "Reproduce" }] },
-      created_at: new Date(),
-    };
-    chain.returning.mockResolvedValueOnce([inserted]);
+    const tree = { parents: [{ title: "Reproduce" }] };
+    chain.returning.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "Bug fix template",
+        description: "Standard bug fix layout",
+        tree: JSON.stringify(tree),
+        created_at: new Date(),
+      },
+    ]);
 
     const result = await createTemplate(knex as any, {
       name: "Bug fix template",
       description: "Standard bug fix layout",
-      tree: { parents: [{ title: "Reproduce" }] },
+      tree,
     });
 
     expect(knex).toHaveBeenCalledWith("task_templates");
     expect(chain.insert).toHaveBeenCalledWith({
       name: "Bug fix template",
       description: "Standard bug fix layout",
-      // The jsonb column receives a JSON string; this matches how task_notes
-      // serializes its jsonb columns and avoids per-call type casting.
-      tree: JSON.stringify({ parents: [{ title: "Reproduce" }] }),
+      // SQLite stores `tree` as text; the helper JSON-encodes on insert and
+      // JSON-decodes on read so callers always see the structured shape.
+      tree: JSON.stringify(tree),
     });
     expect(chain.returning).toHaveBeenCalledWith("*");
-    expect(result).toBe(inserted);
+    expect(result.tree).toEqual(tree);
   });
 
   it("defaults description to empty string when omitted (so a NULL is never inserted into the NOT NULL text column)", async () => {
     const { knex, chain } = createMockKnex();
-    chain.returning.mockResolvedValueOnce([{ id: 2 }]);
+    chain.returning.mockResolvedValueOnce([
+      { id: 2, tree: JSON.stringify({ parents: [] }) },
+    ]);
 
     await createTemplate(knex as any, {
       name: "Minimal",
@@ -68,30 +72,39 @@ describe("createTemplate", () => {
 });
 
 describe("getAllTemplates", () => {
-  it("returns templates ordered by created_at desc (most recent first)", async () => {
+  it("returns templates ordered by created_at desc (most recent first), with each tree JSON-decoded", async () => {
     const { knex, chain } = createMockKnex();
-    const rows = [{ id: 2 }, { id: 1 }];
+    const rows = [
+      { id: 2, tree: JSON.stringify({ parents: [{ title: "B" }] }) },
+      { id: 1, tree: JSON.stringify({ parents: [{ title: "A" }] }) },
+    ];
     chain.orderBy.mockResolvedValueOnce(rows);
 
     const result = await getAllTemplates(knex as any);
 
     expect(knex).toHaveBeenCalledWith("task_templates");
     expect(chain.orderBy).toHaveBeenCalledWith("created_at", "desc");
-    expect(result).toBe(rows);
+    expect(result).toHaveLength(2);
+    expect(result[0].tree).toEqual({ parents: [{ title: "B" }] });
+    expect(result[1].tree).toEqual({ parents: [{ title: "A" }] });
   });
 });
 
 describe("getTemplateById", () => {
-  it("returns the matching row when one exists", async () => {
+  it("returns the matching row with tree JSON-decoded when one exists", async () => {
     const { knex, chain } = createMockKnex();
-    const row = { id: 7, name: "T", tree: {} };
-    chain.first.mockResolvedValueOnce(row);
+    const tree = { parents: [{ title: "Step 1" }] };
+    chain.first.mockResolvedValueOnce({
+      id: 7,
+      name: "T",
+      tree: JSON.stringify(tree),
+    });
 
     const result = await getTemplateById(knex as any, 7);
 
     expect(chain.where).toHaveBeenCalledWith({ id: 7 });
     expect(chain.first).toHaveBeenCalledTimes(1);
-    expect(result).toBe(row);
+    expect(result?.tree).toEqual(tree);
   });
 
   it("resolves to undefined when no row matches", async () => {

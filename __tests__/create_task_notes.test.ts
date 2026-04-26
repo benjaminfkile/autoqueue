@@ -34,11 +34,6 @@ function createTableBuilderMock() {
       calls.push({ method: "text", args, chain });
       return chain;
     }),
-    jsonb: jest.fn((...args: unknown[]) => {
-      const chain = createColumnBuilderMock();
-      calls.push({ method: "jsonb", args, chain });
-      return chain;
-    }),
     timestamp: jest.fn((...args: unknown[]) => {
       const chain = createColumnBuilderMock();
       calls.push({ method: "timestamp", args, chain });
@@ -119,10 +114,10 @@ describe("migration 20260425000006_create_task_notes", () => {
       expect(c!.chain.notNullable).toHaveBeenCalled();
     });
 
-    it("defines tags as jsonb NOT NULL with an empty-array default", async () => {
+    it("defines tags as text NOT NULL with an empty-array default (JSON-encoded for SQLite)", async () => {
       const { knex, calls } = makeKnex();
       await up(knex as any);
-      const c = calls.find((x) => x.method === "jsonb" && x.args[0] === "tags");
+      const c = calls.find((x) => x.method === "text" && x.args[0] === "tags");
       expect(c).toBeDefined();
       expect(c!.chain.notNullable).toHaveBeenCalled();
       // Empty-array default lets agents omit tags without producing a NULL
@@ -140,14 +135,14 @@ describe("migration 20260425000006_create_task_notes", () => {
       expect(c!.chain.notNullable).toHaveBeenCalled();
     });
 
-    it("defines created_at as timestamptz NOT NULL default now()", async () => {
+    it("defines created_at as a NOT NULL timestamp defaulting to now() (SQLite-compatible, no useTz)", async () => {
       const { knex, calls } = makeKnex();
       await up(knex as any);
       const c = calls.find(
         (x) => x.method === "timestamp" && x.args[0] === "created_at"
       );
       expect(c).toBeDefined();
-      expect(c!.args[1]).toEqual(expect.objectContaining({ useTz: true }));
+      expect(c!.args.length).toBe(1);
       expect(c!.chain.notNullable).toHaveBeenCalled();
       expect(c!.chain.defaultTo).toHaveBeenCalled();
     });
