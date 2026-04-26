@@ -42,6 +42,13 @@ export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 // ---- Ordering mode (per-repo default; per-task override) ----
 export type OrderingMode = "sequential" | "parallel";
 
+// ---- Clone status (per-repo) ----
+// 'pending' is the initial state for a row that has not yet been cloned;
+// 'cloning' is set while the clone is in progress; 'ready' means the working
+// tree is on disk and usable; 'error' means the clone (or local-path
+// validation) failed and clone_error carries a human-readable reason.
+export type RepoCloneStatus = "pending" | "cloning" | "ready" | "error";
+
 // ---- Repos table row ----
 export interface Repo {
   id: number;
@@ -58,6 +65,8 @@ export interface Repo {
   max_retries: number;
   on_parent_child_fail: RepoOnParentChildFail;
   ordering_mode: OrderingMode;
+  clone_status: RepoCloneStatus;
+  clone_error: string | null;
   created_at: Date;
 }
 

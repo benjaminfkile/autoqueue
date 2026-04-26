@@ -1,6 +1,7 @@
 export type RepoOnFailure = "halt_repo" | "halt_subtree" | "retry" | "continue";
 export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 export type OrderingMode = "sequential" | "parallel";
+export type RepoCloneStatus = "pending" | "cloning" | "ready" | "error";
 export type TaskStatus =
   | "pending"
   | "active"
@@ -23,6 +24,8 @@ export interface Repo {
   max_retries: number;
   on_parent_child_fail: RepoOnParentChildFail;
   ordering_mode: OrderingMode;
+  clone_status: RepoCloneStatus;
+  clone_error: string | null;
   created_at: string;
 }
 
