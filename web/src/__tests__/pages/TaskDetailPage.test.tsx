@@ -984,4 +984,164 @@ describe("TaskDetailPage", () => {
     );
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("polls status, criteria, events, and notes every ~5s for non-active tasks", async () => {
+    let metValue = false;
+    let detailCallCount = 0;
+    let eventsCallCount = 0;
+    let notesCallCount = 0;
+    installFetch({
+      "GET /api/tasks/:id": () => {
+        detailCallCount++;
+        return jsonResponse(
+          makeDetail({
+            id: 200,
+            status: "pending",
+            acceptanceCriteria: [
+              makeCriterion({
+                id: 31,
+                task_id: 200,
+                description: "Tests pass",
+                met: metValue,
+              }),
+            ],
+          })
+        );
+      },
+      "GET /api/tasks/:id/events": () => {
+        eventsCallCount++;
+        return jsonResponse(
+          eventsCallCount > 1
+            ? [
+                makeEvent({
+                  id: 1,
+                  task_id: 200,
+                  event: "branch_created",
+                }),
+              ]
+            : []
+        );
+      },
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/notes": () => {
+        notesCallCount++;
+        return jsonResponse(
+          notesCallCount > 1
+            ? [
+                makeNote({
+                  id: 1,
+                  task_id: 200,
+                  content: "Polled note",
+                }),
+              ]
+            : []
+        );
+      },
+    });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<TaskDetailPage taskId={200} />);
+      await waitFor(() =>
+        expect(screen.getByText("Build the rocket")).toBeInTheDocument()
+      );
+
+      const checkbox = screen.getByRole("checkbox", {
+        name: /acceptance criterion: tests pass/i,
+      });
+      expect(checkbox).not.toBeChecked();
+      expect(screen.getByText(/no notes yet/i)).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("task-detail-events")
+      ).not.toBeInTheDocument();
+
+      metValue = true;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      await waitFor(() => {
+        const refreshed = screen.getByRole("checkbox", {
+          name: /acceptance criterion: tests pass/i,
+        });
+        expect(refreshed).toBeChecked();
+      });
+      expect(screen.getByText("Polled note")).toBeInTheDocument();
+      expect(screen.getByTestId("task-detail-events")).toHaveTextContent(
+        "branch_created"
+      );
+      expect(detailCallCount).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("polls every ~2s when the task is active", async () => {
+    (window as unknown as { EventSource: typeof EventSource }).EventSource =
+      MockEventSource as unknown as typeof EventSource;
+
+    let detailCallCount = 0;
+    installFetch({
+      "GET /api/tasks/:id": () => {
+        detailCallCount++;
+        return jsonResponse(makeDetail({ id: 201, status: "active" }));
+      },
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+    });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<TaskDetailPage taskId={201} />);
+      await waitFor(() => expect(detailCallCount).toBeGreaterThanOrEqual(1));
+      // Wait for the active interval (2s) to be installed after the initial
+      // load resolves.
+      await waitFor(() =>
+        expect(screen.getByTestId("task-detail-status")).toHaveAttribute(
+          "aria-label",
+          "Status: active"
+        )
+      );
+      const baseline = detailCallCount;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      await waitFor(() =>
+        expect(detailCallCount).toBeGreaterThanOrEqual(baseline + 1)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reopen the SSE log stream when polling refreshes the task", async () => {
+    (window as unknown as { EventSource: typeof EventSource }).EventSource =
+      MockEventSource as unknown as typeof EventSource;
+
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse(makeDetail({ id: 202, status: "active" })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+    });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<TaskDetailPage taskId={202} />);
+      await waitFor(() => expect(mockEventSourceInstances.length).toBe(1));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(mockEventSourceInstances.length).toBe(1);
+      expect(mockEventSourceInstances[0].isClosed()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
