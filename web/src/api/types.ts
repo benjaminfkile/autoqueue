@@ -183,6 +183,19 @@ export interface WorkerStatus {
   active_workers: ActiveWorker[];
 }
 
+export interface SetupStatus {
+  ready: boolean;
+  configured: {
+    ANTHROPIC_API_KEY: boolean;
+    GH_PAT: boolean;
+  };
+}
+
+export interface SetupInput {
+  ANTHROPIC_API_KEY: string;
+  GH_PAT: string;
+}
+
 export interface ProposedTaskNode {
   title: string;
   description?: string;

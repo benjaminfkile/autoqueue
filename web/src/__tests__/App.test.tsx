@@ -13,6 +13,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 function installFetchMock(): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
+    if (url.startsWith("/api/setup")) {
+      return jsonResponse({
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      });
+    }
     if (url.startsWith("/api/repos")) {
       return jsonResponse([]);
     }

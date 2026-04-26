@@ -7,6 +7,8 @@ import type {
   Repo,
   RepoInput,
   RepoUsageResponse,
+  SetupInput,
+  SetupStatus,
   TaskDetail,
   TaskEvent,
   TaskNote,
@@ -126,6 +128,19 @@ export const notesApi = {
 
 export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
+};
+
+export const setupApi = {
+  status: () => apiFetch<SetupStatus>("/api/setup"),
+  save: (input: SetupInput) =>
+    apiFetch<SetupStatus>("/api/setup", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  reset: () =>
+    apiFetch<SetupStatus>("/api/setup", {
+      method: "DELETE",
+    }),
 };
 
 export interface ChatStreamOptions {
