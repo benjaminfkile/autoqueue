@@ -183,6 +183,24 @@ describe("runClaudeOnTask log capture", () => {
     expect(prompt).toMatch(/task\.notes/);
   });
 
+  it("closes stdin so the CLI doesn't pause 3s waiting for piped input that never comes", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    // Without an explicit stdin source, claude waits 3s for piped data
+    // before printing a "no stdin received" warning and proceeding. We
+    // never write to stdin, so it must be 'ignore'.
+    const opts = spawnMock.mock.calls[0][2] as { stdio?: unknown };
+    expect(opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
+  });
+
   it("the prompt documents the NOTES_TO_SAVE protocol so the agent knows how to emit notes", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);

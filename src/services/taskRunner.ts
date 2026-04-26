@@ -148,7 +148,7 @@ async function runTaskBody(
         repo.base_branch,
         repo.base_branch_parent ?? "main"
       );
-      branchName = await createTaskBranch(secrets.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+      branchName = await createTaskBranch(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
       await recordEvent(db, task.id, "branch_created", { branch: branchName });
     }
 

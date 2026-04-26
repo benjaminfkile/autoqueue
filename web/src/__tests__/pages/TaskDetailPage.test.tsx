@@ -253,7 +253,7 @@ afterEach(() => {
 
 describe("taskBranchName", () => {
   it("derives the canonical branch name from a task id", () => {
-    expect(taskBranchName(42)).toBe("grunt/task-42");
+    expect(taskBranchName(42)).toBe("grunt-task-42");
   });
 });
 
@@ -275,8 +275,8 @@ describe("formatEventData", () => {
   });
 
   it("serializes data as JSON", () => {
-    expect(formatEventData({ branch: "grunt/task-1" })).toContain(
-      "grunt/task-1"
+    expect(formatEventData({ branch: "grunt-task-1" })).toContain(
+      "grunt-task-1"
     );
   });
 });
@@ -339,7 +339,7 @@ describe("TaskDetailPage", () => {
     );
     expect(screen.getByTestId("task-detail-branch")).toHaveAttribute(
       "aria-label",
-      "Current branch: grunt/task-7"
+      "Current branch: grunt-task-7"
     );
     const prChip = screen.getByTestId("task-detail-pr");
     expect(prChip).toHaveAttribute("href", "https://github.com/me/x/pull/1");
@@ -567,7 +567,7 @@ describe("TaskDetailPage", () => {
         id: 1,
         ts: "2026-04-01T11:00:00Z",
         event: "branch_created",
-        data: { branch: "grunt/task-9" },
+        data: { branch: "grunt-task-9" },
       }),
       makeEvent({
         id: 3,
@@ -593,7 +593,7 @@ describe("TaskDetailPage", () => {
     expect(items[1]).toHaveAttribute("data-testid", "event-2");
     expect(items[2]).toHaveAttribute("data-testid", "event-3");
     expect(items[0]).toHaveTextContent("branch_created");
-    expect(items[0]).toHaveTextContent("grunt/task-9");
+    expect(items[0]).toHaveTextContent("grunt-task-9");
   });
 
   it("loads the static log when status is not active", async () => {

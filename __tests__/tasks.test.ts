@@ -582,6 +582,43 @@ describe("claimNextPendingLeafTask", () => {
   });
 
   // -------------------------------------------------------------------------
+  // strict-ancestor sequencing
+  //
+  // Sequential mode applies at every level of the tree, not just the
+  // candidate's immediate siblings. If any strict ancestor of the candidate
+  // sits at a 'sequential' level and has an earlier-order_position sibling
+  // with pending/active work *anywhere in that sibling's subtree*, the
+  // candidate must be blocked. Without this, two phases under a sequential
+  // root could each launch their first child concurrently because the
+  // sibling-only check never traverses upward.
+  // -------------------------------------------------------------------------
+  it("blocks a candidate whose strict-ancestor lane has earlier work pending/active in another subtree", async () => {
+    const { knex } = createMockKnex();
+    knex.raw.mockResolvedValueOnce({ rows: [] });
+
+    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
+    // The guard walks the candidate's ancestor_ids (excluding self), checks
+    // each ancestor's effective ordering_mode via COALESCE against the
+    // ancestor's parent (or repo default), and looks for any pending/active
+    // task whose path crosses an earlier-order_position sibling of that
+    // ancestor.
+    expect(sql).toMatch(/unnest\s*\(\s*tp\.ancestor_ids\s*\)/);
+    expect(sql).toMatch(/aid\s*<>\s*t\.id/);
+    expect(sql).toMatch(
+      /COALESCE\s*\(\s*ap\.ordering_mode\s*,\s*r\.ordering_mode\s*\)\s*=\s*'sequential'/
+    );
+    expect(sql).toMatch(
+      /earlier\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+a\.parent_id/
+    );
+    expect(sql).toMatch(/earlier\.order_position\s*<\s*a\.order_position/);
+    expect(sql).toMatch(
+      /blocker\.status\s+IN\s*\(\s*'pending'\s*,\s*'active'\s*\)/
+    );
+  });
+
+  // -------------------------------------------------------------------------
   // requires_approval gate (task #216)
   //
   // A task with requires_approval=true must be skipped by the scheduler. The

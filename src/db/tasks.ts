@@ -185,6 +185,23 @@ export async function claimNextPendingLeafTask(
                 AND sibling.status IN ('pending', 'active')
             )
           )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM unnest(tp.ancestor_ids) AS aid
+            JOIN tasks a ON a.id = aid
+            LEFT JOIN tasks ap ON ap.id = a.parent_id
+            WHERE aid <> t.id
+              AND COALESCE(ap.ordering_mode, r.ordering_mode) = 'sequential'
+              AND EXISTS (
+                SELECT 1 FROM task_path bp
+                JOIN tasks blocker ON blocker.id = bp.id
+                JOIN tasks earlier ON earlier.id = ANY(bp.ancestor_ids)
+                WHERE blocker.repo_id = t.repo_id
+                  AND blocker.status IN ('pending', 'active')
+                  AND earlier.parent_id IS NOT DISTINCT FROM a.parent_id
+                  AND earlier.order_position < a.order_position
+              )
+          )
         ORDER BY tp.path ASC
         LIMIT 1
         FOR UPDATE OF t SKIP LOCKED

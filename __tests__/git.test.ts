@@ -19,6 +19,7 @@ const mockState: {
   instances: GitMock[];
   nextBranches: string[];
   nextRemoteHeads: string;
+  nextPushRejection: Error | null;
   nextStatus: {
     modified: string[];
     created: string[];
@@ -31,6 +32,7 @@ const mockState: {
   instances: [],
   nextBranches: [],
   nextRemoteHeads: "",
+  nextPushRejection: null,
   nextStatus: {
     modified: [],
     created: [],
@@ -57,7 +59,18 @@ jest.mock("simple-git", () => {
           .mockImplementation(async () => mockState.nextRemoteHeads),
         fetch: jest.fn().mockResolvedValue(undefined),
         pull: jest.fn().mockResolvedValue(undefined),
-        push: jest.fn().mockResolvedValue(undefined),
+        push: jest.fn().mockImplementation(async (args?: string[]) => {
+          // The rejection latch only fires on a "delete this remote branch"
+          // push so tests targeting cleanup don't accidentally fail an
+          // earlier commit/merge push that uses different (or no) args.
+          const isRemoteDelete =
+            Array.isArray(args) && args[0] === "origin" && args[1] === "--delete";
+          if (mockState.nextPushRejection && isRemoteDelete) {
+            const err = mockState.nextPushRejection;
+            mockState.nextPushRejection = null;
+            throw err;
+          }
+        }),
         add: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         remote: jest.fn().mockResolvedValue(undefined),
@@ -106,6 +119,7 @@ beforeEach(() => {
   mockState.instances = [];
   mockState.nextBranches = [];
   mockState.nextRemoteHeads = "";
+  mockState.nextPushRejection = null;
   mockState.nextStatus = {
     modified: [],
     created: [],
@@ -119,19 +133,20 @@ beforeEach(() => {
 });
 
 describe("createTaskBranch", () => {
-  it("returns the deterministic branch name `grunt/task-{taskId}`", async () => {
+  it("returns the deterministic branch name `grunt-task-{taskId}`", async () => {
     const branch = await createTaskBranch(
       "/repos",
+      "ghp_token",
       "octocat",
       "hello",
       "main",
       42
     );
-    expect(branch).toBe("grunt/task-42");
+    expect(branch).toBe("grunt-task-42");
   });
 
   it("opens simple-git against the resolved repo path", async () => {
-    await createTaskBranch("/repos", "octocat", "hello", "main", 7);
+    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
     expect(mockState.instances).toHaveLength(1);
     expect(mockState.instances[0].dir).toBe(
       path.join("/repos", "octocat", "hello")
@@ -139,42 +154,79 @@ describe("createTaskBranch", () => {
   });
 
   it("creates the branch from baseBranch via `checkout -b`", async () => {
-    await createTaskBranch("/repos", "octocat", "hello", "main", 7);
+    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
 
     const git = mockState.instances[0];
-    expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt/task-7", "main"]);
+    expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt-task-7", "main"]);
   });
 
   it("deletes the existing local branch before recreating it", async () => {
-    mockState.nextBranches = ["grunt/task-99", "some-other-branch"];
+    mockState.nextBranches = ["grunt-task-99", "some-other-branch"];
 
-    await createTaskBranch("/repos", "octocat", "hello", "main", 99);
+    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 99);
 
     const git = mockState.instances[0];
-    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt/task-99", true);
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt-task-99", true);
     expect(git.checkout).toHaveBeenCalledWith([
       "-b",
-      "grunt/task-99",
+      "grunt-task-99",
       "main",
     ]);
   });
 
-  it("does not delete the branch when it does not already exist", async () => {
+  it("does not delete the local branch when it does not already exist", async () => {
     mockState.nextBranches = ["main", "develop"];
 
-    await createTaskBranch("/repos", "octocat", "hello", "main", 1);
+    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 1);
 
     const git = mockState.instances[0];
     expect(git.deleteLocalBranch).not.toHaveBeenCalled();
-    expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt/task-1", "main"]);
+    expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt-task-1", "main"]);
   });
 
   it("returns the same branch name across repeated calls for the same taskId", async () => {
-    const a = await createTaskBranch("/repos", "octocat", "hello", "main", 5);
-    const b = await createTaskBranch("/repos", "octocat", "hello", "main", 5);
-    expect(a).toBe("grunt/task-5");
-    expect(b).toBe("grunt/task-5");
+    const a = await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 5);
+    const b = await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 5);
+    expect(a).toBe("grunt-task-5");
+    expect(b).toBe("grunt-task-5");
     expect(a).toBe(b);
+  });
+
+  it("attempts a best-effort remote delete with PAT-authenticated origin so reruns aren't blocked by stale remote state", async () => {
+    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
+
+    const git = mockState.instances[0];
+    expect(git.remote).toHaveBeenCalledWith([
+      "set-url",
+      "origin",
+      "https://ghp_token@github.com/octocat/hello.git",
+    ]);
+    expect(git.push).toHaveBeenCalledWith([
+      "origin",
+      "--delete",
+      "grunt-task-7",
+    ]);
+  });
+
+  it("swallows a remote-delete failure so a first run (or already-deleted branch) still proceeds", async () => {
+    // The most common cause in practice is the remote branch simply not
+    // existing yet (first attempt of a task). createTaskBranch must
+    // tolerate the push rejection and still create the local branch.
+    mockState.nextPushRejection = new Error("remote ref does not exist");
+
+    const branch = await createTaskBranch(
+      "/repos",
+      "ghp_token",
+      "octocat",
+      "hello",
+      "main",
+      8
+    );
+
+    expect(branch).toBe("grunt-task-8");
+    const git = mockState.instances[0];
+    // checkout must still happen even though the remote delete blew up
+    expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt-task-8", "main"]);
   });
 });
 
@@ -298,7 +350,7 @@ describe("commitAndPushTask", () => {
       "pat-token",
       "octocat",
       "hello",
-      "grunt/task-42",
+      "grunt-task-42",
       "task: 42"
     );
 
@@ -307,7 +359,7 @@ describe("commitAndPushTask", () => {
     expect(git.push).toHaveBeenCalledWith([
       "--set-upstream",
       "origin",
-      "grunt/task-42",
+      "grunt-task-42",
     ]);
 
     const pushArgs = git.push.mock.calls[0][0] as string[];
@@ -321,7 +373,7 @@ describe("commitAndPushTask", () => {
       "pat-token",
       "octocat",
       "hello",
-      "grunt/task-7",
+      "grunt-task-7",
       "task: 7"
     );
 
@@ -339,10 +391,11 @@ describe("commitAndPushTask", () => {
     // Simulate a retry: createTaskBranch is called, sees an existing local
     // branch, deletes it, and recreates it from baseBranch. Then we commit
     // and push.
-    mockState.nextBranches = ["grunt/task-5"];
+    mockState.nextBranches = ["grunt-task-5"];
 
     const branch = await createTaskBranch(
       "/repos",
+      "pat-token",
       "octocat",
       "hello",
       "main",
@@ -363,12 +416,12 @@ describe("commitAndPushTask", () => {
 
     const createBranchGit = mockState.instances[0];
     expect(createBranchGit.deleteLocalBranch).toHaveBeenCalledWith(
-      "grunt/task-5",
+      "grunt-task-5",
       true
     );
     expect(createBranchGit.checkout).toHaveBeenCalledWith([
       "-b",
-      "grunt/task-5",
+      "grunt-task-5",
       "main",
     ]);
 
@@ -376,7 +429,7 @@ describe("commitAndPushTask", () => {
     expect(pushGit.push).toHaveBeenCalledWith([
       "--set-upstream",
       "origin",
-      "grunt/task-5",
+      "grunt-task-5",
     ]);
     const pushArgs = pushGit.push.mock.calls[0][0] as string[];
     expect(pushArgs).not.toContain("--force");
@@ -482,26 +535,56 @@ describe("mergeIntoBase (legacy, issue-based)", () => {
 });
 
 describe("mergeTaskIntoBase", () => {
-  it("checks out base, merges the task branch with --no-ff, pushes, and deletes the task branch", async () => {
+  it("checks out base, merges the task branch with --no-ff, pushes the merge, and deletes the task branch locally + remotely", async () => {
     await mergeTaskIntoBase(
       "/repos",
       "pat-token",
       "octocat",
       "hello",
       "main",
-      "grunt/task-42"
+      "grunt-task-42"
     );
 
     const git = mockState.instances[0];
     expect(git.checkout).toHaveBeenCalledWith("main");
-    expect(git.merge).toHaveBeenCalledWith(["--no-ff", "grunt/task-42"]);
+    expect(git.merge).toHaveBeenCalledWith(["--no-ff", "grunt-task-42"]);
     expect(git.remote).toHaveBeenCalledWith([
       "set-url",
       "origin",
       "https://pat-token@github.com/octocat/hello.git",
     ]);
-    expect(git.push).toHaveBeenCalledTimes(1);
-    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt/task-42", true);
+    // Two pushes: the merge to base, then the branch deletion. Asserting
+    // both keeps the order intent (merge first, cleanup second) explicit.
+    expect(git.push).toHaveBeenCalledTimes(2);
+    expect(git.push).toHaveBeenNthCalledWith(1);
+    expect(git.push).toHaveBeenNthCalledWith(2, [
+      "origin",
+      "--delete",
+      "grunt-task-42",
+    ]);
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt-task-42", true);
+  });
+
+  it("swallows a remote-delete failure so a successful merge isn't reported as a task failure", async () => {
+    // The remote branch may already be gone (cleaned up by another worker,
+    // never pushed, etc.). The merge has happened and base is up-to-date —
+    // we must not blow up the run on cleanup.
+    mockState.nextPushRejection = new Error("remote ref does not exist");
+
+    await expect(
+      mergeTaskIntoBase(
+        "/repos",
+        "pat-token",
+        "octocat",
+        "hello",
+        "main",
+        "grunt-task-7"
+      )
+    ).resolves.toBeUndefined();
+
+    const git = mockState.instances[0];
+    // The local cleanup still happened.
+    expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt-task-7", true);
   });
 });
 

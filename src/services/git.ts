@@ -107,17 +107,37 @@ export async function mergeIntoBase(
 
 export async function createTaskBranch(
   reposPath: string,
+  pat: string,
   owner: string,
   repoName: string,
   baseBranch: string,
   taskId: number
 ): Promise<string> {
-  const branchName = `grunt/task-${taskId}`;
+  // Single ref-namespace component (no '/') so the branch never collides
+  // with a base branch named 'grunt' — refs/heads/grunt and
+  // refs/heads/grunt/task-N cannot coexist.
+  const branchName = `grunt-task-${taskId}`;
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   const branches = await git.branchLocal();
   if (branches.all.includes(branchName)) {
     await git.deleteLocalBranch(branchName, true);
+  }
+
+  // Best-effort remote delete so a rerun starts from a clean slate. A prior
+  // attempt may have pushed (and possibly merged via a PR that didn't keep
+  // the branch as an ancestor of base, e.g. squash/rebase merge); leaving
+  // the stale remote in place causes the next push to fail non-fast-forward.
+  // Failure here is non-fatal — the most common cause is the branch simply
+  // not existing on the remote yet (first attempt).
+  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  try {
+    await git.remote(["set-url", "origin", remoteUrl]);
+    await git.push(["origin", "--delete", branchName]);
+  } catch (err) {
+    console.log(
+      `[git] Skipping remote delete of ${branchName} (likely doesn't exist): ${(err as Error).message}`
+    );
   }
 
   await git.checkout(["-b", branchName, baseBranch]);
@@ -157,6 +177,16 @@ export async function mergeTaskIntoBase(
   await git.remote(["set-url", "origin", remoteUrl]);
   await git.push();
   await git.deleteLocalBranch(branchName, true);
+  // Remove the now-merged remote branch too. Best-effort: the branch may
+  // have never been pushed (no uncommitted changes path) or may have been
+  // cleaned up by another process. Don't fail the task on it.
+  try {
+    await git.push(["origin", "--delete", branchName]);
+  } catch (err) {
+    console.log(
+      `[git] Skipping remote delete of ${branchName} after merge (likely already gone): ${(err as Error).message}`
+    );
+  }
 }
 
 export async function hasUncommittedChanges(

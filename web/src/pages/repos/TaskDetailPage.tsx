@@ -41,7 +41,7 @@ export interface TaskDetailPageProps {
 }
 
 export function taskBranchName(taskId: number): string {
-  return `grunt/task-${taskId}`;
+  return `grunt-task-${taskId}`;
 }
 
 export function formatEventTimestamp(iso: string): string {

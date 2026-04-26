@@ -313,6 +313,9 @@ ${NOTES_PROTOCOL_DOC}`;
       {
         cwd: workDir,
         env,
+        // Without an explicit stdin source the CLI waits 3s for piped input
+        // before proceeding. We never write to stdin, so close it.
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
 
