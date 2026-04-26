@@ -32,8 +32,12 @@ import type {
   TaskSummary,
   TaskUsageResponse,
 } from "../../api/types";
+import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
 import UsagePanel from "./UsagePanel";
+
+const ACTIVE_POLL_INTERVAL_MS = 2000;
+const IDLE_POLL_INTERVAL_MS = 5000;
 
 export interface TaskDetailPageProps {
   taskId: number;
@@ -177,6 +181,29 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
   useEffect(() => {
     void load();
   }, [load]);
+
+  const pollFetcher = useCallback(async () => {
+    try {
+      const [detail, evs, noteList] = await Promise.all([
+        tasksApi.get(taskId),
+        tasksApi.events(taskId),
+        notesApi.list(taskId).catch(() => null),
+      ]);
+      setTask(detail);
+      setEvents(evs);
+      if (noteList !== null) setNotes(noteList);
+    } catch {
+      // Silent: a transient polling failure is intentionally swallowed so it
+      // doesn't replace stable on-screen data with an error banner. The next
+      // tick will retry.
+    }
+  }, [taskId]);
+
+  const pollIntervalMs =
+    task?.status === "active"
+      ? ACTIVE_POLL_INTERVAL_MS
+      : IDLE_POLL_INTERVAL_MS;
+  useVisibilityAwarePolling(pollFetcher, pollIntervalMs);
 
   // Log fetching: SSE when active, static otherwise.
   useEffect(() => {
