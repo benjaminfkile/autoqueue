@@ -25,6 +25,11 @@ function getUserDataDir(appName: string): string {
 }
 
 export function getDbFilePath(): string {
+  // GRUNT_DB_PATH lets the jest harness (and ad-hoc tooling) redirect the
+  // database file to a temp location without touching the user data dir.
+  if (process.env.GRUNT_DB_PATH) {
+    return process.env.GRUNT_DB_PATH;
+  }
   return path.join(getUserDataDir(APP_NAME), "grunt.sqlite");
 }
 
