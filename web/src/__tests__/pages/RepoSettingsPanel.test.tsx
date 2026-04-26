@@ -34,6 +34,8 @@ function makeRepo(partial: Partial<Repo> & { id: number }): Repo {
     max_retries: 0,
     on_parent_child_fail: "cascade_fail",
     ordering_mode: "sequential",
+    clone_status: "ready",
+    clone_error: null,
     created_at: "2026-01-01T00:00:00Z",
     ...partial,
   };

@@ -20,6 +20,8 @@ function makeRepo(): Repo {
     max_retries: 3,
     on_parent_child_fail: "cascade_fail",
     ordering_mode: "sequential",
+    clone_status: "ready",
+    clone_error: null,
     created_at: new Date().toISOString(),
   };
 }
