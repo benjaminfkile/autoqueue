@@ -8,6 +8,7 @@ import { IAppSecrets } from "./src/interfaces";
 import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
+import * as secrets from "./src/secrets";
 import morgan from "morgan";
 
 process.on("uncaughtException", (err) => {
@@ -15,17 +16,16 @@ process.on("uncaughtException", (err) => {
   console.log("Node NOT Exiting...");
 });
 
-// Placeholder until the Phase 3 secrets module lands. Reads the same fields
-// from process.env that getAppSecrets used to fetch from AWS Secrets Manager.
-function loadAppSecrets(): IAppSecrets {
+// Non-secret runtime config. Real secrets (ANTHROPIC_API_KEY, GH_PAT) live in
+// the encrypted secrets store and are fetched on demand by the modules that
+// need them — they do not get attached to the express app.
+function loadAppConfig(): IAppSecrets {
   const nodeEnv =
     process.env.NODE_ENV === "production" ? "production" : "development";
   return {
     NODE_ENV: nodeEnv,
     PORT: process.env.PORT ?? "8000",
     API_KEY_HASH: process.env.API_KEY_HASH ?? "",
-    GH_PAT: process.env.GH_PAT,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     REPOS_PATH: process.env.REPOS_PATH ?? "",
     POLL_INTERVAL_SECONDS: process.env.POLL_INTERVAL_SECONDS,
     CLAUDE_PATH: process.env.CLAUDE_PATH,
@@ -33,21 +33,46 @@ function loadAppSecrets(): IAppSecrets {
   };
 }
 
+// Initialize the encrypted secrets store. On a fresh install this generates
+// (or prompts for) the encryption key and writes an empty secrets file. If
+// neither path can succeed — no OS keychain available, no TTY for a passphrase
+// prompt, no GRUNT_MASTER_KEY set — bail with an actionable setup prompt
+// rather than crashing the user with a stack trace.
+function initSecretsStoreOrExit(): void {
+  try {
+    secrets.init();
+  } catch (err) {
+    const message = (err as Error).message;
+    console.error("[startup] Could not initialize the encrypted secrets store.");
+    console.error(`          ${message}`);
+    console.error(
+      "          Setup required: store a passphrase via GRUNT_MASTER_KEY (headless"
+    );
+    console.error(
+      "          environments) or run grunt from a terminal so it can prompt for one."
+    );
+    console.error(
+      `          Secrets file: ${secrets.getSecretsFilePath()}`
+    );
+    process.exit(1);
+  }
+}
+
 async function start() {
   try {
-    const appSecrets = loadAppSecrets();
+    initSecretsStoreOrExit();
 
-    app.set("secrets", appSecrets);
+    const appConfig = loadAppConfig();
 
     const morganFormat =
-      appSecrets.NODE_ENV === "production" ? "tiny" : "common";
+      appConfig.NODE_ENV === "production" ? "tiny" : "common";
     app.use(morgan(morganFormat));
 
-    const port = parseInt(appSecrets.PORT) || 8000;
+    const port = parseInt(appConfig.PORT) || 8000;
 
-    await initDb(appSecrets);
+    await initDb(appConfig);
 
-    const reposPath = appSecrets.REPOS_PATH;
+    const reposPath = appConfig.REPOS_PATH;
     if (!fs.existsSync(reposPath)) {
       fs.mkdirSync(reposPath, { recursive: true });
       console.log(`Created repos directory: ${reposPath}`);
@@ -58,7 +83,7 @@ async function start() {
       `[startup] Reclaimed ${reclaimedCount} orphaned task(s) back to pending (worker_id=${WORKER_ID}).`
     );
 
-    startScheduler(getDb(), appSecrets);
+    startScheduler(getDb(), appConfig);
 
     const server = http.createServer(app);
 

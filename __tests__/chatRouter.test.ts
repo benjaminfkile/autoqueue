@@ -24,7 +24,16 @@ jest.mock("../src/services/chatService", () => {
   };
 });
 
+jest.mock("../src/secrets", () => ({
+  get: jest.fn(),
+  init: jest.fn(),
+  set: jest.fn(),
+  unset: jest.fn(),
+  getSecretsFilePath: jest.fn(),
+}));
+
 import app from "../src/app";
+import * as secrets from "../src/secrets";
 import {
   loadChatContext,
   streamChatEvents,
@@ -50,15 +59,11 @@ const repoFixture = {
   created_at: new Date("2026-04-01T00:00:00Z"),
 };
 
-beforeAll(() => {
-  app.set("secrets", {
-    NODE_ENV: "development",
-    ANTHROPIC_API_KEY: "sk-ant-test",
-  });
-});
-
 beforeEach(() => {
   jest.clearAllMocks();
+  (secrets.get as jest.Mock).mockImplementation((key: string) =>
+    key === "ANTHROPIC_API_KEY" ? "sk-ant-test" : undefined
+  );
   (loadChatContext as jest.Mock).mockResolvedValue({});
   (streamChatEvents as jest.Mock).mockImplementation(() =>
     asyncIterable([
@@ -108,19 +113,12 @@ describe("POST /api/chat", () => {
   });
 
   it("returns 500 when ANTHROPIC_API_KEY is not configured", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-    });
+    (secrets.get as jest.Mock).mockReturnValue(undefined);
     const res = await request(app)
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/ANTHROPIC_API_KEY/);
-    // Restore the key for subsequent tests.
-    app.set("secrets", {
-      NODE_ENV: "development",
-      ANTHROPIC_API_KEY: "sk-ant-test",
-    });
   });
 
   it("streams Claude text deltas back as SSE events", async () => {

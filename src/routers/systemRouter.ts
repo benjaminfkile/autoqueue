@@ -2,7 +2,6 @@ import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import { getActiveWorkers } from "../db/workers";
 import { WORKER_ID } from "../services/scheduler";
-import { IAppSecrets } from "../interfaces";
 
 const systemRouter = express.Router();
 
@@ -11,10 +10,9 @@ const systemRouter = express.Router();
  * Returns the running mode (worker vs orchestrator-only) for this instance and
  * the list of currently active workers across the cluster (active task + lease).
  */
-systemRouter.get("/worker-status", async (req: Request, res: Response) => {
+systemRouter.get("/worker-status", async (_req: Request, res: Response) => {
   try {
-    const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-    const isWorker = secrets?.IS_WORKER === "true";
+    const isWorker = process.env.IS_WORKER === "true";
 
     const db = getDb();
     const rows = await getActiveWorkers(db);

@@ -20,16 +20,23 @@ import { getActiveWorkers } from "../src/db/workers";
 
 import { WORKER_ID } from "../src/services/scheduler";
 
+const ORIGINAL_IS_WORKER = process.env.IS_WORKER;
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
 
+afterEach(() => {
+  if (ORIGINAL_IS_WORKER === undefined) {
+    delete process.env.IS_WORKER;
+  } else {
+    process.env.IS_WORKER = ORIGINAL_IS_WORKER;
+  }
+});
+
 describe("systemRouter GET /api/system/worker-status", () => {
   it("reports orchestrator mode and an empty active_workers list when no workers are leased", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      IS_WORKER: "false",
-    });
+    process.env.IS_WORKER = "false";
     (getActiveWorkers as jest.Mock).mockResolvedValue([]);
 
     const res = await request(app).get("/api/system/worker-status");
@@ -44,10 +51,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
   });
 
   it("reports worker mode with this instance's worker id and serializes active workers", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      IS_WORKER: "true",
-    });
+    process.env.IS_WORKER = "true";
     const lease1 = new Date("2026-04-25T12:34:56Z");
     const lease2 = new Date("2026-04-25T12:35:00Z");
     (getActiveWorkers as jest.Mock).mockResolvedValue([
@@ -92,10 +96,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
   });
 
   it("never marks a worker as is_self when this instance is not a worker", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      IS_WORKER: "false",
-    });
+    process.env.IS_WORKER = "false";
     (getActiveWorkers as jest.Mock).mockResolvedValue([
       {
         worker_id: WORKER_ID,
@@ -114,10 +115,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
   });
 
   it("coerces non-Date leased_until values to a string", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      IS_WORKER: "true",
-    });
+    process.env.IS_WORKER = "true";
     (getActiveWorkers as jest.Mock).mockResolvedValue([
       {
         worker_id: "host:1",
@@ -137,10 +135,7 @@ describe("systemRouter GET /api/system/worker-status", () => {
   });
 
   it("returns 500 with the error message when the workers query throws", async () => {
-    app.set("secrets", {
-      NODE_ENV: "development",
-      IS_WORKER: "true",
-    });
+    process.env.IS_WORKER = "true";
     (getActiveWorkers as jest.Mock).mockRejectedValue(new Error("db down"));
 
     const res = await request(app).get("/api/system/worker-status");

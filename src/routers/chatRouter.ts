@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
-import { IAppSecrets } from "../interfaces";
+import * as secrets from "../secrets";
 import {
   buildSystemPrompt,
   ChatMessage,
@@ -58,8 +58,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     repoIdNum = parsed;
   }
 
-  const secrets = req.app.get("secrets") as IAppSecrets | undefined;
-  const apiKey = secrets?.ANTHROPIC_API_KEY;
+  const apiKey = secrets.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return res
       .status(500)

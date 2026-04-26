@@ -1,6 +1,7 @@
 import { Knex } from "knex";
 import * as path from "path";
 import { IAppSecrets, TaskPayload } from "../interfaces";
+import * as secrets from "../secrets";
 import { getRepoById } from "../db/repos";
 import {
   getTaskById,
@@ -31,7 +32,7 @@ const LEASE_RENEWAL_INTERVAL_MS = 60 * 1000;
 
 export async function runTask(
   db: Knex,
-  secrets: IAppSecrets,
+  config: IAppSecrets,
   repoId: number,
   taskId: number
 ): Promise<"success" | "failed" | "halted"> {
@@ -54,7 +55,7 @@ export async function runTask(
   }, LEASE_RENEWAL_INTERVAL_MS);
 
   try {
-    return await runTaskBody(db, secrets, repoId, task, repo);
+    return await runTaskBody(db, config, repoId, task, repo);
   } finally {
     clearInterval(renewalTimer);
   }
@@ -62,7 +63,7 @@ export async function runTask(
 
 async function runTaskBody(
   db: Knex,
-  secrets: IAppSecrets,
+  config: IAppSecrets,
   repoId: number,
   task: NonNullable<Awaited<ReturnType<typeof getTaskById>>>,
   repo: NonNullable<Awaited<ReturnType<typeof getRepoById>>>
@@ -140,26 +141,26 @@ async function runTaskBody(
     // 8. Git setup (skipped for local folder repos)
     let branchName = "";
     if (!repo.is_local_folder) {
-      await cloneOrPull(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!);
+      await cloneOrPull(config.REPOS_PATH, repo.owner!, repo.repo_name!);
       await checkoutBaseBranch(
-        secrets.REPOS_PATH,
+        config.REPOS_PATH,
         repo.owner!,
         repo.repo_name!,
         repo.base_branch,
         repo.base_branch_parent ?? "main"
       );
-      branchName = await createTaskBranch(secrets.REPOS_PATH, secrets.GH_PAT!, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+      branchName = await createTaskBranch(config.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
       await recordEvent(db, task.id, "branch_created", { branch: branchName });
     }
 
     // 9. Run Claude
     const workDir = repo.is_local_folder
       ? repo.local_path!
-      : path.join(secrets.REPOS_PATH, repo.owner!, repo.repo_name!);
+      : path.join(config.REPOS_PATH, repo.owner!, repo.repo_name!);
 
     await recordEvent(db, task.id, "claude_started", { attempt });
     const logFilePath = path.join(
-      secrets.REPOS_PATH,
+      config.REPOS_PATH,
       "_logs",
       `task-${task.id}.log`
     );
@@ -171,8 +172,8 @@ async function runTaskBody(
     } = await runClaudeOnTask({
       workDir,
       taskPayload,
-      anthropicApiKey: secrets.ANTHROPIC_API_KEY,
-      claudePath: secrets.CLAUDE_PATH,
+      anthropicApiKey: secrets.get("ANTHROPIC_API_KEY"),
+      claudePath: config.CLAUDE_PATH,
       logFilePath,
       onFirstByte: () => {
         updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
@@ -232,10 +233,9 @@ async function runTaskBody(
         return "success";
       }
 
-      if (await hasUncommittedChanges(secrets.REPOS_PATH, repo.owner!, repo.repo_name!)) {
+      if (await hasUncommittedChanges(config.REPOS_PATH, repo.owner!, repo.repo_name!)) {
         await commitAndPushTask(
-          secrets.REPOS_PATH,
-          secrets.GH_PAT!,
+          config.REPOS_PATH,
           repo.owner!,
           repo.repo_name!,
           branchName,
@@ -245,7 +245,7 @@ async function runTaskBody(
       }
 
       if (repo.require_pr) {
-        const token = repo.github_token ?? secrets.GH_PAT!;
+        const token = repo.github_token ?? secrets.get("GH_PAT")!;
         const criteriaList = criteria
           .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
           .join("\n");
@@ -275,8 +275,7 @@ async function runTaskBody(
         );
       } else {
         await mergeTaskIntoBase(
-          secrets.REPOS_PATH,
-          secrets.GH_PAT!,
+          config.REPOS_PATH,
           repo.owner!,
           repo.repo_name!,
           repo.base_branch,

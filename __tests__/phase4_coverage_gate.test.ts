@@ -455,6 +455,15 @@ some agent narration
 // target, so this test covers the assembly layer in taskRunner without
 // re-testing the SQL CTE (that's done above and in taskNotes.test.ts).
 // ---------------------------------------------------------------------------
+jest.mock("../src/secrets", () => ({
+  get: jest.fn((key: string) =>
+    key === "ANTHROPIC_API_KEY" ? "sk-ant-test" : key === "GH_PAT" ? "tok" : undefined
+  ),
+  init: jest.fn(),
+  set: jest.fn(),
+  unset: jest.fn(),
+  getSecretsFilePath: jest.fn(),
+}));
 jest.mock("../src/db/repos", () => ({ getRepoById: jest.fn() }));
 jest.mock("../src/db/tasks", () => ({
   getTaskById: jest.fn(),

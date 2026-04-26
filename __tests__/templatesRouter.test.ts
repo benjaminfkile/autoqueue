@@ -67,12 +67,6 @@ const mockTemplate = {
   created_at: new Date(),
 };
 
-beforeAll(() => {
-  app.set("secrets", {
-    NODE_ENV: "development",
-  });
-});
-
 beforeEach(() => {
   jest.clearAllMocks();
 });

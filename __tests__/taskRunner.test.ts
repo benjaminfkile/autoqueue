@@ -1,3 +1,21 @@
+jest.mock("../src/secrets", () => {
+  const store: Record<string, string | undefined> = {
+    GH_PAT: "tok",
+    ANTHROPIC_API_KEY: "x",
+  };
+  return {
+    get: jest.fn((key: string) => store[key]),
+    init: jest.fn(),
+    set: jest.fn(),
+    unset: jest.fn(),
+    getSecretsFilePath: jest.fn(),
+    __setStore: (override: Record<string, string | undefined>) => {
+      for (const k of Object.keys(store)) delete store[k];
+      Object.assign(store, override);
+    },
+  };
+});
+
 jest.mock("../src/db/repos", () => ({
   getRepoById: jest.fn(),
 }));

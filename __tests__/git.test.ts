@@ -43,6 +43,14 @@ const mockState: {
   },
 };
 
+jest.mock("../src/secrets", () => ({
+  get: jest.fn((key: string) => (key === "GH_PAT" ? "pat-token" : undefined)),
+  init: jest.fn(),
+  set: jest.fn(),
+  unset: jest.fn(),
+  getSecretsFilePath: jest.fn(),
+}));
+
 jest.mock("simple-git", () => {
   return {
     __esModule: true,
@@ -136,7 +144,6 @@ describe("createTaskBranch", () => {
   it("returns the deterministic branch name `grunt-task-{taskId}`", async () => {
     const branch = await createTaskBranch(
       "/repos",
-      "ghp_token",
       "octocat",
       "hello",
       "main",
@@ -146,7 +153,7 @@ describe("createTaskBranch", () => {
   });
 
   it("opens simple-git against the resolved repo path", async () => {
-    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
+    await createTaskBranch("/repos", "octocat", "hello", "main", 7);
     expect(mockState.instances).toHaveLength(1);
     expect(mockState.instances[0].dir).toBe(
       path.join("/repos", "octocat", "hello")
@@ -154,7 +161,7 @@ describe("createTaskBranch", () => {
   });
 
   it("creates the branch from baseBranch via `checkout -b`", async () => {
-    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
+    await createTaskBranch("/repos", "octocat", "hello", "main", 7);
 
     const git = mockState.instances[0];
     expect(git.checkout).toHaveBeenCalledWith(["-b", "grunt-task-7", "main"]);
@@ -163,7 +170,7 @@ describe("createTaskBranch", () => {
   it("deletes the existing local branch before recreating it", async () => {
     mockState.nextBranches = ["grunt-task-99", "some-other-branch"];
 
-    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 99);
+    await createTaskBranch("/repos", "octocat", "hello", "main", 99);
 
     const git = mockState.instances[0];
     expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt-task-99", true);
@@ -177,7 +184,7 @@ describe("createTaskBranch", () => {
   it("does not delete the local branch when it does not already exist", async () => {
     mockState.nextBranches = ["main", "develop"];
 
-    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 1);
+    await createTaskBranch("/repos", "octocat", "hello", "main", 1);
 
     const git = mockState.instances[0];
     expect(git.deleteLocalBranch).not.toHaveBeenCalled();
@@ -185,21 +192,21 @@ describe("createTaskBranch", () => {
   });
 
   it("returns the same branch name across repeated calls for the same taskId", async () => {
-    const a = await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 5);
-    const b = await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 5);
+    const a = await createTaskBranch("/repos", "octocat", "hello", "main", 5);
+    const b = await createTaskBranch("/repos", "octocat", "hello", "main", 5);
     expect(a).toBe("grunt-task-5");
     expect(b).toBe("grunt-task-5");
     expect(a).toBe(b);
   });
 
   it("attempts a best-effort remote delete with PAT-authenticated origin so reruns aren't blocked by stale remote state", async () => {
-    await createTaskBranch("/repos", "ghp_token", "octocat", "hello", "main", 7);
+    await createTaskBranch("/repos", "octocat", "hello", "main", 7);
 
     const git = mockState.instances[0];
     expect(git.remote).toHaveBeenCalledWith([
       "set-url",
       "origin",
-      "https://ghp_token@github.com/octocat/hello.git",
+      "https://pat-token@github.com/octocat/hello.git",
     ]);
     expect(git.push).toHaveBeenCalledWith([
       "origin",
@@ -216,7 +223,6 @@ describe("createTaskBranch", () => {
 
     const branch = await createTaskBranch(
       "/repos",
-      "ghp_token",
       "octocat",
       "hello",
       "main",
@@ -347,7 +353,6 @@ describe("commitAndPushTask", () => {
   it("pushes with --set-upstream and does not pass --force", async () => {
     await commitAndPushTask(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       "grunt-task-42",
@@ -370,7 +375,6 @@ describe("commitAndPushTask", () => {
   it("stages all changes, commits with the supplied message, and sets the authenticated remote URL", async () => {
     await commitAndPushTask(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       "grunt-task-7",
@@ -395,7 +399,6 @@ describe("commitAndPushTask", () => {
 
     const branch = await createTaskBranch(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       "main",
@@ -404,7 +407,6 @@ describe("commitAndPushTask", () => {
 
     await commitAndPushTask(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       branch,
@@ -444,7 +446,7 @@ describe("commitAndPushTask", () => {
 describe("cloneOrPull", () => {
   it("clones when the repo directory does not exist, after creating the parent dir", async () => {
     // Parent dir doesn't exist → mkdirSync called → top-level simpleGit().clone(remote, dir)
-    await cloneOrPull("/repos", "pat-token", "octocat", "hello");
+    await cloneOrPull("/repos", "octocat", "hello");
 
     expect(fsMockState.mkdirCalls).toEqual([path.join("/repos", "octocat")]);
     // The first instance is the top-level simpleGit() with no dir.
@@ -459,7 +461,7 @@ describe("cloneOrPull", () => {
     const dir = path.join("/repos", "octocat", "hello");
     fsMockState.existing.add(dir);
 
-    await cloneOrPull("/repos", "pat-token", "octocat", "hello");
+    await cloneOrPull("/repos", "octocat", "hello");
 
     const fetchGit = mockState.instances[0];
     expect(fetchGit.dir).toBe(dir);
@@ -494,7 +496,6 @@ describe("commitAndPush (legacy, issue-based)", () => {
   it("stages, commits, sets remote URL, and pushes the issue branch with --set-upstream", async () => {
     await commitAndPush(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       42,
@@ -519,7 +520,7 @@ describe("commitAndPush (legacy, issue-based)", () => {
 
 describe("mergeIntoBase (legacy, issue-based)", () => {
   it("checks out the base, merges --no-ff, pushes, and deletes the issue branch", async () => {
-    await mergeIntoBase("/repos", "pat-token", "octocat", "hello", "main", 7);
+    await mergeIntoBase("/repos", "octocat", "hello", "main", 7);
 
     const git = mockState.instances[0];
     expect(git.checkout).toHaveBeenCalledWith("main");
@@ -538,7 +539,6 @@ describe("mergeTaskIntoBase", () => {
   it("checks out base, merges the task branch with --no-ff, pushes the merge, and deletes the task branch locally + remotely", async () => {
     await mergeTaskIntoBase(
       "/repos",
-      "pat-token",
       "octocat",
       "hello",
       "main",
@@ -574,7 +574,6 @@ describe("mergeTaskIntoBase", () => {
     await expect(
       mergeTaskIntoBase(
         "/repos",
-        "pat-token",
         "octocat",
         "hello",
         "main",
