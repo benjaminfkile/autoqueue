@@ -1,17 +1,6 @@
-## AWS Secrets Manager
+## Security Model
 
-App secrets (`AWS_SECRET_ARN`):
-```json
-{
-  "NODE_ENV": "production",
-  "PORT": "8000",
-  "API_KEY_HASH": "bcrypt-hash-of-your-api-key",
-  "GH_PAT": "github_pat_...",
-  "ANTHROPIC_API_KEY": "sk-ant-...",
-  "REPOS_PATH": "/data/repos",
-  "POLL_INTERVAL_SECONDS": "300"
-}
-```
+Grunt is a single-user desktop application. The API server binds to `127.0.0.1` only and is not reachable from other machines on the network. There is no authentication layer — the OS user boundary is the security model.
 
 ## Database
 
