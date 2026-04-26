@@ -19,7 +19,6 @@
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
-    "@aws-sdk/client-secrets-manager": "^3.664.0",
     "@octokit/rest": "^22.0.1",
     "aws-jwt-verify": "^5.1.1",
     "bcrypt": "^6.0.0",

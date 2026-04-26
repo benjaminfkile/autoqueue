@@ -4,7 +4,7 @@ dotenv.config();
 import http from "http";
 import fs from "fs";
 import app from "./src/app";
-import { getAppSecrets } from "./src/aws/getAppSecrets";
+import { IAppSecrets } from "./src/interfaces";
 import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
@@ -15,11 +15,27 @@ process.on("uncaughtException", (err) => {
   console.log("Node NOT Exiting...");
 });
 
+// Placeholder until the Phase 3 secrets module lands. Reads the same fields
+// from process.env that getAppSecrets used to fetch from AWS Secrets Manager.
+function loadAppSecrets(): IAppSecrets {
+  const nodeEnv =
+    process.env.NODE_ENV === "production" ? "production" : "development";
+  return {
+    NODE_ENV: nodeEnv,
+    PORT: process.env.PORT ?? "8000",
+    API_KEY_HASH: process.env.API_KEY_HASH ?? "",
+    GH_PAT: process.env.GH_PAT,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    REPOS_PATH: process.env.REPOS_PATH ?? "",
+    POLL_INTERVAL_SECONDS: process.env.POLL_INTERVAL_SECONDS,
+    CLAUDE_PATH: process.env.CLAUDE_PATH,
+    IS_WORKER: process.env.IS_WORKER,
+  };
+}
+
 async function start() {
   try {
-    const appSecrets = await getAppSecrets();
-
-    // console.log("App secrets", appSecrets);
+    const appSecrets = loadAppSecrets();
 
     app.set("secrets", appSecrets);
 
