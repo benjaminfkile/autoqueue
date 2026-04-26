@@ -63,6 +63,40 @@ setupRouter.post("/", (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/setup — partial update of one or more secrets. The settings
+// page uses this to rotate a single key without resending the others.
+setupRouter.patch("/", (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const updates: Partial<Record<RequiredSetupKey, string>> = {};
+
+  for (const key of REQUIRED_SETUP_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const raw = body[key];
+    if (typeof raw !== "string" || raw.trim().length === 0) {
+      return res
+        .status(400)
+        .json({ error: `${key} must be a non-empty string` });
+    }
+    updates[key] = raw.trim();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res
+      .status(400)
+      .json({ error: "At least one secret must be provided" });
+  }
+
+  try {
+    for (const key of REQUIRED_SETUP_KEYS) {
+      const value = updates[key];
+      if (value !== undefined) secrets.set(key, value);
+    }
+    return res.status(200).json(readStatus());
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // DELETE /api/setup — clears the required secrets so the SPA falls back to
 // the onboarding panel on the next status check. Used by the "reset secrets"
 // flow when a user wants to swap in new credentials.
@@ -71,6 +105,21 @@ setupRouter.delete("/", (_req: Request, res: Response) => {
     for (const key of REQUIRED_SETUP_KEYS) {
       secrets.unset(key);
     }
+    return res.status(200).json(readStatus());
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// DELETE /api/setup/:key — clears a single required secret. The settings
+// page uses this to "clear" an individual credential.
+setupRouter.delete("/:key", (req: Request, res: Response) => {
+  const key = req.params.key as RequiredSetupKey;
+  if (!REQUIRED_SETUP_KEYS.includes(key)) {
+    return res.status(400).json({ error: `Unknown secret key: ${req.params.key}` });
+  }
+  try {
+    secrets.unset(key);
     return res.status(200).json(readStatus());
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
