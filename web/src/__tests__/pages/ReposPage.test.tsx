@@ -62,6 +62,7 @@ interface Routes {
   "POST /api/repos"?: RouteHandler;
   "PATCH /api/repos/:id"?: RouteHandler;
   "DELETE /api/repos/:id"?: RouteHandler;
+  "POST /api/repos/:id/clone"?: RouteHandler;
   "GET /api/tasks"?: RouteHandler;
 }
 
@@ -100,6 +101,13 @@ function installFetch(routes: Routes) {
       }
       if (method === "GET" && path === "/api/tasks" && routes["GET /api/tasks"]) {
         return routes["GET /api/tasks"](init ?? {}, urlObj);
+      }
+      if (
+        method === "POST" &&
+        /^\/api\/repos\/\d+\/clone$/.test(path) &&
+        routes["POST /api/repos/:id/clone"]
+      ) {
+        return routes["POST /api/repos/:id/clone"](init ?? {}, urlObj);
       }
       return jsonResponse({ error: `unhandled ${method} ${path}` }, 500);
     }
@@ -400,5 +408,119 @@ describe("ReposPage", () => {
     await waitFor(() =>
       expect(screen.getByText(/no repos yet/i)).toBeInTheDocument()
     );
+  });
+
+  it("renders a clone status chip on each row reflecting the repo's clone_status", async () => {
+    installFetch({
+      "GET /api/repos": () =>
+        jsonResponse([
+          makeRepo({
+            id: 1,
+            owner: "alice",
+            repo_name: "alpha",
+            clone_status: "ready",
+          }),
+          makeRepo({
+            id: 2,
+            owner: "bob",
+            repo_name: "beta",
+            clone_status: "cloning",
+          }),
+          makeRepo({
+            id: 3,
+            owner: "carol",
+            repo_name: "gamma",
+            clone_status: "error",
+            clone_error: "fatal: not found",
+          }),
+        ]),
+      "GET /api/tasks": () => jsonResponse([]),
+    });
+
+    render(<ReposPage />);
+    await waitFor(() => expect(screen.getByText("alice/alpha")).toBeInTheDocument());
+
+    expect(screen.getByTestId("repo-clone-status-1")).toHaveTextContent(
+      /ready/i
+    );
+    expect(screen.getByTestId("repo-clone-status-2")).toHaveTextContent(
+      /cloning/i
+    );
+    expect(screen.getByTestId("repo-clone-status-3")).toHaveTextContent(
+      /error/i
+    );
+  });
+
+  it("shows the clone error in a tooltip and triggers a re-clone via POST /api/repos/:id/clone on retry", async () => {
+    let listAttempt = 0;
+    installFetch({
+      "GET /api/repos": () => {
+        listAttempt += 1;
+        if (listAttempt === 1) {
+          return jsonResponse([
+            makeRepo({
+              id: 5,
+              owner: "carol",
+              repo_name: "gamma",
+              clone_status: "error",
+              clone_error: "fatal: repository not found",
+            }),
+          ]);
+        }
+        return jsonResponse([
+          makeRepo({
+            id: 5,
+            owner: "carol",
+            repo_name: "gamma",
+            clone_status: "ready",
+            clone_error: null,
+          }),
+        ]);
+      },
+      "GET /api/tasks": () => jsonResponse([]),
+      "POST /api/repos/:id/clone": () =>
+        jsonResponse(
+          makeRepo({
+            id: 5,
+            owner: "carol",
+            repo_name: "gamma",
+            clone_status: "ready",
+            clone_error: null,
+          })
+        ),
+    });
+
+    const user = userEvent.setup();
+    render(<ReposPage />);
+    await waitFor(() =>
+      expect(screen.getByText("carol/gamma")).toBeInTheDocument()
+    );
+
+    // Tooltip surface: hovering the error chip exposes the clone_error
+    // message so the user can see *why* the clone failed without leaving the
+    // table.
+    await user.hover(screen.getByTestId("repo-clone-status-5"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("fatal: repository not found")
+      ).toBeInTheDocument()
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /retry clone for carol\/gamma/i })
+    );
+
+    await waitFor(() => {
+      const clone = calls.find(
+        (c) => c.method === "POST" && c.url === "/api/repos/5/clone"
+      );
+      expect(clone).toBeDefined();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-clone-status-5")).toHaveTextContent(
+        /ready/i
+      );
+    });
   });
 });

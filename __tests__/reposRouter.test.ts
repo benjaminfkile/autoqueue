@@ -63,7 +63,12 @@ import { cloneRepoFresh } from "../src/services/git";
 // entry points; everything else falls through to the real module.
 jest.mock("fs", () => {
   const actual = jest.requireActual("fs");
-  return { ...actual, rmSync: jest.fn(), accessSync: jest.fn() };
+  return {
+    ...actual,
+    rmSync: jest.fn(),
+    accessSync: jest.fn(),
+    existsSync: jest.fn(() => false),
+  };
 });
 import * as fs from "fs";
 
@@ -586,6 +591,135 @@ describe("reposRouter", () => {
         .delete("/api/repos/1");
 
       expect(res.status).toBe(204);
+    });
+  });
+
+  describe("POST /api/repos/:id/clone", () => {
+    it("returns 400 for an invalid id", async () => {
+      const res = await request(app).post("/api/repos/abc/clone");
+      expect(res.status).toBe(400);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the repo does not exist", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app).post("/api/repos/1/clone");
+      expect(res.status).toBe(404);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
+    });
+
+    it("rejects local-folder repos with 400 (nothing to clone)", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        is_local_folder: true,
+        owner: null,
+        repo_name: null,
+        local_path: "/some/path",
+      });
+      const res = await request(app).post("/api/repos/1/clone");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/local-folder/i);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
+      expect(updateRepo).not.toHaveBeenCalled();
+    });
+
+    it("returns 500 with a clear error when REPOS_PATH is not configured", async () => {
+      delete process.env.REPOS_PATH;
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      const res = await request(app).post("/api/repos/1/clone");
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/REPOS_PATH/);
+      expect(cloneRepoFresh).not.toHaveBeenCalled();
+    });
+
+    it("removes any existing working tree before cloning so the retry can succeed even when the dir is half-cloned or the pull worker flagged a healthy clone as errored", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        clone_status: "error",
+        clone_error: "previous failure",
+      });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (updateRepo as jest.Mock).mockImplementation(async (_db, _id, patch) => ({
+        ...mockRepo,
+        ...patch,
+      }));
+
+      const res = await request(app).post("/api/repos/1/clone");
+
+      expect(res.status).toBe(200);
+      expect(fs.rmSync).toHaveBeenCalledWith(
+        "/tmp/grunt-test-repos/octocat/hello",
+        { recursive: true, force: true }
+      );
+      expect(cloneRepoFresh).toHaveBeenCalledWith(
+        "/tmp/grunt-test-repos",
+        "octocat",
+        "hello"
+      );
+      // The rm must happen before the clone, otherwise cloneRepoFresh's
+      // "target directory already exists" guard would block the retry.
+      const rmOrder = (fs.rmSync as jest.Mock).mock.invocationCallOrder[0];
+      const cloneOrder = (cloneRepoFresh as jest.Mock).mock
+        .invocationCallOrder[0];
+      expect(rmOrder).toBeLessThan(cloneOrder);
+    });
+
+    it("flips clone_status to 'cloning' before invoking the clone and to 'ready' on success", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        clone_status: "error",
+        clone_error: "boom",
+      });
+      const updates: Array<Record<string, unknown>> = [];
+      (updateRepo as jest.Mock).mockImplementation(async (_db, _id, patch) => {
+        updates.push(patch);
+        return { ...mockRepo, ...patch };
+      });
+
+      const res = await request(app).post("/api/repos/1/clone");
+
+      expect(res.status).toBe(200);
+      expect(res.body.clone_status).toBe("ready");
+      expect(res.body.clone_error).toBeNull();
+      // First update marks 'cloning' + clears the previous error so the GUI
+      // can show progress; final update flips to 'ready' once the clone
+      // resolved.
+      expect(updates[0]).toEqual({
+        clone_status: "cloning",
+        clone_error: null,
+      });
+      expect(updates[updates.length - 1]).toEqual({
+        clone_status: "ready",
+        clone_error: null,
+      });
+    });
+
+    it("persists clone_status='error' with the git failure reason and returns 422 when the clone fails", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        clone_status: "error",
+        clone_error: "previous failure",
+      });
+      (cloneRepoFresh as jest.Mock).mockRejectedValue(
+        new Error("fatal: repository 'octocat/hello' not found")
+      );
+      const updates: Array<Record<string, unknown>> = [];
+      (updateRepo as jest.Mock).mockImplementation(async (_db, _id, patch) => {
+        updates.push(patch);
+        return { ...mockRepo, ...patch };
+      });
+
+      const res = await request(app).post("/api/repos/1/clone");
+
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/octocat\/hello/);
+      expect(res.body.error).toMatch(/repository.*not found/);
+      // Final state must be 'error' so a follow-up GET /api/repos lets the
+      // GUI re-render the row in error with the new reason; we don't want
+      // the row stuck on 'cloning' if the request errored.
+      const last = updates[updates.length - 1];
+      expect(last.clone_status).toBe("error");
+      expect(String(last.clone_error)).toMatch(/repository.*not found/);
     });
   });
 
