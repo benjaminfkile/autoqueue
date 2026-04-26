@@ -844,7 +844,8 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
               variant="outlined"
               sx={{
                 p: 1,
-                bgcolor: "grey.50",
+                bgcolor: (theme) =>
+                  theme.palette.mode === "dark" ? "grey.900" : "grey.50",
                 maxHeight: 300,
                 overflow: "auto",
                 fontFamily: "monospace",
