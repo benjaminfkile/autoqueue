@@ -97,6 +97,10 @@ export interface TaskTreeProposal {
 // /exec counterpart. Each tool takes the `repo_id` it operates on so the
 // server-side handler can resolve the right clone, and `path` is always
 // interpreted relative to the repo root with traversal explicitly forbidden.
+// All three handlers MUST route untrusted `path` input through
+// `resolveRepoPath` in services/repoPath.ts — that is the single, audited
+// place where repo-id + relative-path is turned into an absolute filesystem
+// path. Any handler that builds an absolute path some other way is a bug.
 
 export const LIST_FILES_TOOL_NAME = "list_files";
 export const READ_FILE_TOOL_NAME = "read_file";
