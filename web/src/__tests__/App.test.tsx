@@ -2,6 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
+import { ThemeProvider } from "../theme/ThemeContext";
+
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  );
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -46,7 +55,7 @@ afterEach(() => {
 
 describe("App", () => {
   it("renders the grunt app bar heading", async () => {
-    render(<App />);
+    renderApp();
     await waitFor(() =>
       expect(
         screen.getByRole("heading", { level: 1, name: /grunt/i })
@@ -58,7 +67,7 @@ describe("App", () => {
   });
 
   it("renders the Repos page", async () => {
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { level: 1, name: /repos/i })
@@ -67,7 +76,7 @@ describe("App", () => {
   });
 
   it("renders the worker mode chip in the header", async () => {
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(screen.getByTestId("worker-mode-chip")).toHaveTextContent(
         /orchestrator/i
@@ -77,7 +86,7 @@ describe("App", () => {
 
   it("opens the planning chat drawer from the header button", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /open planning chat/i })

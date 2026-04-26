@@ -3,6 +3,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../../App";
 import type { SetupStatus } from "../../api/types";
+import { ThemeProvider } from "../../theme/ThemeContext";
+
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  );
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -84,7 +93,7 @@ describe("First-run setup flow", () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     await waitFor(() =>
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
@@ -104,7 +113,7 @@ describe("First-run setup flow", () => {
     });
 
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
 
     await waitFor(() =>
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
@@ -150,7 +159,7 @@ describe("First-run setup flow", () => {
     });
 
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
 
     await waitFor(() =>
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
@@ -176,7 +185,7 @@ describe("First-run setup flow", () => {
     });
 
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
 
     await waitFor(() =>
       expect(screen.getByTestId("settings-button")).toBeInTheDocument()
