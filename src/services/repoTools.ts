@@ -14,6 +14,11 @@ export const READ_FILE_BYTE_CAP = 50 * 1024;
 // a back-pressure signal — see SEARCH_TOOL.description in chatService.ts.
 export const SEARCH_RESULT_CAP = 100;
 
+// Hard cap on how many entries `list_files` may return in a single response.
+// Same back-pressure rationale as SEARCH_RESULT_CAP — the model is expected to
+// narrow `path` or lower `depth` if it hits the cap.
+export const LIST_FILES_ENTRY_CAP = 500;
+
 export interface ReadFileInput {
   repo_id: number;
   path: string;
@@ -698,4 +703,207 @@ function isIgnoredPath(
     }
   }
   return false;
+}
+
+// ---- list_files ----------------------------------------------------------
+// Implements the `list_files` tool. Walks the requested directory up to
+// `depth` levels (1 = the directory's immediate children, 2 = + one level of
+// subdirectory contents, ...). Entries are returned as paths relative to the
+// listed directory so the model can pass them straight back to read_file/
+// search without needing to glue strings together. `.git` and any path
+// matched by the repo root's `.gitignore` are skipped.
+
+export interface ListFilesInput {
+  repo_id: number;
+  path?: string;
+  depth?: number;
+}
+
+export interface ListFilesEntry {
+  // Path relative to the listed directory, with forward slashes. Directories
+  // do NOT have a trailing slash — `type` carries that distinction.
+  path: string;
+  type: "file" | "dir";
+  size?: number;
+}
+
+export type ListFilesResult =
+  | { ok: true; entries: ListFilesEntry[]; truncated: boolean }
+  | { ok: false; error: string };
+
+export async function listFiles(
+  db: Knex,
+  reposPath: string,
+  input: ListFilesInput
+): Promise<ListFilesResult> {
+  const validation = validateListFilesInput(input);
+  if (!validation.ok) return { ok: false, error: validation.error };
+  const { repo_id, path: relPath, depth } = validation.value;
+
+  let rootDir: string;
+  let listedDir: string;
+  try {
+    rootDir = await resolveRepoPath(db, reposPath, repo_id, "");
+    listedDir = relPath
+      ? await resolveRepoPath(db, reposPath, repo_id, relPath)
+      : rootDir;
+  } catch (err) {
+    if (err instanceof PathTraversalError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(listedDir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { ok: false, error: `directory not found: ${relPath ?? "."}` };
+    }
+    return {
+      ok: false,
+      error: `list_files failed: ${(err as Error).message}`,
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      ok: false,
+      error: `not a directory: ${relPath ?? "."}`,
+    };
+  }
+
+  const rules = await loadGitignoreRules(rootDir);
+  const entries: ListFilesEntry[] = [];
+  let truncated = false;
+
+  await walkList(listedDir, listedDir, rootDir, rules, depth, entries, {
+    truncated: () => truncated,
+    setTruncated: () => {
+      truncated = true;
+    },
+  });
+
+  return { ok: true, entries, truncated };
+}
+
+interface ValidatedListFilesInput {
+  repo_id: number;
+  path: string;
+  depth: number;
+}
+
+function validateListFilesInput(
+  input: ListFilesInput | undefined | null
+):
+  | { ok: true; value: ValidatedListFilesInput }
+  | { ok: false; error: string } {
+  if (!input || typeof input !== "object") {
+    return { ok: false, error: "list_files: input must be an object" };
+  }
+  if (
+    typeof input.repo_id !== "number" ||
+    !Number.isInteger(input.repo_id) ||
+    input.repo_id < 1
+  ) {
+    return {
+      ok: false,
+      error: "list_files: repo_id must be a positive integer",
+    };
+  }
+  if (input.path !== undefined && typeof input.path !== "string") {
+    return {
+      ok: false,
+      error: "list_files: path must be a string when provided",
+    };
+  }
+  if (input.depth !== undefined) {
+    if (
+      !Number.isInteger(input.depth) ||
+      input.depth < 1 ||
+      input.depth > 3
+    ) {
+      return {
+        ok: false,
+        error: "list_files: depth must be an integer between 1 and 3",
+      };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      repo_id: input.repo_id,
+      path: input.path ?? "",
+      depth: input.depth ?? 1,
+    },
+  };
+}
+
+async function walkList(
+  dir: string,
+  baseDir: string,
+  rootDir: string,
+  rules: IgnoreRule[],
+  remainingDepth: number,
+  entries: ListFilesEntry[],
+  cap: { truncated: () => boolean; setTruncated: () => void }
+): Promise<void> {
+  if (remainingDepth <= 0) return;
+  if (cap.truncated()) return;
+
+  let dirents: fs.Dirent[];
+  try {
+    dirents = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  dirents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  for (const entry of dirents) {
+    if (cap.truncated()) return;
+    const absChild = path.join(dir, entry.name);
+    const relFromRoot = path
+      .relative(rootDir, absChild)
+      .split(path.sep)
+      .join("/");
+    if (isIgnoredPath(relFromRoot, entry.isDirectory(), rules)) continue;
+
+    const relFromBase = path
+      .relative(baseDir, absChild)
+      .split(path.sep)
+      .join("/");
+
+    if (entry.isDirectory()) {
+      if (entries.length >= LIST_FILES_ENTRY_CAP) {
+        cap.setTruncated();
+        return;
+      }
+      entries.push({ path: relFromBase, type: "dir" });
+      await walkList(
+        absChild,
+        baseDir,
+        rootDir,
+        rules,
+        remainingDepth - 1,
+        entries,
+        cap
+      );
+    } else if (entry.isFile()) {
+      if (entries.length >= LIST_FILES_ENTRY_CAP) {
+        cap.setTruncated();
+        return;
+      }
+      let size: number | undefined;
+      try {
+        const fileStat = await fs.promises.stat(absChild);
+        size = fileStat.size;
+      } catch {
+        // If we can't stat the file (race with deletion, permission), still
+        // surface the entry — omitting size — so the model knows it exists.
+      }
+      entries.push({ path: relFromBase, type: "file", size });
+    }
+    // Symlinks and other special files are skipped; consistent with search().
+  }
 }

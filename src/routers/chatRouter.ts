@@ -85,12 +85,15 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     aborted = true;
   });
 
+  const reposPath = process.env.REPOS_PATH ?? "";
+
   try {
     for await (const event of streamChatEvents({
       apiKey,
       system,
       messages: validated,
       tools: [PROPOSE_TASK_TREE_TOOL, ...REPO_READ_TOOLS],
+      repoToolsContext: { db: getDb(), reposPath },
     })) {
       if (aborted) break;
       if (event.type === "text") {
