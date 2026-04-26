@@ -6,6 +6,7 @@ import {
   ChatMessage,
   loadChatContext,
   PROPOSE_TASK_TREE_TOOL,
+  REPO_READ_TOOLS,
   streamChatEvents,
 } from "../services/chatService";
 
@@ -89,7 +90,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
       apiKey,
       system,
       messages: validated,
-      tools: [PROPOSE_TASK_TREE_TOOL],
+      tools: [PROPOSE_TASK_TREE_TOOL, ...REPO_READ_TOOLS],
     })) {
       if (aborted) break;
       if (event.type === "text") {

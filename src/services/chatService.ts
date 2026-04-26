@@ -91,6 +91,151 @@ export interface TaskTreeProposal {
   parents: ProposedTaskNode[];
 }
 
+// ---- Read-only repo tools --------------------------------------------------
+// These three tools let the planning assistant inspect the clone of the repo
+// it is discussing. They are read-only by construction: there is no write/edit
+// /exec counterpart. Each tool takes the `repo_id` it operates on so the
+// server-side handler can resolve the right clone, and `path` is always
+// interpreted relative to the repo root with traversal explicitly forbidden.
+
+export const LIST_FILES_TOOL_NAME = "list_files";
+export const READ_FILE_TOOL_NAME = "read_file";
+export const SEARCH_TOOL_NAME = "search";
+
+export const LIST_FILES_TOOL = {
+  name: LIST_FILES_TOOL_NAME,
+  description:
+    "List directory entries inside a repo's clone. Use this to discover the " +
+    "layout of the codebase before reading specific files. Returns names, " +
+    "type (file/dir), and (for files) byte size. " +
+    "Constraints: `path` is relative to the repo root; absolute paths and " +
+    "anything that escapes the repo (`..`, symlink targets outside the clone) " +
+    "are rejected. `depth` controls recursion (1 = the directory itself, " +
+    "2 = one level of children, …); default 1, max 3. Results are capped to " +
+    "a sane number of entries — do not rely on listing very large trees in " +
+    "one call. Read-only; this tool never modifies the working tree.",
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false,
+    required: ["repo_id"],
+    properties: {
+      repo_id: {
+        type: "integer",
+        minimum: 1,
+        description: "Id of the repo whose clone should be listed.",
+      },
+      path: {
+        type: "string",
+        description:
+          "Directory path relative to the repo root. Defaults to the repo " +
+          "root when omitted. Must not contain `..` segments.",
+      },
+      depth: {
+        type: "integer",
+        minimum: 1,
+        maximum: 3,
+        description:
+          "How many levels of nesting to include (default 1, max 3). " +
+          "Use 1 for a flat listing of the directory itself.",
+      },
+    },
+  },
+};
+
+export const READ_FILE_TOOL = {
+  name: READ_FILE_TOOL_NAME,
+  description:
+    "Read a slice of a file from a repo's clone. Use this to inspect the " +
+    "actual contents of source files you have already located via " +
+    "`list_files` or `search`. Returns the requested lines as text. " +
+    "Constraints: `path` is relative to the repo root; absolute paths and " +
+    "traversal (`..`, symlinks pointing outside the clone) are rejected. " +
+    "Output is truncated to a fixed byte cap, so for large files you must " +
+    "pass `start_line`/`end_line` to scope the read. `start_line` and " +
+    "`end_line` are 1-indexed and inclusive. Binary files are not returned. " +
+    "Read-only; this tool never modifies the working tree.",
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false,
+    required: ["repo_id", "path"],
+    properties: {
+      repo_id: {
+        type: "integer",
+        minimum: 1,
+        description: "Id of the repo whose clone should be read.",
+      },
+      path: {
+        type: "string",
+        minLength: 1,
+        description:
+          "File path relative to the repo root. Must not contain `..` " +
+          "segments and must resolve to a regular file inside the clone.",
+      },
+      start_line: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "1-indexed inclusive line to start reading from. Defaults to 1.",
+      },
+      end_line: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "1-indexed inclusive line to stop reading at. Defaults to the end " +
+          "of the file (subject to the byte cap).",
+      },
+    },
+  },
+};
+
+export const SEARCH_TOOL = {
+  name: SEARCH_TOOL_NAME,
+  description:
+    "Search a repo's clone for a regex pattern, ripgrep-style. Use this to " +
+    "find symbols, references, or strings across the codebase before " +
+    "reading specific files. Returns matching path/line/preview tuples. " +
+    "Constraints: `pattern` is a regular expression; keep it specific — " +
+    "broad patterns are rejected to avoid huge result sets. Optional " +
+    "`path` scopes the search to a subdirectory (relative to the repo " +
+    "root, no `..`). Results are capped to a fixed number of matches; if " +
+    "you hit the cap, narrow `pattern` or scope by `path`. Read-only; this " +
+    "tool never modifies the working tree.",
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false,
+    required: ["repo_id", "pattern"],
+    properties: {
+      repo_id: {
+        type: "integer",
+        minimum: 1,
+        description: "Id of the repo whose clone should be searched.",
+      },
+      pattern: {
+        type: "string",
+        minLength: 1,
+        description:
+          "Regular expression to search for. Be specific to keep the " +
+          "result set small.",
+      },
+      path: {
+        type: "string",
+        description:
+          "Optional subdirectory (relative to the repo root) to scope the " +
+          "search to. Must not contain `..` segments.",
+      },
+    },
+  },
+};
+
+// Convenience bundle of every read-only repo tool. Call sites that wire the
+// planning chat into the Anthropic streaming call should pass these alongside
+// `PROPOSE_TASK_TREE_TOOL` so the model can browse the discussed repo.
+export const REPO_READ_TOOLS = [
+  LIST_FILES_TOOL,
+  READ_FILE_TOOL,
+  SEARCH_TOOL,
+];
+
 export type ValidateProposalResult =
   | { valid: true; proposal: TaskTreeProposal }
   | { valid: false; error: string };
@@ -190,6 +335,10 @@ export function buildSystemPrompt(context: ChatContext = {}): string {
 
   sections.push(
     `## Proposing a task tree\nWhen — and only when — you and the user have converged on a concrete plan, call the \`${PROPOSE_TASK_TREE_TOOL_NAME}\` tool with the proposed tree. Until then, keep discussing in plain text. Workers only run leaf tasks, so put concrete actionable work in the leaves and use parents for grouping. Each task's \`acceptance_criteria\` should be terse, testable bullet points.`
+  );
+
+  sections.push(
+    `## Read-only repo tools\nWhen the user is discussing a specific repo, you can browse its clone with three read-only tools — there are no write/edit/exec counterparts.\n- \`${LIST_FILES_TOOL_NAME}(repo_id, path?, depth?)\` — list directory entries to understand the layout. \`path\` is relative to the repo root; \`depth\` defaults to 1 (max 3).\n- \`${READ_FILE_TOOL_NAME}(repo_id, path, start_line?, end_line?)\` — read a slice of a file. Output is byte-capped, so for large files pass \`start_line\`/\`end_line\` (1-indexed, inclusive).\n- \`${SEARCH_TOOL_NAME}(repo_id, pattern, path?)\` — regex search across the clone. Be specific; results are capped, so narrow \`pattern\` or scope by \`path\` if you hit the cap.\nUse these to ground your suggestions in the actual code instead of guessing. Prefer \`${SEARCH_TOOL_NAME}\` to locate symbols, then \`${READ_FILE_TOOL_NAME}\` to inspect them. Paths are always relative to the repo root and traversal (\`..\`) is rejected.`
   );
 
   if (context.repo) {
