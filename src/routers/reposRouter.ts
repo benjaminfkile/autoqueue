@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import * as fs from "fs";
+import * as path from "path";
 import { getDb } from "../db/db";
 import {
   createRepo,
@@ -311,6 +312,84 @@ reposRouter.post("/:id/advance", async (req: Request, res: Response) => {
     }
 
     return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/repos/:id/clone — re-clone a git-backed repo whose initial clone
+// (or background pull) failed. Wipes any leftover working tree at the target
+// path so cloneRepoFresh's "refusing to clone, dir exists" guard doesn't
+// block the retry, then re-runs the clone-first flow and updates clone_status
+// based on the outcome. Local-folder repos are rejected — there's nothing to
+// clone — and the caller should re-create them through the normal flow if the
+// path validation needs to run again.
+reposRouter.post("/:id/clone", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const repo = await getRepoById(db, id);
+    if (!repo) {
+      return res.status(404).json({ error: "Repo not found" });
+    }
+    if (repo.is_local_folder) {
+      return res
+        .status(400)
+        .json({ error: "Cannot clone a local-folder repo" });
+    }
+    if (!repo.owner || !repo.repo_name) {
+      return res
+        .status(400)
+        .json({ error: "Repo is missing owner/repo_name" });
+    }
+
+    const reposPath = process.env.REPOS_PATH ?? "";
+    if (!reposPath) {
+      return res
+        .status(500)
+        .json({ error: "REPOS_PATH is not configured on the server" });
+    }
+
+    await updateRepo(db, id, { clone_status: "cloning", clone_error: null });
+
+    // Wipe any pre-existing working tree at the target so cloneRepoFresh's
+    // "refusing to clone, target exists" guard doesn't trip on retry. This
+    // covers both a half-clone left behind by a previous failure and a
+    // healthy clone that the pull worker has flagged as errored.
+    const targetDir = path.join(reposPath, repo.owner, repo.repo_name);
+    if (fs.existsSync(targetDir)) {
+      try {
+        fs.rmSync(targetDir, { recursive: true, force: true });
+      } catch (rmErr) {
+        const message = `Failed to remove existing clone at ${targetDir}: ${(rmErr as Error).message}`;
+        await updateRepo(db, id, {
+          clone_status: "error",
+          clone_error: message,
+        });
+        return res.status(500).json({ error: message });
+      }
+    }
+
+    try {
+      await cloneRepoFresh(reposPath, repo.owner, repo.repo_name);
+    } catch (cloneErr) {
+      const message = `Failed to clone ${repo.owner}/${repo.repo_name}: ${(cloneErr as Error).message}`;
+      const errored = await updateRepo(db, id, {
+        clone_status: "error",
+        clone_error: message,
+      });
+      return res.status(422).json({ error: message, repo: errored });
+    }
+
+    const updated = await updateRepo(db, id, {
+      clone_status: "ready",
+      clone_error: null,
+    });
+    return res.status(200).json(updated);
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

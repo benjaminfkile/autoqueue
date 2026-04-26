@@ -84,6 +84,8 @@ export const reposApi = {
     apiFetch<void>(`/api/repos/${id}`, { method: "DELETE" }),
   usage: (id: number) =>
     apiFetch<RepoUsageResponse>(`/api/repos/${id}/usage`),
+  clone: (id: number) =>
+    apiFetch<Repo>(`/api/repos/${id}/clone`, { method: "POST" }),
 };
 
 export const tasksApi = {

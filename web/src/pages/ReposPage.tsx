@@ -21,6 +21,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SettingsIcon from "@mui/icons-material/Settings";
+import ReplayIcon from "@mui/icons-material/Replay";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput, TokenUsageTotals } from "../api/types";
 import { useVisibilityAwarePolling } from "../hooks/useVisibilityAwarePolling";
@@ -56,6 +57,7 @@ export default function ReposPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingToggleId, setPendingToggleId] = useState<number | null>(null);
+  const [pendingCloneId, setPendingCloneId] = useState<number | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [formRepo, setFormRepo] = useState<Repo | null>(null);
@@ -217,6 +219,32 @@ export default function ReposPage() {
     }
   }
 
+  async function handleRetryClone(repo: Repo) {
+    setActionError(null);
+    setPendingCloneId(repo.id);
+    setRepos((prev) =>
+      prev.map((r) =>
+        r.id === repo.id
+          ? { ...r, clone_status: "cloning", clone_error: null }
+          : r
+      )
+    );
+    try {
+      const updated = await reposApi.clone(repo.id);
+      setRepos((prev) =>
+        prev.map((r) => (r.id === repo.id ? { ...r, ...updated } : r))
+      );
+    } catch (err) {
+      // The server has already persisted clone_status='error' with the
+      // failure reason; refresh from the source of truth so the row reflects
+      // it without us having to mirror the server-side message client-side.
+      setActionError(err instanceof Error ? err.message : "Failed to clone");
+      void loadRepos({ silent: true });
+    } finally {
+      setPendingCloneId(null);
+    }
+  }
+
   async function handleDeleteConfirm(repo: Repo) {
     await reposApi.delete(repo.id);
     setRepos((prev) => prev.filter((r) => r.id !== repo.id));
@@ -344,6 +372,11 @@ export default function ReposPage() {
                           local folder
                         </Typography>
                       )}
+                      <CloneStatusIndicator
+                        repo={repo}
+                        retrying={pendingCloneId === repo.id}
+                        onRetry={() => void handleRetryClone(repo)}
+                      />
                     </TableCell>
                     <TableCell>
                       <code>{repo.base_branch}</code>
@@ -551,5 +584,85 @@ export default function ReposPage() {
         onConfirm={handleDeleteConfirm}
       />
     </Box>
+  );
+}
+
+interface CloneStatusIndicatorProps {
+  repo: Repo;
+  retrying: boolean;
+  onRetry: () => void;
+}
+
+// Render a small status chip describing whether this repo's working tree is on
+// disk and ready to use. Local-folder repos with a 'ready' status are skipped
+// — there's nothing to clone, and a "ready" chip on every row would just be
+// noise. Errored repos pair the chip with a retry button so the user can kick
+// a re-clone without going back to the form dialog.
+function CloneStatusIndicator({ repo, retrying, onRetry }: CloneStatusIndicatorProps) {
+  const status = repo.clone_status;
+  if (repo.is_local_folder && status === "ready") {
+    return null;
+  }
+  const name = repoDisplayName(repo);
+  if (status === "ready") {
+    return (
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+        <Chip
+          size="small"
+          color="success"
+          variant="outlined"
+          label="clone: ready"
+          aria-label={`clone status for ${name}`}
+          data-testid={`repo-clone-status-${repo.id}`}
+        />
+      </Stack>
+    );
+  }
+  if (status === "cloning" || status === "pending") {
+    return (
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+        <Chip
+          size="small"
+          color="primary"
+          variant="outlined"
+          icon={<CircularProgress size={12} />}
+          label={status === "cloning" ? "cloning…" : "clone pending"}
+          aria-label={`clone status for ${name}`}
+          data-testid={`repo-clone-status-${repo.id}`}
+        />
+      </Stack>
+    );
+  }
+  // status === 'error'
+  const errorMessage = repo.clone_error ?? "Clone failed";
+  return (
+    <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+      <Tooltip title={errorMessage}>
+        <Chip
+          size="small"
+          color="error"
+          label="clone: error"
+          aria-label={`clone status for ${name}`}
+          data-testid={`repo-clone-status-${repo.id}`}
+        />
+      </Tooltip>
+      <Tooltip title="Retry clone">
+        <span>
+          <IconButton
+            size="small"
+            onClick={onRetry}
+            disabled={retrying}
+            aria-label={`Retry clone for ${name}`}
+            data-testid={`repo-clone-retry-${repo.id}`}
+          >
+            {retrying ? (
+              <CircularProgress size={14} />
+            ) : (
+              <ReplayIcon fontSize="small" />
+            )}
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Stack>
   );
 }
