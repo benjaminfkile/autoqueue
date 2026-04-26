@@ -3,6 +3,14 @@ import { Knex } from "knex";
 import { getRepoById } from "../db/repos";
 import { getTasksByRepoId } from "../db/tasks";
 import { Repo, Task } from "../interfaces";
+import {
+  listFiles,
+  ListFilesInput,
+  readFile,
+  ReadFileInput,
+  search,
+  SearchInput,
+} from "./repoTools";
 
 const DEFAULT_MODEL = "claude-opus-4-7";
 const DEFAULT_MAX_TOKENS = 4096;
@@ -417,6 +425,21 @@ export interface StreamChatOptions {
   messages: ChatMessage[];
   client?: AnthropicLike;
   tools?: AnthropicTool[];
+  // When provided, the streaming loop will execute server-side handlers for
+  // the read-only repo tools (list_files, read_file, search) and feed the
+  // results back to the model so the conversation can continue across as many
+  // tool turns as the model needs. Without this, repo tools surface as
+  // is_error=true tool_results telling the model the tool is unavailable.
+  repoToolsContext?: RepoToolsContext;
+  // Safety net for the multi-turn tool-use loop: if the model keeps issuing
+  // tool calls without ever stopping, we bail after this many turns. Defaults
+  // to MAX_TOOL_TURNS.
+  maxToolTurns?: number;
+}
+
+export interface RepoToolsContext {
+  db: Knex;
+  reposPath: string;
 }
 
 // Anthropic tool definition (Tool from the SDK). We mirror the relevant
@@ -430,6 +453,27 @@ export interface AnthropicTool {
   };
 }
 
+// One slot of an assistant or user message's `content` array. Mirrors the
+// subset of Anthropic content blocks we actually emit during the tool-use
+// loop. The SDK accepts a richer union; we narrow to what the loop needs.
+export type ChatContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+      is_error?: boolean;
+    };
+
+// Anthropic accepts message content as a string OR an array of content
+// blocks. The chatRouter feeds in plain strings; the multi-turn loop appends
+// content-block arrays to carry tool_use / tool_result blocks.
+export interface AnthropicMessage {
+  role: "user" | "assistant";
+  content: string | ChatContentBlock[];
+}
+
 // Narrow surface of the SDK we actually use, kept as an interface so tests can
 // inject a fake client without depending on the full SDK type tree.
 export interface AnthropicLike {
@@ -438,7 +482,7 @@ export interface AnthropicLike {
       model: string;
       max_tokens: number;
       system: string;
-      messages: ChatMessage[];
+      messages: AnthropicMessage[];
       stream: true;
       tools?: AnthropicTool[];
     }) => Promise<AsyncIterable<AnthropicStreamEvent>>;
@@ -458,6 +502,7 @@ export interface AnthropicStreamEvent {
     type?: string;
     text?: string;
     partial_json?: string;
+    stop_reason?: string;
     [k: string]: unknown;
   };
   [key: string]: unknown;
@@ -468,85 +513,277 @@ export type ChatStreamEvent =
   | { type: "proposal"; proposal: TaskTreeProposal }
   | { type: "proposal_error"; error: string; raw: unknown };
 
+// Default upper bound on tool-use round trips per chat reply. Real planning
+// conversations rarely need more than a handful; the cap is just a safety
+// net against a runaway model that keeps re-issuing tool calls.
+const MAX_TOOL_TURNS = 16;
+
 export async function* streamChatEvents(
   options: StreamChatOptions
 ): AsyncGenerator<ChatStreamEvent, void, void> {
   const client: AnthropicLike =
     options.client ?? (new Anthropic({ apiKey: options.apiKey }) as unknown as AnthropicLike);
 
-  const stream = await client.messages.create({
-    model: options.model ?? DEFAULT_MODEL,
-    max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
-    system: options.system,
-    messages: options.messages,
-    stream: true,
-    ...(options.tools ? { tools: options.tools } : {}),
-  });
+  // Working copy of the conversation. Each tool-use round appends:
+  //   - the assistant turn (text + tool_use blocks)
+  //   - the user turn (tool_result blocks)
+  // ...so the next API call sees the full context.
+  const conversation: AnthropicMessage[] = options.messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
 
-  // Track in-flight tool_use blocks by stream index so we can buffer the
-  // partial_json deltas and assemble the full input on content_block_stop.
-  const toolBlocks = new Map<number, { name: string; partials: string[] }>();
+  const maxTurns = options.maxToolTurns ?? MAX_TOOL_TURNS;
 
-  for await (const event of stream) {
-    if (event.type === "content_block_start") {
-      const block = event.content_block;
-      if (
-        block &&
-        block.type === "tool_use" &&
-        typeof block.name === "string" &&
-        typeof event.index === "number"
-      ) {
-        toolBlocks.set(event.index, { name: block.name, partials: [] });
-      }
-      continue;
-    }
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const stream = await client.messages.create({
+      model: options.model ?? DEFAULT_MODEL,
+      max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+      system: options.system,
+      messages: conversation,
+      stream: true,
+      ...(options.tools ? { tools: options.tools } : {}),
+    });
 
-    if (event.type === "content_block_delta") {
-      if (
-        event.delta &&
-        event.delta.type === "text_delta" &&
-        typeof event.delta.text === "string"
-      ) {
-        yield { type: "text", text: event.delta.text };
+    // Per-turn state: text we've seen on this assistant turn (so we can
+    // replay it back into the conversation history) and tool_use blocks
+    // assembled from input_json_delta events keyed by stream index.
+    const textParts: string[] = [];
+    const toolBlocks = new Map<
+      number,
+      { id: string; name: string; partials: string[] }
+    >();
+
+    for await (const event of stream) {
+      if (event.type === "content_block_start") {
+        const block = event.content_block;
+        if (
+          block &&
+          block.type === "tool_use" &&
+          typeof block.name === "string" &&
+          typeof block.id === "string" &&
+          typeof event.index === "number"
+        ) {
+          toolBlocks.set(event.index, {
+            id: block.id,
+            name: block.name,
+            partials: [],
+          });
+        }
         continue;
       }
-      if (
-        event.delta &&
-        event.delta.type === "input_json_delta" &&
-        typeof event.delta.partial_json === "string" &&
-        typeof event.index === "number"
-      ) {
-        const tracked = toolBlocks.get(event.index);
-        if (tracked) tracked.partials.push(event.delta.partial_json);
-      }
-      continue;
-    }
 
-    if (event.type === "content_block_stop" && typeof event.index === "number") {
-      const tracked = toolBlocks.get(event.index);
-      if (!tracked) continue;
-      toolBlocks.delete(event.index);
-      if (tracked.name !== PROPOSE_TASK_TREE_TOOL_NAME) continue;
-
-      const joined = tracked.partials.join("");
-      // The model may emit zero deltas when the input object is empty.
-      const raw = joined.length === 0 ? {} : safeJsonParse(joined);
-      if (raw === SAFE_PARSE_FAILURE) {
-        yield {
-          type: "proposal_error",
-          error: "tool input was not valid JSON",
-          raw: joined,
-        };
+      if (event.type === "content_block_delta") {
+        if (
+          event.delta &&
+          event.delta.type === "text_delta" &&
+          typeof event.delta.text === "string"
+        ) {
+          // Stream user-visible text deltas straight through so the SSE
+          // consumer sees the assistant's reply build up in real time.
+          yield { type: "text", text: event.delta.text };
+          textParts.push(event.delta.text);
+          continue;
+        }
+        if (
+          event.delta &&
+          event.delta.type === "input_json_delta" &&
+          typeof event.delta.partial_json === "string" &&
+          typeof event.index === "number"
+        ) {
+          const tracked = toolBlocks.get(event.index);
+          if (tracked) tracked.partials.push(event.delta.partial_json);
+        }
         continue;
       }
-      const result = validateTaskTreeProposal(raw);
-      if (result.valid) {
-        yield { type: "proposal", proposal: result.proposal };
-      } else {
-        yield { type: "proposal_error", error: result.error, raw };
+      // Other events (message_start, content_block_stop, message_delta,
+      // message_stop) carry no payload we need for this loop.
+    }
+
+    // No tool calls in this turn → the model is done; exit the loop.
+    if (toolBlocks.size === 0) return;
+
+    // Assemble the assistant turn we just streamed so the next API call
+    // sees the same content blocks the model emitted.
+    const assistantContent: ChatContentBlock[] = [];
+    if (textParts.length > 0) {
+      assistantContent.push({ type: "text", text: textParts.join("") });
+    }
+    // Iterate in stream-index order so the assistant message preserves the
+    // original block sequence.
+    const orderedBlocks = Array.from(toolBlocks.entries()).sort(
+      (a, b) => a[0] - b[0]
+    );
+    for (const [, tu] of orderedBlocks) {
+      const joined = tu.partials.join("");
+      const parsedInput = joined.length === 0 ? {} : safeJsonParse(joined);
+      assistantContent.push({
+        type: "tool_use",
+        id: tu.id,
+        name: tu.name,
+        // If parsing failed we still need *some* input on the assistant
+        // turn so the message echoes what the model actually emitted; we
+        // fall back to an empty object since the model's downstream view
+        // will be the matching is_error tool_result anyway.
+        input: parsedInput === SAFE_PARSE_FAILURE ? {} : parsedInput,
+      });
+    }
+    conversation.push({ role: "assistant", content: assistantContent });
+
+    // Run every tool_use, gather tool_results, surface SSE events for the
+    // proposal tool. Errors become tool_result blocks with is_error=true so
+    // the model can read the failure and either retry or apologize.
+    //
+    // `propose_task_tree` is treated as a terminal tool: once the model
+    // emits a proposal (valid or invalid), the user owns the next move
+    // (review, materialize, edit) and the assistant has nothing useful to
+    // add. We still process every other tool_use in the same turn so the
+    // SSE consumer sees any read-only tool calls the model issued, but we
+    // skip the follow-up API call that would otherwise feed tool_results
+    // back in.
+    let sawProposalTool = false;
+    const toolResults: ChatContentBlock[] = [];
+    for (const [, tu] of orderedBlocks) {
+      const joined = tu.partials.join("");
+      const parsedInput = joined.length === 0 ? {} : safeJsonParse(joined);
+
+      if (parsedInput === SAFE_PARSE_FAILURE) {
+        const errMsg = "tool input was not valid JSON";
+        if (tu.name === PROPOSE_TASK_TREE_TOOL_NAME) {
+          sawProposalTool = true;
+          yield { type: "proposal_error", error: errMsg, raw: joined };
+        }
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: errMsg,
+          is_error: true,
+        });
+        continue;
+      }
+
+      if (tu.name === PROPOSE_TASK_TREE_TOOL_NAME) {
+        sawProposalTool = true;
+        const validated = validateTaskTreeProposal(parsedInput);
+        if (validated.valid) {
+          yield { type: "proposal", proposal: validated.proposal };
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content:
+              "Task tree proposal recorded. The user is reviewing it now.",
+          });
+        } else {
+          yield {
+            type: "proposal_error",
+            error: validated.error,
+            raw: parsedInput,
+          };
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: validated.error,
+            is_error: true,
+          });
+        }
+        continue;
+      }
+
+      // All remaining tools are read-only repo tools. Without a context, we
+      // cannot dispatch them — surface that explicitly so the model gets a
+      // useful error rather than a silent hang.
+      if (!options.repoToolsContext) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: `tool ${tu.name} is not available in this context`,
+          is_error: true,
+        });
+        continue;
+      }
+
+      try {
+        const result = await dispatchRepoTool(
+          options.repoToolsContext,
+          tu.name,
+          parsedInput
+        );
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: result.content,
+          ...(result.isError ? { is_error: true } : {}),
+        });
+      } catch (err) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: (err as Error).message,
+          is_error: true,
+        });
       }
     }
+
+    // If the model emitted propose_task_tree this turn, stop here — the
+    // proposal is the conversation's terminal artifact and any further
+    // assistant text would just delay the user's review of it.
+    if (sawProposalTool) return;
+
+    conversation.push({ role: "user", content: toolResults });
   }
+}
+
+// Dispatch a single read-only repo tool by name. Each branch returns the
+// tool_result `content` string the model will see plus whether the call
+// failed (so the loop can flip is_error on the tool_result block). We only
+// throw for things truly outside the model's control (e.g. an unexpected JS
+// error inside the tool); a normal "ok:false" result is mapped to is_error
+// rather than thrown so the model can read and react to it.
+async function dispatchRepoTool(
+  ctx: RepoToolsContext,
+  name: string,
+  input: unknown
+): Promise<{ content: string; isError: boolean }> {
+  if (name === LIST_FILES_TOOL_NAME) {
+    const result = await listFiles(
+      ctx.db,
+      ctx.reposPath,
+      input as ListFilesInput
+    );
+    if (!result.ok) return { content: result.error, isError: true };
+    return {
+      content: JSON.stringify({
+        entries: result.entries,
+        truncated: result.truncated,
+      }),
+      isError: false,
+    };
+  }
+  if (name === READ_FILE_TOOL_NAME) {
+    const result = await readFile(
+      ctx.db,
+      ctx.reposPath,
+      input as ReadFileInput
+    );
+    if (!result.ok) return { content: result.error, isError: true };
+    return { content: result.content, isError: false };
+  }
+  if (name === SEARCH_TOOL_NAME) {
+    const result = await search(
+      ctx.db,
+      ctx.reposPath,
+      input as SearchInput
+    );
+    if (!result.ok) return { content: result.error, isError: true };
+    return {
+      content: JSON.stringify({
+        matches: result.matches,
+        truncated: result.truncated,
+      }),
+      isError: false,
+    };
+  }
+  return { content: `unknown tool: ${name}`, isError: true };
 }
 
 const SAFE_PARSE_FAILURE = Symbol("json-parse-failure");
