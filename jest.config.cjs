@@ -2,6 +2,11 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
+  // Each `npm test` run gets its own throwaway SQLite file in os.tmpdir(),
+  // surfaced to the suite via the GRUNT_DB_PATH env var. The teardown removes
+  // the temp dir so consecutive runs do not stack files in tmp.
+  globalSetup: '<rootDir>/jest/globalSetup.js',
+  globalTeardown: '<rootDir>/jest/globalTeardown.js',
   // The web/ workspace runs its own test suite under Vitest. Jest can't load
   // those files (vitest is ESM-only), so keep its discovery limited to the
   // server tree.
