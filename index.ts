@@ -5,7 +5,6 @@ import http from "http";
 import fs from "fs";
 import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
-import { buildAuthProviders } from "./src/auth/buildAuthProviders";
 import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
@@ -23,14 +22,6 @@ async function start() {
     // console.log("App secrets", appSecrets);
 
     app.set("secrets", appSecrets);
-
-    const authProviders = buildAuthProviders(appSecrets);
-    app.set("authProviders", authProviders);
-    console.log(
-      `[startup] Auth provider chain: ${authProviders
-        .map((p) => p.name)
-        .join(", ")}`
-    );
 
     const morganFormat =
       appSecrets.NODE_ENV === "production" ? "tiny" : "common";
