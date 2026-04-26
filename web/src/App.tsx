@@ -22,6 +22,7 @@ import ReposPage from "./pages/ReposPage";
 import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
 import SettingsPanel from "./pages/SettingsPanel";
+import ThemeToggle from "./theme/ThemeToggle";
 import { setupApi } from "./api/client";
 import type { SetupStatus } from "./api/types";
 import {
@@ -126,6 +127,7 @@ export default function App() {
             grunt
           </Typography>
           <WorkerModeChip status={status} error={error} />
+          <ThemeToggle />
           <Tooltip title="Open planning chat">
             <IconButton
               aria-label="Open planning chat"

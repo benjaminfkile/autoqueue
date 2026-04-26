@@ -3,6 +3,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../../App";
 import type { SetupStatus } from "../../api/types";
+import { ThemeProvider } from "../../theme/ThemeContext";
+
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  );
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -133,7 +142,7 @@ describe("SettingsPanel", () => {
       },
     });
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await openSettingsPanel(user);
 
     expect(
@@ -155,7 +164,7 @@ describe("SettingsPanel", () => {
       },
     });
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await openSettingsPanel(user);
 
     await user.type(
@@ -183,7 +192,7 @@ describe("SettingsPanel", () => {
       },
     });
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await openSettingsPanel(user);
 
     await user.click(screen.getByTestId("settings-gh-pat-clear"));
@@ -211,7 +220,7 @@ describe("SettingsPanel", () => {
         jsonResponse({ error: "ANTHROPIC_API_KEY must be a non-empty string" }, 400),
     });
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await openSettingsPanel(user);
 
     await user.type(
@@ -237,7 +246,7 @@ describe("SettingsPanel", () => {
       },
     });
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await openSettingsPanel(user);
 
     expect(screen.getByTestId("settings-anthropic-key-save")).toBeDisabled();
