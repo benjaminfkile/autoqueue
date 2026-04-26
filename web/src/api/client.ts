@@ -1,4 +1,3 @@
-import { getBearerToken } from "../auth/tokenStore";
 import type {
   AcceptanceCriterion,
   AcceptanceCriterionUpdateInput,
@@ -19,8 +18,6 @@ import type {
   WorkerStatus,
 } from "./types";
 
-export const API_KEY_STORAGE_KEY = "grunt_api_key";
-
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -28,27 +25,6 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
   }
-}
-
-function getApiKey(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-// Per-request auth header selection. Bearer tokens (Cognito) take precedence
-// over the legacy localStorage api key; either one is sent, never both. The
-// bearer token lives in memory only (auth/tokenStore) so it is cleared on
-// reload by design.
-function authHeader(): Record<string, string> {
-  const bearer = getBearerToken();
-  if (bearer) return { Authorization: `Bearer ${bearer}` };
-  const key = getApiKey();
-  if (key) return { "x-api-key": key };
-  return {};
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -59,7 +35,6 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body !== undefined && headers["Content-Type"] === undefined) {
     headers["Content-Type"] = "application/json";
   }
-  Object.assign(headers, authHeader());
 
   const res = await fetch(path, { ...init, headers });
 
@@ -122,9 +97,9 @@ export const tasksApi = {
   usage: (id: number) =>
     apiFetch<TaskUsageResponse>(`/api/tasks/${id}/usage`),
   log: async (id: number): Promise<string> => {
-    const headers: Record<string, string> = { Accept: "text/plain" };
-    Object.assign(headers, authHeader());
-    const res = await fetch(`/api/tasks/${id}/log`, { headers });
+    const res = await fetch(`/api/tasks/${id}/log`, {
+      headers: { Accept: "text/plain" },
+    });
     if (res.status === 404) return "";
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -230,15 +205,12 @@ export const chatApi = {
   // socket close); rejects on network/HTTP errors. Pass an AbortSignal to
   // cancel mid-stream.
   stream: async (options: ChatStreamOptions): Promise<void> => {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-    };
-    Object.assign(headers, authHeader());
-
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
       body: JSON.stringify({
         messages: options.messages,
         repo_id: options.repoId ?? null,
