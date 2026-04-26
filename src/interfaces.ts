@@ -2,9 +2,6 @@
 export interface IAppSecrets {
   NODE_ENV: "development" | "production";
   PORT: string;
-  DB_NAME: string;
-  DB_HOST: string;
-  DB_PROXY_URL: string;
   API_KEY_HASH: string;
   GH_PAT?: string;
   ANTHROPIC_API_KEY?: string;
@@ -33,12 +30,6 @@ export interface IAppSecrets {
   // Defaults to "hosted" when COGNITO_DOMAIN is configured, otherwise "inapp".
   COGNITO_LOGIN_MODE?: "hosted" | "inapp";
   // Add additional app-level secrets here as needed
-}
-
-// ---- DB secrets (stored in AWS Secrets Manager via AWS_DB_SECRET_ARN) ----
-export interface IDBSecrets {
-  username: string;
-  password: string;
 }
 
 // ---- Failure policy enums (per-repo) ----

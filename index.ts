@@ -5,7 +5,6 @@ import http from "http";
 import fs from "fs";
 import app from "./src/app";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
-import { getDBSecrets } from "./src/aws/getDBSecrets";
 import { buildAuthProviders } from "./src/auth/buildAuthProviders";
 import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
@@ -20,10 +19,8 @@ process.on("uncaughtException", (err) => {
 async function start() {
   try {
     const appSecrets = await getAppSecrets();
-    const dbSecrets = await getDBSecrets();
 
     // console.log("App secrets", appSecrets);
-    // console.log("DB secrets", dbSecrets);
 
     app.set("secrets", appSecrets);
 
@@ -41,7 +38,7 @@ async function start() {
 
     const port = parseInt(appSecrets.PORT) || 8000;
 
-    await initDb(dbSecrets, appSecrets);
+    await initDb(appSecrets);
 
     const reposPath = appSecrets.REPOS_PATH;
     if (!fs.existsSync(reposPath)) {

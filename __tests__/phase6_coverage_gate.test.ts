@@ -186,9 +186,6 @@ function validAccessClaims(overrides: Partial<JwtClaims> = {}): JwtClaims {
 const SECRETS_BASE: IAppSecrets = {
   NODE_ENV: "development",
   PORT: "3000",
-  DB_NAME: "x",
-  DB_HOST: "x",
-  DB_PROXY_URL: "x",
   API_KEY_HASH: "$2b$10$fakehash",
   REPOS_PATH: "/tmp",
   COGNITO_USER_POOL_ID: USER_POOL_ID,
