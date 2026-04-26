@@ -195,15 +195,17 @@ export const READ_FILE_TOOL = {
 export const SEARCH_TOOL = {
   name: SEARCH_TOOL_NAME,
   description:
-    "Search a repo's clone for a regex pattern, ripgrep-style. Use this to " +
-    "find symbols, references, or strings across the codebase before " +
-    "reading specific files. Returns matching path/line/preview tuples. " +
-    "Constraints: `pattern` is a regular expression; keep it specific — " +
-    "broad patterns are rejected to avoid huge result sets. Optional " +
-    "`path` scopes the search to a subdirectory (relative to the repo " +
-    "root, no `..`). Results are capped to a fixed number of matches; if " +
-    "you hit the cap, narrow `pattern` or scope by `path`. Read-only; this " +
-    "tool never modifies the working tree.",
+    "Search a repo's clone for a pattern, ripgrep-style. Use this to find " +
+    "symbols, references, or strings across the codebase before reading " +
+    "specific files. Returns matching path/line/preview tuples. " +
+    "Constraints: `pattern` is a regular expression by default; pass " +
+    "`literal: true` to search for the pattern as a fixed string instead " +
+    "(useful when the query contains regex metacharacters you don't want " +
+    "interpreted). Optional `path` scopes the search to a subdirectory " +
+    "(relative to the repo root, no `..`). `.gitignore` is respected and " +
+    "results are capped to a fixed number of matches; if you hit the cap, " +
+    "narrow `pattern` or scope by `path`. Read-only; this tool never " +
+    "modifies the working tree.",
   input_schema: {
     type: "object" as const,
     additionalProperties: false,
@@ -218,14 +220,20 @@ export const SEARCH_TOOL = {
         type: "string",
         minLength: 1,
         description:
-          "Regular expression to search for. Be specific to keep the " +
-          "result set small.",
+          "Pattern to search for. Treated as a regular expression unless " +
+          "`literal` is true. Be specific to keep the result set small.",
       },
       path: {
         type: "string",
         description:
           "Optional subdirectory (relative to the repo root) to scope the " +
           "search to. Must not contain `..` segments.",
+      },
+      literal: {
+        type: "boolean",
+        description:
+          "When true, treat `pattern` as a literal string instead of a " +
+          "regular expression. Defaults to false (regex mode).",
       },
     },
   },
@@ -342,7 +350,7 @@ export function buildSystemPrompt(context: ChatContext = {}): string {
   );
 
   sections.push(
-    `## Read-only repo tools\nWhen the user is discussing a specific repo, you can browse its clone with three read-only tools — there are no write/edit/exec counterparts.\n- \`${LIST_FILES_TOOL_NAME}(repo_id, path?, depth?)\` — list directory entries to understand the layout. \`path\` is relative to the repo root; \`depth\` defaults to 1 (max 3).\n- \`${READ_FILE_TOOL_NAME}(repo_id, path, start_line?, end_line?)\` — read a slice of a file. Output is byte-capped, so for large files pass \`start_line\`/\`end_line\` (1-indexed, inclusive).\n- \`${SEARCH_TOOL_NAME}(repo_id, pattern, path?)\` — regex search across the clone. Be specific; results are capped, so narrow \`pattern\` or scope by \`path\` if you hit the cap.\nUse these to ground your suggestions in the actual code instead of guessing. Prefer \`${SEARCH_TOOL_NAME}\` to locate symbols, then \`${READ_FILE_TOOL_NAME}\` to inspect them. Paths are always relative to the repo root and traversal (\`..\`) is rejected.`
+    `## Read-only repo tools\nWhen the user is discussing a specific repo, you can browse its clone with three read-only tools — there are no write/edit/exec counterparts.\n- \`${LIST_FILES_TOOL_NAME}(repo_id, path?, depth?)\` — list directory entries to understand the layout. \`path\` is relative to the repo root; \`depth\` defaults to 1 (max 3).\n- \`${READ_FILE_TOOL_NAME}(repo_id, path, start_line?, end_line?)\` — read a slice of a file. Output is byte-capped, so for large files pass \`start_line\`/\`end_line\` (1-indexed, inclusive).\n- \`${SEARCH_TOOL_NAME}(repo_id, pattern, path?, literal?)\` — regex search across the clone (pass \`literal: true\` for a fixed-string match). Be specific; results are capped, so narrow \`pattern\` or scope by \`path\` if you hit the cap.\nUse these to ground your suggestions in the actual code instead of guessing. Prefer \`${SEARCH_TOOL_NAME}\` to locate symbols, then \`${READ_FILE_TOOL_NAME}\` to inspect them. Paths are always relative to the repo root and traversal (\`..\`) is rejected.`
   );
 
   if (context.repo) {
