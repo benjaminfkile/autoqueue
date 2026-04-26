@@ -16,6 +16,7 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
+import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
 
 export interface TaskNode {
@@ -47,11 +48,13 @@ const ABANDONABLE: TaskStatus[] = ["pending", "active"];
 export interface TaskTreeViewProps {
   repoId: number;
   onViewDetail?: (task: TaskSummary) => void;
+  selectedTaskId?: number | null;
 }
 
 export default function TaskTreeView({
   repoId,
   onViewDetail,
+  selectedTaskId = null,
 }: TaskTreeViewProps) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,29 +64,52 @@ export default function TaskTreeView({
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const list = await tasksApi.listByRepo(repoId);
-      setTasks(list);
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        for (const t of list) {
-          if (t.parent_id === null) next.add(t.id);
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (!silent) {
+        setLoading(true);
+        setLoadError(null);
+      }
+      try {
+        const list = await tasksApi.listByRepo(repoId);
+        setTasks(list);
+        if (!silent) {
+          // Auto-expand root tasks on the initial (visible) load. Polling
+          // refreshes intentionally skip this so a user-driven collapse is
+          // not undone on the next tick.
+          setExpanded((prev) => {
+            const next = new Set(prev);
+            for (const t of list) {
+              if (t.parent_id === null) next.add(t.id);
+            }
+            return next;
+          });
         }
-        return next;
-      });
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load tasks");
-    } finally {
-      setLoading(false);
-    }
-  }, [repoId]);
+      } catch (err) {
+        if (!silent) {
+          setLoadError(
+            err instanceof Error ? err.message : "Failed to load tasks"
+          );
+        }
+        // Silent polling failures are intentionally swallowed — the next
+        // tick will retry, and we don't want a transient hiccup to flash a
+        // banner over an otherwise-stable tree.
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [repoId]
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const pollFetcher = useCallback(() => load({ silent: true }), [load]);
+  useVisibilityAwarePolling(pollFetcher);
 
   const tree = useMemo(() => buildTaskTree(tasks), [tasks]);
 
@@ -277,6 +303,7 @@ export default function TaskTreeView({
             setDraggingId={setDraggingId}
             setDropTargetId={setDropTargetId}
             onReorder={handleReorder}
+            selectedTaskId={selectedTaskId}
           />
         ))}
       </Stack>
@@ -298,6 +325,7 @@ interface TaskTreeNodeProps {
   setDraggingId: (id: number | null) => void;
   setDropTargetId: (id: number | null) => void;
   onReorder: (sourceId: number, targetId: number) => void;
+  selectedTaskId: number | null;
 }
 
 function TaskTreeNode({
@@ -314,12 +342,14 @@ function TaskTreeNode({
   setDraggingId,
   setDropTargetId,
   onReorder,
+  selectedTaskId,
 }: TaskTreeNodeProps) {
   const { task, children } = node;
   const hasChildren = children.length > 0;
   const isExpanded = expanded.has(task.id);
   const isDragging = draggingId === task.id;
   const isDropTarget = dropTargetId === task.id && draggingId !== task.id;
+  const isSelected = selectedTaskId === task.id;
 
   const canRerun = RERUNNABLE.includes(task.status);
   const canAbandon = ABANDONABLE.includes(task.status);
@@ -366,11 +396,16 @@ function TaskTreeNode({
           py: 0.5,
           pr: 1,
           borderRadius: 1,
-          bgcolor: isDropTarget ? "action.hover" : "transparent",
+          bgcolor: isDropTarget
+            ? "action.hover"
+            : isSelected
+              ? "action.selected"
+              : "transparent",
           opacity: isDragging ? 0.5 : 1,
           "&:hover": { bgcolor: "action.hover" },
         }}
         data-testid={`task-row-${task.id}`}
+        aria-selected={isSelected || undefined}
       >
         <Box
           aria-label={`Drag handle for ${task.title}`}
@@ -474,6 +509,7 @@ function TaskTreeNode({
               setDraggingId={setDraggingId}
               setDropTargetId={setDropTargetId}
               onReorder={onReorder}
+              selectedTaskId={selectedTaskId}
             />
           ))}
         </Box>

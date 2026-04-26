@@ -521,6 +521,7 @@ export default function ReposPage() {
               <TaskTreeView
                 repoId={selectedRepoId}
                 onViewDetail={(task) => setSelectedTaskId(task.id)}
+                selectedTaskId={selectedTaskId}
               />
             </Paper>
           );
