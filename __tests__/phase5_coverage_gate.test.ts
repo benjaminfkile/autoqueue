@@ -84,6 +84,14 @@ jest.mock("../src/db/acceptanceCriteria", () => ({
   getCriteriaByTaskId: jest.fn(),
 }));
 
+// Phase 8 (task #304) wires the repo-link scope into materialize-tree's
+// proposal validation. The route now calls listLinksForRepo to assemble the
+// allowed repo_id set; default it to "no links" so the Phase 5 atomicity
+// tests, which predate that scoping, keep behaving as a single-repo flow.
+jest.mock("../src/db/repoLinks", () => ({
+  listLinksForRepo: jest.fn().mockResolvedValue([]),
+}));
+
 // Stub the Anthropic SDK at the import boundary so the chat router exercises
 // real `streamChatEvents` against a fully scripted stream. This is the AC #868
 // boundary — keep one canonical stub here so we don't drift between tests.

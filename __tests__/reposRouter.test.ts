@@ -746,6 +746,14 @@ describe("reposRouter", () => {
       ],
     };
 
+    beforeEach(() => {
+      // The route looks up the repo's directly-linked siblings to build the
+      // allowed repo_id set for proposal validation. Default to "no links" so
+      // the existing single-repo cases keep behaving the same; tests that
+      // exercise the multi-repo path override this explicitly.
+      (listLinksForRepo as jest.Mock).mockResolvedValue([]);
+    });
+
     it("returns 400 for an invalid id", async () => {
       const res = await request(app)
         .post("/api/repos/abc/materialize-tree")
@@ -842,6 +850,63 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(500);
       expect(res.body.error).toMatch(/rolled back/);
+    });
+
+    // ---- task #304: per-parent repo_id at the route level ----
+    it("AC #1099 — rejects a proposal whose top-level repo_id is not this repo or one of its direct links", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      // No links → only this repo (id 1) is in scope. repo_id 99 must be
+      // rejected before the materializer runs.
+      (listLinksForRepo as jest.Mock).mockResolvedValue([]);
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .send({ parents: [{ title: "Sneaky", repo_id: 99 }] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/repo_id/);
+      expect(res.body.error).toMatch(/not in scope/);
+      expect(materializeTaskTree).not.toHaveBeenCalled();
+    });
+
+    it("AC #1099 — accepts a top-level repo_id that matches a directly-linked repo", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(mockRepo);
+      (listLinksForRepo as jest.Mock).mockResolvedValue([
+        {
+          id: 50,
+          repo_a_id: 1,
+          repo_b_id: 2,
+          role: "frontend",
+          permission: "read",
+          created_at: new Date(),
+        },
+      ]);
+      (materializeTaskTree as jest.Mock).mockResolvedValue({
+        parents: [
+          {
+            id: 700,
+            title: "FE",
+            parent_id: null,
+            order_position: 0,
+            repo_id: 2,
+            acceptance_criteria_ids: [],
+            children: [],
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post("/api/repos/1/materialize-tree")
+        .send({ parents: [{ title: "FE", repo_id: 2 }] });
+
+      expect(res.status).toBe(201);
+      expect(materializeTaskTree).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.objectContaining({
+          parents: [expect.objectContaining({ title: "FE", repo_id: 2 })],
+        })
+      );
     });
   });
 

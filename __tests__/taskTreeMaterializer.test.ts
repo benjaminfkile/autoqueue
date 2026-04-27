@@ -236,4 +236,97 @@ describe("materializeTaskTree", () => {
 
     expect((knex as unknown as { transaction: jest.Mock }).transaction).toHaveBeenCalledTimes(1);
   });
+
+  // ---- task #304: per-parent repo_id ----
+  it("AC #1098 — writes each top-level subtree against its own repo_id when supplied", async () => {
+    const knex = createMockKnex();
+    let nextId = 200;
+    (createTask as jest.Mock).mockImplementation(async (_db, data) => ({
+      id: nextId++,
+      ...data,
+    }));
+
+    await materializeTaskTree(knex as never, 7, {
+      parents: [
+        // Inherits the default (7).
+        { title: "Backend", children: [{ title: "BE-1" }] },
+        // Overrides the default — this whole subtree belongs to repo 8.
+        { title: "Frontend", repo_id: 8, children: [{ title: "FE-1" }] },
+      ],
+    });
+
+    // 4 tasks total: Backend, BE-1, Frontend, FE-1.
+    expect(createTask).toHaveBeenCalledTimes(4);
+
+    // Backend (default repo)
+    expect(createTask).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({ repo_id: 7, title: "Backend", parent_id: null })
+    );
+    // BE-1 (inherits its parent's repo)
+    expect(createTask).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ repo_id: 7, title: "BE-1" })
+    );
+    // Frontend (override applied)
+    expect(createTask).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      expect.objectContaining({ repo_id: 8, title: "Frontend", parent_id: null })
+    );
+    // FE-1 (inherits its parent's overridden repo)
+    expect(createTask).toHaveBeenNthCalledWith(
+      4,
+      expect.anything(),
+      expect.objectContaining({ repo_id: 8, title: "FE-1" })
+    );
+  });
+
+  it("AC #1098 — every descendant of an overridden parent uses the parent's repo_id, not the default", async () => {
+    const knex = createMockKnex();
+    let nextId = 300;
+    (createTask as jest.Mock).mockImplementation(async (_db, data) => ({
+      id: nextId++,
+      ...data,
+    }));
+
+    await materializeTaskTree(knex as never, 7, {
+      parents: [
+        {
+          title: "Cross-repo",
+          repo_id: 11,
+          children: [
+            { title: "C1", children: [{ title: "C1.1" }] },
+            { title: "C2" },
+          ],
+        },
+      ],
+    });
+
+    expect(createTask).toHaveBeenCalledTimes(4);
+    for (const call of (createTask as jest.Mock).mock.calls) {
+      expect(call[1].repo_id).toBe(11);
+    }
+  });
+
+  it("AC #1098 — the returned MaterializedTaskTree surfaces each subtree's repo_id", async () => {
+    const knex = createMockKnex();
+    let nextId = 400;
+    (createTask as jest.Mock).mockImplementation(async (_db, data) => ({
+      id: nextId++,
+      ...data,
+    }));
+
+    const result = await materializeTaskTree(knex as never, 7, {
+      parents: [
+        { title: "BE" },
+        { title: "FE", repo_id: 8 },
+      ],
+    });
+
+    expect(result.parents[0].repo_id).toBe(7);
+    expect(result.parents[1].repo_id).toBe(8);
+  });
 });

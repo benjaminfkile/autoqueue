@@ -8,6 +8,10 @@ export interface MaterializedTaskNode {
   title: string;
   parent_id: number | null;
   order_position: number;
+  // The repo this subtree was actually written against. Surfaces the per-
+  // parent repo_id override so callers (and the GUI) can deep-link to the
+  // right repo without re-deriving it from the proposal.
+  repo_id: number;
   acceptance_criteria_ids: number[];
   children: MaterializedTaskNode[];
 }
@@ -16,21 +20,26 @@ export interface MaterializedTaskTree {
   parents: MaterializedTaskNode[];
 }
 
-// Insert an entire proposed task tree under `repoId` in a single transaction.
-// Either every task + acceptance criterion is persisted, or nothing is — the
-// transaction rolls back on the first failure, so callers never see a half-
-// written tree. The returned shape mirrors the input so the GUI can navigate
-// straight to any of the new tasks by id.
+// Insert an entire proposed task tree in a single transaction. Each top-level
+// parent may override the target repo via `node.repo_id` — when present, that
+// subtree (and every descendant under it) is written against that repo;
+// otherwise the subtree falls back to the `defaultRepoId` arg. This is what
+// lets a single multi-repo proposal land tasks across the chat's linked repos
+// in one shot. Either every task + acceptance criterion is persisted, or
+// nothing is — the transaction rolls back on the first failure, so callers
+// never see a half-written tree across repos.
 export async function materializeTaskTree(
   db: Knex,
-  repoId: number,
+  defaultRepoId: number,
   proposal: TaskTreeProposal
 ): Promise<MaterializedTaskTree> {
   return db.transaction(async (trx) => {
     const parents: MaterializedTaskNode[] = [];
     for (let i = 0; i < proposal.parents.length; i++) {
+      const parent = proposal.parents[i];
+      const subtreeRepoId = parent.repo_id ?? defaultRepoId;
       parents.push(
-        await materializeNode(trx, repoId, proposal.parents[i], null, i)
+        await materializeNode(trx, subtreeRepoId, parent, null, i)
       );
     }
     return { parents };
@@ -78,6 +87,7 @@ async function materializeNode(
     title: task.title,
     parent_id: parentId,
     order_position: order,
+    repo_id: repoId,
     acceptance_criteria_ids,
     children,
   };

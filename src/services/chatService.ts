@@ -65,6 +65,37 @@ const TASK_NODE_SCHEMA: Record<string, unknown> = {
   },
 };
 
+// Top-level proposed nodes may additionally specify the `repo_id` they target,
+// so a single proposal can plan work across multiple linked repos in one shot.
+// `repo_id` is only meaningful at the top level — every node beneath a parent
+// inherits the parent's repo_id, so allowing it deeper would be ambiguous.
+const TOP_LEVEL_TASK_NODE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  required: ["title"],
+  properties: {
+    title: { type: "string", minLength: 1 },
+    description: { type: "string" },
+    repo_id: {
+      type: "integer",
+      minimum: 1,
+      description:
+        "Optional id of the repo this top-level subtree targets. Must be one " +
+        "of the repos returned by `list_repos` (the chat's primary repo or a " +
+        "directly-linked one). When omitted, the materializer uses the " +
+        "chat's primary repo. Children of this node always inherit this " +
+        "repo_id — they cannot override it.",
+    },
+    acceptance_criteria: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+    },
+    children: {
+      type: "array",
+      items: { $ref: "#/$defs/task_node" },
+    },
+  },
+};
+
 export const PROPOSE_TASK_TREE_TOOL = {
   name: PROPOSE_TASK_TREE_TOOL_NAME,
   description:
@@ -72,18 +103,23 @@ export const PROPOSE_TASK_TREE_TOOL = {
     "Call this tool only when you have a concrete plan. Each `parent` may have " +
     "nested `children` (recursive). Workers only run leaves, so put concrete " +
     "actionable work in the leaves and use parents for grouping. " +
-    "Acceptance criteria should be terse, testable bullet points.",
+    "Acceptance criteria should be terse, testable bullet points. " +
+    "Each top-level parent may optionally specify `repo_id` to target a " +
+    "specific in-scope repo (the primary or any directly-linked sibling), " +
+    "so one proposal can span multiple linked repos. Children always inherit " +
+    "their parent's repo.",
   input_schema: {
     type: "object" as const,
     required: ["parents"],
     $defs: {
       task_node: TASK_NODE_SCHEMA,
+      top_level_task_node: TOP_LEVEL_TASK_NODE_SCHEMA,
     },
     properties: {
       parents: {
         type: "array",
         minItems: 1,
-        items: { $ref: "#/$defs/task_node" },
+        items: { $ref: "#/$defs/top_level_task_node" },
       },
     },
   },
@@ -94,6 +130,9 @@ export interface ProposedTaskNode {
   description?: string;
   acceptance_criteria?: string[];
   children?: ProposedTaskNode[];
+  // Only meaningful on top-level nodes (i.e. entries of
+  // `TaskTreeProposal.parents`). Set on a child node, validation will reject.
+  repo_id?: number;
 }
 
 export interface TaskTreeProposal {
@@ -282,7 +321,19 @@ export type ValidateProposalResult =
   | { valid: true; proposal: TaskTreeProposal }
   | { valid: false; error: string };
 
-export function validateTaskTreeProposal(input: unknown): ValidateProposalResult {
+// Optional knobs on validation. `allowedRepoIds`, when supplied, restricts the
+// `repo_id` a top-level node may declare to that set — used by the chat loop
+// (chat scope = primary + directly-linked) and by the materialize-tree route
+// (URL repo + its direct links). When undefined, any integer repo_id is
+// accepted (back-compat with callers that don't have a scope to enforce).
+export interface ValidateProposalOptions {
+  allowedRepoIds?: number[];
+}
+
+export function validateTaskTreeProposal(
+  input: unknown,
+  options: ValidateProposalOptions = {}
+): ValidateProposalResult {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { valid: false, error: "proposal must be an object" };
   }
@@ -292,7 +343,12 @@ export function validateTaskTreeProposal(input: unknown): ValidateProposalResult
   }
   const parents: ProposedTaskNode[] = [];
   for (let i = 0; i < root.parents.length; i++) {
-    const result = validateNode(root.parents[i], `parents[${i}]`);
+    const result = validateNode(
+      root.parents[i],
+      `parents[${i}]`,
+      true,
+      options
+    );
     if (!result.valid) return result;
     parents.push(result.node);
   }
@@ -303,7 +359,12 @@ type NodeResult =
   | { valid: true; node: ProposedTaskNode }
   | { valid: false; error: string };
 
-function validateNode(input: unknown, path: string): NodeResult {
+function validateNode(
+  input: unknown,
+  path: string,
+  isTopLevel: boolean,
+  options: ValidateProposalOptions
+): NodeResult {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { valid: false, error: `${path} must be an object` };
   }
@@ -312,6 +373,7 @@ function validateNode(input: unknown, path: string): NodeResult {
     description?: unknown;
     acceptance_criteria?: unknown;
     children?: unknown;
+    repo_id?: unknown;
   };
   if (typeof raw.title !== "string" || raw.title.trim().length === 0) {
     return { valid: false, error: `${path}.title must be a non-empty string` };
@@ -322,6 +384,35 @@ function validateNode(input: unknown, path: string): NodeResult {
       return { valid: false, error: `${path}.description must be a string` };
     }
     node.description = raw.description;
+  }
+  if (raw.repo_id !== undefined) {
+    if (!isTopLevel) {
+      return {
+        valid: false,
+        error:
+          `${path}.repo_id is only allowed on top-level parents — child ` +
+          `tasks always inherit their parent's repo`,
+      };
+    }
+    if (typeof raw.repo_id !== "number" || !Number.isInteger(raw.repo_id)) {
+      return {
+        valid: false,
+        error: `${path}.repo_id must be an integer`,
+      };
+    }
+    if (
+      options.allowedRepoIds !== undefined &&
+      !options.allowedRepoIds.includes(raw.repo_id)
+    ) {
+      const allowed = options.allowedRepoIds.join(", ");
+      return {
+        valid: false,
+        error:
+          `${path}.repo_id ${raw.repo_id} is not in scope. ` +
+          `Allowed repo ids: ${allowed}`,
+      };
+    }
+    node.repo_id = raw.repo_id;
   }
   if (raw.acceptance_criteria !== undefined) {
     if (!Array.isArray(raw.acceptance_criteria)) {
@@ -351,7 +442,9 @@ function validateNode(input: unknown, path: string): NodeResult {
     for (let i = 0; i < raw.children.length; i++) {
       const childResult = validateNode(
         raw.children[i],
-        `${path}.children[${i}]`
+        `${path}.children[${i}]`,
+        false,
+        options
       );
       if (!childResult.valid) return childResult;
       children.push(childResult.node);
@@ -398,7 +491,7 @@ export function buildSystemPrompt(context: ChatContext = {}): string {
   sections.push(`## Schema\n${GRUNT_SCHEMA}`);
 
   sections.push(
-    `## Proposing a task tree\nWhen — and only when — you and the user have converged on a concrete plan, call the \`${PROPOSE_TASK_TREE_TOOL_NAME}\` tool with the proposed tree. Until then, keep discussing in plain text. Workers only run leaf tasks, so put concrete actionable work in the leaves and use parents for grouping. Each task's \`acceptance_criteria\` should be terse, testable bullet points.`
+    `## Proposing a task tree\nWhen — and only when — you and the user have converged on a concrete plan, call the \`${PROPOSE_TASK_TREE_TOOL_NAME}\` tool with the proposed tree. Until then, keep discussing in plain text. Workers only run leaf tasks, so put concrete actionable work in the leaves and use parents for grouping. Each task's \`acceptance_criteria\` should be terse, testable bullet points.\nWhen a plan touches more than one repo, set \`repo_id\` on each top-level parent to target the right one — every id must be one of the repos returned by \`${LIST_REPOS_TOOL_NAME}\` (the chat's primary repo or a directly-linked sibling). Top-level parents with no \`repo_id\` materialize against the chat's primary repo. \`repo_id\` is only valid on top-level parents; children always inherit their parent's repo.`
   );
 
   sections.push(
@@ -765,7 +858,18 @@ export async function* streamChatEvents(
 
       if (tu.name === PROPOSE_TASK_TREE_TOOL_NAME) {
         sawProposalTool = true;
-        const validated = validateTaskTreeProposal(parsedInput);
+        // When the chat is anchored to a repo we have a scope; in that case
+        // we constrain any per-parent `repo_id` to the in-scope set so the
+        // model cannot quietly target a repo the user never authorized.
+        // Without a scope (chat with no anchoring repo) we fall through to
+        // the structural validator only.
+        const scopedRepoIds = options.repoToolsContext?.scope?.repos.map(
+          (r) => r.id
+        );
+        const validated = validateTaskTreeProposal(
+          parsedInput,
+          scopedRepoIds ? { allowedRepoIds: scopedRepoIds } : {}
+        );
         if (validated.valid) {
           yield { type: "proposal", proposal: validated.proposal };
           toolResults.push({
