@@ -221,6 +221,7 @@ export function runClaudeOnTask(options: {
   workDir: string;
   taskPayload: TaskPayload;
   anthropicApiKey?: string;
+  ghPat?: string;
   logFilePath?: string;
   onFirstByte?: () => void;
 }): Promise<{
@@ -233,12 +234,23 @@ export function runClaudeOnTask(options: {
     workDir,
     taskPayload,
     anthropicApiKey,
+    ghPat,
     logFilePath,
     onFirstByte,
   } = options;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
-  if (anthropicApiKey) env.ANTHROPIC_API_KEY = anthropicApiKey;
+
+  // Secrets are delivered to the container via a tmpfs-backed file rather
+  // than `docker -e KEY=value`, because `docker inspect` exposes -e values
+  // verbatim. The host writes KEY=value lines to docker stdin; the
+  // container entrypoint reads them into a file at /run/grunt-secrets/env
+  // (a RAM-only tmpfs), sources them into the env, and unlinks the file
+  // before exec'ing the claude CLI.
+  const secretLines: string[] = [];
+  if (anthropicApiKey) secretLines.push(`ANTHROPIC_API_KEY=${anthropicApiKey}`);
+  if (ghPat) secretLines.push(`GH_PAT=${ghPat}`);
+  const hasSecrets = secretLines.length > 0;
 
   const prompt = `You are an automated coding agent. You have been assigned the following task:
 
@@ -295,8 +307,14 @@ ${NOTES_PROTOCOL_DOC}`;
     // The runner image was built/tagged by ensureRunnerImage before this task
     // started, so `:latest` reliably points at the current build. The repo is
     // bind-mounted at /workspace :rw and that's the container's cwd.
-    // ANTHROPIC_API_KEY is forwarded by name (no value in argv) so the secret
-    // never appears in `ps` output — docker reads it from our spawned env.
+    //
+    // Secrets path: when there are secrets to inject we mount a 1MB tmpfs at
+    // /run/grunt-secrets (mode 01777 so the unprivileged `node` user can write
+    // there), set GRUNT_SECRETS_FROM_STDIN=1, and feed KEY=value lines to
+    // docker's stdin with `-i`. The container entrypoint reads stdin into a
+    // file on that tmpfs, exports the values, and unlinks the file before
+    // exec'ing claude. Compared to `-e KEY=value`, the secret values never
+    // appear in `docker inspect` and never reach disk.
     //
     // `--output-format stream-json` makes the CLI emit one JSON object per
     // event (including a `usage` block on assistant messages and the final
@@ -311,8 +329,14 @@ ${NOTES_PROTOCOL_DOC}`;
       "-w",
       CONTAINER_WORKSPACE,
     ];
-    if (anthropicApiKey) {
-      dockerArgs.push("-e", "ANTHROPIC_API_KEY");
+    if (hasSecrets) {
+      dockerArgs.push(
+        "--tmpfs",
+        "/run/grunt-secrets:rw,size=1m,mode=01777",
+        "-i",
+        "-e",
+        "GRUNT_SECRETS_FROM_STDIN=1"
+      );
     }
     dockerArgs.push(
       `${RUNNER_IMAGE_NAME}:latest`,
@@ -327,18 +351,28 @@ ${NOTES_PROTOCOL_DOC}`;
 
     const child = spawn("docker", dockerArgs, {
       env,
-      // Without an explicit stdin source the CLI waits 3s for piped input
-      // before proceeding. We never write to stdin, so close it.
-      stdio: ["ignore", "pipe", "pipe"],
+      // With no secrets, the CLI would otherwise wait 3s for piped input, so
+      // we close stdin. With secrets, we need a writable stdin so the
+      // entrypoint can read the KEY=value stream from us.
+      stdio: (hasSecrets
+        ? ["pipe", "pipe", "pipe"]
+        : ["ignore", "pipe", "pipe"]) as ("pipe" | "ignore")[],
     });
 
-    child.stdout.on("data", (data: Buffer) => {
+    if (hasSecrets && child.stdin) {
+      // Newline-terminated KEY=value list. Trailing newline is required so the
+      // last line is parsed reliably by `read` in the entrypoint.
+      child.stdin.write(secretLines.join("\n") + "\n");
+      child.stdin.end();
+    }
+
+    child.stdout!.on("data", (data: Buffer) => {
       handleFirstByte();
       output += data.toString();
       if (logStream) logStream.write(data);
     });
 
-    child.stderr.on("data", (data: Buffer) => {
+    child.stderr!.on("data", (data: Buffer) => {
       handleFirstByte();
       output += data.toString();
       if (logStream) logStream.write(data);

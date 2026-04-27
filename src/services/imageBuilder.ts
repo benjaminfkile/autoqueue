@@ -75,14 +75,21 @@ export function resolveRunnerDockerfile(): {
 }
 
 export function computeDockerfileHash(dockerfilePath: string): string {
-  const contents = fs.readFileSync(dockerfilePath);
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(dockerfilePath));
+
+  // The Dockerfile COPYs sibling files (entrypoint.sh) into the image, so
+  // changes to those files must invalidate the cache too — otherwise
+  // imageExists() returns true for a stale image and the rebuild is skipped.
+  const entrypoint = path.join(path.dirname(dockerfilePath), "entrypoint.sh");
+  if (fs.existsSync(entrypoint)) {
+    hash.update("\0entrypoint.sh\0");
+    hash.update(fs.readFileSync(entrypoint));
+  }
+
   // Truncate to 12 hex chars — long enough to avoid collisions in practice,
   // short enough to read in `docker images` output.
-  return crypto
-    .createHash("sha256")
-    .update(contents)
-    .digest("hex")
-    .slice(0, 12);
+  return hash.digest("hex").slice(0, 12);
 }
 
 export function runnerImageTag(hash: string): string {

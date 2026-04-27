@@ -30,10 +30,18 @@ RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
 # a uid-1000 host user is writable without further setup.
 RUN mkdir -p /workspace && chown -R node:node /workspace
 
+# Entrypoint shim: when invoked with GRUNT_SECRETS_FROM_STDIN=1, it reads
+# KEY=value lines from stdin into a tmpfs-mounted file at /run/grunt-secrets,
+# exports them into the environment for the subsequent command, and unlinks
+# the file. Secrets never appear in `docker inspect` and never touch disk.
+COPY entrypoint.sh /usr/local/bin/grunt-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/grunt-entrypoint.sh
+
 ENV HOME=/home/node
 USER node
 WORKDIR /workspace
 
+ENTRYPOINT ["/usr/local/bin/grunt-entrypoint.sh"]
 # Default command doubles as a smoke test: `docker run grunt/runner` prints
 # the CLI version. The task runner overrides this with the real invocation.
 CMD ["claude", "--version"]
