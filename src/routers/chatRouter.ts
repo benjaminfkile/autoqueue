@@ -93,7 +93,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
       system,
       messages: validated,
       tools: [PROPOSE_TASK_TREE_TOOL, ...REPO_READ_TOOLS],
-      repoToolsContext: { db: getDb(), reposPath },
+      repoToolsContext: { db: getDb(), reposPath, scope: context.scope },
     })) {
       if (aborted) break;
       if (event.type === "text") {

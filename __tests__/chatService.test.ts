@@ -6,18 +6,25 @@ import {
   streamChatEvents,
   AnthropicLike,
   AnthropicStreamEvent,
+  ChatRepoScope,
+  LIST_REPOS_TOOL,
+  LIST_REPOS_TOOL_NAME,
   PROPOSE_TASK_TREE_TOOL,
   PROPOSE_TASK_TREE_TOOL_NAME,
+  REPO_READ_TOOLS,
   validateTaskTreeProposal,
   ChatStreamEvent,
 } from "../src/services/chatService";
-import { Repo, Task } from "../src/interfaces";
+import { Repo, RepoLink, Task } from "../src/interfaces";
 
 jest.mock("../src/db/repos", () => ({
   getRepoById: jest.fn(),
 }));
 jest.mock("../src/db/tasks", () => ({
   getTasksByRepoId: jest.fn(),
+}));
+jest.mock("../src/db/repoLinks", () => ({
+  listLinksForRepo: jest.fn(),
 }));
 jest.mock("../src/services/repoTools", () => ({
   __esModule: true,
@@ -27,6 +34,7 @@ jest.mock("../src/services/repoTools", () => ({
 }));
 import { getRepoById } from "../src/db/repos";
 import { getTasksByRepoId } from "../src/db/tasks";
+import { listLinksForRepo } from "../src/db/repoLinks";
 import {
   listFiles as listFilesMock,
   readFile as readFileMock,
@@ -123,11 +131,49 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt({ repo: repoFixture, recentTasks: [] });
     expect(prompt).not.toContain("Recent task history");
   });
+
+  it("documents the list_repos tool and the one-hop scope rule", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain(LIST_REPOS_TOOL_NAME);
+    // The model must be told that the link expansion is one hop only —
+    // otherwise it could try to chase transitive links and get rejected.
+    expect(prompt.toLowerCase()).toMatch(/transitive|one hop|directly-linked/);
+  });
+
+  it("includes a Linked repos section when the scope has direct links", () => {
+    const prompt = buildSystemPrompt({
+      repo: repoFixture,
+      scope: {
+        primary_repo_id: 7,
+        repos: [
+          { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+          { id: 8, slug: "acme/ui", is_primary: false, role: "frontend" },
+          { id: 9, slug: "acme/api", is_primary: false, role: null },
+        ],
+      },
+    });
+    expect(prompt).toContain("Linked repos");
+    expect(prompt).toContain("id 8: acme/ui");
+    expect(prompt).toContain("role: frontend");
+    expect(prompt).toContain("id 9: acme/api");
+  });
+
+  it("omits the Linked repos section when the scope has only the primary", () => {
+    const prompt = buildSystemPrompt({
+      repo: repoFixture,
+      scope: {
+        primary_repo_id: 7,
+        repos: [{ id: 7, slug: "acme/widgets", is_primary: true, role: null }],
+      },
+    });
+    expect(prompt).not.toContain("Linked repos");
+  });
 });
 
 describe("loadChatContext", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (listLinksForRepo as jest.Mock).mockResolvedValue([]);
   });
 
   it("returns an empty context when repoId is null/undefined", async () => {
@@ -155,6 +201,100 @@ describe("loadChatContext", () => {
     // Newest first: id 15 then id 14 ... id 6
     expect(ctx.recentTasks?.[0].id).toBe(15);
     expect(ctx.recentTasks?.[9].id).toBe(6);
+  });
+
+  it("returns a scope containing only the primary repo when there are no links", async () => {
+    (getRepoById as jest.Mock).mockResolvedValue(repoFixture);
+    (getTasksByRepoId as jest.Mock).mockResolvedValue([]);
+    (listLinksForRepo as jest.Mock).mockResolvedValue([]);
+
+    const ctx = await loadChatContext({} as never, 7);
+    expect(ctx.scope).toEqual({
+      primary_repo_id: 7,
+      repos: [
+        { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+      ],
+    });
+  });
+
+  it("expands scope to include directly-linked repos with their roles", async () => {
+    const linkedRepo: Repo = {
+      ...repoFixture,
+      id: 8,
+      owner: "acme",
+      repo_name: "ui",
+    };
+    (getRepoById as jest.Mock).mockImplementation(async (_db, id: number) => {
+      if (id === 7) return repoFixture;
+      if (id === 8) return linkedRepo;
+      return undefined;
+    });
+    (getTasksByRepoId as jest.Mock).mockResolvedValue([]);
+    const link: RepoLink = {
+      id: 1,
+      repo_a_id: 7,
+      repo_b_id: 8,
+      role: "frontend",
+      permission: "read",
+      created_at: new Date(),
+    };
+    (listLinksForRepo as jest.Mock).mockResolvedValue([link]);
+
+    const ctx = await loadChatContext({} as never, 7);
+    expect(ctx.scope?.primary_repo_id).toBe(7);
+    expect(ctx.scope?.repos).toEqual([
+      { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+      { id: 8, slug: "acme/ui", is_primary: false, role: "frontend" },
+    ]);
+    // Critical: scope is built from listLinksForRepo on the PRIMARY only, so
+    // we must not have walked into the linked repo's own links.
+    expect((listLinksForRepo as jest.Mock).mock.calls).toEqual([[{}, 7]]);
+  });
+
+  it("resolves the linked repo regardless of which side of the pair the primary is on", async () => {
+    const otherRepo: Repo = { ...repoFixture, id: 3, owner: "acme", repo_name: "core" };
+    (getRepoById as jest.Mock).mockImplementation(async (_db, id: number) => {
+      if (id === 7) return repoFixture;
+      if (id === 3) return otherRepo;
+      return undefined;
+    });
+    (getTasksByRepoId as jest.Mock).mockResolvedValue([]);
+    // Primary (7) is on the b side here — the helper has to look at repo_a_id.
+    const link: RepoLink = {
+      id: 1,
+      repo_a_id: 3,
+      repo_b_id: 7,
+      role: null,
+      permission: "read",
+      created_at: new Date(),
+    };
+    (listLinksForRepo as jest.Mock).mockResolvedValue([link]);
+
+    const ctx = await loadChatContext({} as never, 7);
+    const linked = ctx.scope?.repos.find((r) => !r.is_primary);
+    expect(linked).toEqual({ id: 3, slug: "acme/core", is_primary: false, role: null });
+  });
+
+  it("drops links that point at deleted repos rather than blocking the chat", async () => {
+    (getRepoById as jest.Mock).mockImplementation(async (_db, id: number) => {
+      if (id === 7) return repoFixture;
+      return undefined; // dangling link target
+    });
+    (getTasksByRepoId as jest.Mock).mockResolvedValue([]);
+    const link: RepoLink = {
+      id: 1,
+      repo_a_id: 7,
+      repo_b_id: 999,
+      role: "ghost",
+      permission: "read",
+      created_at: new Date(),
+    };
+    (listLinksForRepo as jest.Mock).mockResolvedValue([link]);
+
+    const ctx = await loadChatContext({} as never, 7);
+    expect(ctx.scope?.repos).toEqual([
+      { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+    ]);
   });
 });
 
@@ -989,5 +1129,333 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     }
 
     expect(create).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("LIST_REPOS_TOOL definition", () => {
+  it("uses the canonical tool name", () => {
+    expect(LIST_REPOS_TOOL.name).toBe("list_repos");
+    expect(LIST_REPOS_TOOL_NAME).toBe("list_repos");
+  });
+
+  it("takes no arguments — its scope is implicit in the chat context", () => {
+    expect(LIST_REPOS_TOOL.input_schema.type).toBe("object");
+    expect(LIST_REPOS_TOOL.input_schema.properties).toEqual({});
+  });
+
+  it("is bundled into REPO_READ_TOOLS so chatRouter wires it up automatically", () => {
+    expect(REPO_READ_TOOLS.map((t) => t.name)).toContain(LIST_REPOS_TOOL_NAME);
+  });
+});
+
+describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #303)", () => {
+  // Re-uses the helpers from the multi-tool turn loop describe — duplicated
+  // locally so this block can stand on its own if the upstream helpers move.
+  type Block =
+    | { kind: "text"; text: string }
+    | { kind: "tool_use"; id: string; name: string; input: unknown };
+
+  function buildStream(blocks: Block[]): AnthropicStreamEvent[] {
+    const out: AnthropicStreamEvent[] = [{ type: "message_start" }];
+    blocks.forEach((b, i) => {
+      if (b.kind === "text") {
+        out.push({
+          type: "content_block_start",
+          index: i,
+          content_block: { type: "text" },
+        });
+        out.push({
+          type: "content_block_delta",
+          index: i,
+          delta: { type: "text_delta", text: b.text },
+        });
+        out.push({ type: "content_block_stop", index: i });
+      } else {
+        out.push({
+          type: "content_block_start",
+          index: i,
+          content_block: { type: "tool_use", id: b.id, name: b.name },
+        });
+        out.push({
+          type: "content_block_delta",
+          index: i,
+          delta: {
+            type: "input_json_delta",
+            partial_json: JSON.stringify(b.input),
+          },
+        });
+        out.push({ type: "content_block_stop", index: i });
+      }
+    });
+    out.push({ type: "message_stop" });
+    return out;
+  }
+
+  function fakeClient(turns: AnthropicStreamEvent[][]): {
+    client: AnthropicLike;
+    create: jest.Mock;
+    snapshots: Array<{ messages: unknown[] }>;
+  } {
+    const snapshots: Array<{ messages: unknown[] }> = [];
+    const create = jest.fn().mockImplementation(async (body: { messages: unknown[] }) => {
+      snapshots.push({ messages: JSON.parse(JSON.stringify(body.messages)) });
+      const idx = create.mock.calls.length - 1;
+      if (idx < turns.length) return toAsyncIterable(turns[idx]);
+      return toAsyncIterable([]);
+    });
+    return { client: { messages: { create } }, create, snapshots };
+  }
+
+  beforeEach(() => {
+    (listFilesMock as jest.Mock).mockReset();
+    (readFileMock as jest.Mock).mockReset();
+    (searchMock as jest.Mock).mockReset();
+  });
+
+  const scope: ChatRepoScope = {
+    primary_repo_id: 7,
+    repos: [
+      { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+      { id: 8, slug: "acme/ui", is_primary: false, role: "frontend" },
+    ],
+  };
+
+  // ---- AC #1096 ----------------------------------------------------------
+  it("AC #1096 — list_repos returns the in-scope set with their roles", async () => {
+    const { client, snapshots } = fakeClient([
+      buildStream([
+        { kind: "tool_use", id: "tu_lr", name: "list_repos", input: {} },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "what repos?" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      void _;
+    }
+
+    const toolResult = ((snapshots[1].messages as Array<{
+      content: Array<{ content: string; is_error?: boolean }>;
+    }>)[2].content)[0];
+    expect(toolResult.is_error).toBeUndefined();
+    expect(JSON.parse(toolResult.content)).toEqual({
+      repos: [
+        { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+        { id: 8, slug: "acme/ui", is_primary: false, role: "frontend" },
+      ],
+    });
+  });
+
+  it("list_repos with no scope surfaces an is_error tool_result", async () => {
+    const { client, snapshots } = fakeClient([
+      buildStream([
+        { kind: "tool_use", id: "tu_lr", name: "list_repos", input: {} },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "no repo here" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r" },
+    })) {
+      void _;
+    }
+
+    const toolResult = ((snapshots[1].messages as Array<{
+      content: Array<{ content: string; is_error?: boolean }>;
+    }>)[2].content)[0];
+    expect(toolResult.is_error).toBe(true);
+    expect(toolResult.content).toMatch(/not scoped/);
+  });
+
+  // ---- AC #1094 ----------------------------------------------------------
+  it("AC #1094 — read_file with a directly-linked repo's id is dispatched, not rejected", async () => {
+    (readFileMock as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      content: "linked repo file contents",
+    });
+
+    const { client } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_rd",
+          name: "read_file",
+          input: { repo_id: 8, path: "x.ts" },
+        },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "read across" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      void _;
+    }
+
+    // The handler was actually invoked with the linked repo's id.
+    expect(readFileMock).toHaveBeenCalledTimes(1);
+    expect((readFileMock as jest.Mock).mock.calls[0][2]).toEqual({
+      repo_id: 8,
+      path: "x.ts",
+    });
+  });
+
+  it("AC #1094 — list_files and search also accept the linked repo's id", async () => {
+    (listFilesMock as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      entries: [{ path: "a.ts", type: "file", size: 1 }],
+      truncated: false,
+    });
+    (searchMock as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      matches: [],
+      truncated: false,
+    });
+
+    const { client } = fakeClient([
+      buildStream([
+        { kind: "tool_use", id: "tu_ls", name: "list_files", input: { repo_id: 8 } },
+        {
+          kind: "tool_use",
+          id: "tu_sr",
+          name: "search",
+          input: { repo_id: 8, pattern: "x" },
+        },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "browse linked" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      void _;
+    }
+
+    expect(listFilesMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- AC #1095 ----------------------------------------------------------
+  it("AC #1095 — a repo_id outside the scope is rejected as is_error without invoking the underlying tool", async () => {
+    // 99 is not in scope (scope = {7, 8}). This is the transitive case: even
+    // if repo 99 were linked to repo 8, the chat must not reach it from a
+    // chat scoped to 7. We simulate that by simply omitting it from scope,
+    // which is exactly how loadChatContext builds the scope (one hop).
+    const { client, snapshots } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_oos",
+          name: "read_file",
+          input: { repo_id: 99, path: "secret.ts" },
+        },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "leak" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      void _;
+    }
+
+    // The handler was never reached — the scope check intercepted first.
+    expect(readFileMock).not.toHaveBeenCalled();
+    const toolResult = ((snapshots[1].messages as Array<{
+      content: Array<{ content: string; is_error?: boolean }>;
+    }>)[2].content)[0];
+    expect(toolResult.is_error).toBe(true);
+    expect(toolResult.content).toMatch(/not in scope/);
+    expect(toolResult.content).toMatch(/list_repos/);
+  });
+
+  it("AC #1095 — list_files and search are subject to the same scope check", async () => {
+    const { client, snapshots } = fakeClient([
+      buildStream([
+        { kind: "tool_use", id: "tu_a", name: "list_files", input: { repo_id: 99 } },
+        {
+          kind: "tool_use",
+          id: "tu_b",
+          name: "search",
+          input: { repo_id: 99, pattern: "x" },
+        },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "leak" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      void _;
+    }
+
+    expect(listFilesMock).not.toHaveBeenCalled();
+    expect(searchMock).not.toHaveBeenCalled();
+    const results = (snapshots[1].messages as Array<{
+      content: Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
+    }>)[2].content;
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.is_error).toBe(true);
+      expect(r.content).toMatch(/not in scope/);
+    }
+  });
+
+  it("absent a scope, repo_id is not enforced (back-compat with chats that have no anchoring repo)", async () => {
+    // Without `scope` on the context, the dispatch falls through to the
+    // tool's own validator — same as the pre-task #303 behavior.
+    (readFileMock as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      content: "anything",
+    });
+
+    const { client } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_any",
+          name: "read_file",
+          input: { repo_id: 12345, path: "x.ts" },
+        },
+      ]),
+      buildStream([{ kind: "text", text: "ok" }]),
+    ]);
+
+    for await (const _ of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "no scope" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r" },
+    })) {
+      void _;
+    }
+
+    expect(readFileMock).toHaveBeenCalledTimes(1);
   });
 });
