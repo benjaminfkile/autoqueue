@@ -22,12 +22,15 @@ import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { criteriaApi, notesApi, tasksApi } from "../../api/client";
+import { CLAUDE_MODELS } from "../../api/claudeModels";
 import type {
   AcceptanceCriterion,
   NoteVisibility,
   OrderingMode,
   TaskDetail,
+  TaskEffectiveModel,
   TaskEvent,
+  TaskModelSource,
   TaskNote,
   TaskSummary,
   TaskUsageResponse,
@@ -80,6 +83,28 @@ const NOTE_VISIBILITY_OPTIONS: NoteVisibility[] = [
   "all",
 ];
 
+// Sentinel value used by the model picker to mean "no per-task override —
+// inherit". Selecting it sends `model: null` to PATCH /api/tasks/:id, which
+// snaps the task back to the parent/default chain.
+const MODEL_INHERIT_VALUE = "__inherit__";
+
+export function modelLabel(modelId: string | null | undefined): string {
+  if (!modelId) return "Unknown";
+  const found = CLAUDE_MODELS.find((m) => m.id === modelId);
+  return found ? found.label : modelId;
+}
+
+export function modelSourceLabel(source: TaskModelSource): string {
+  switch (source) {
+    case "override":
+      return "override";
+    case "parent":
+      return "from parent";
+    case "default":
+      return "using default";
+  }
+}
+
 export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [parentTask, setParentTask] = useState<TaskSummary | null>(null);
@@ -94,6 +119,11 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
 
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+
+  const [effectiveModel, setEffectiveModel] =
+    useState<TaskEffectiveModel | null>(null);
+  const [editingModel, setEditingModel] = useState(false);
+  const [modelDraft, setModelDraft] = useState<string>(MODEL_INHERIT_VALUE);
 
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -122,6 +152,17 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
       setNotesError(
         err instanceof Error ? err.message : "Failed to load notes"
       );
+    }
+  }, [taskId]);
+
+  const loadEffectiveModel = useCallback(async () => {
+    try {
+      const data = await tasksApi.effectiveModel(taskId);
+      setEffectiveModel(data);
+    } catch {
+      // Silent: a transient failure shouldn't replace the resolved-model chip
+      // with an error banner. The model section just won't render until the
+      // fetch eventually succeeds (next poll or explicit retry).
     }
   }, [taskId]);
 
@@ -158,6 +199,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
       setEvents(evs);
       setNotes(noteList);
       void loadUsage();
+      void loadEffectiveModel();
       const repoTasks = await tasksApi.listByRepo(detail.repo_id);
       const sibs = repoTasks
         .filter(
@@ -176,7 +218,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
     } finally {
       setLoading(false);
     }
-  }, [taskId, loadUsage]);
+  }, [taskId, loadUsage, loadEffectiveModel]);
 
   useEffect(() => {
     void load();
@@ -376,6 +418,39 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
       setEditingDescription(false);
     });
 
+  const startEditModel = () => {
+    if (!task) return;
+    setModelDraft(task.model ?? MODEL_INHERIT_VALUE);
+    setEditingModel(true);
+  };
+
+  const saveModel = () =>
+    persist("model", async () => {
+      if (!task) return;
+      const next: string | null =
+        modelDraft === MODEL_INHERIT_VALUE ? null : modelDraft;
+      if (next === (task.model ?? null)) {
+        setEditingModel(false);
+        return;
+      }
+      await tasksApi.update(task.id, { model: next });
+      setTask((prev) => (prev ? { ...prev, model: next } : prev));
+      await loadEffectiveModel();
+      setEditingModel(false);
+    });
+
+  // The model dropdown shows the curated CLAUDE_MODELS plus a sentinel
+  // "inherit" option. If the task's current override isn't in the curated
+  // list (e.g. set out-of-band via the API), it's appended so the dropdown
+  // stays in sync with the persisted value.
+  const modelOptions = useMemo(() => {
+    const current = task?.model ?? null;
+    if (current && !CLAUDE_MODELS.some((m) => m.id === current)) {
+      return [...CLAUDE_MODELS, { id: current, label: `${current} (current)` }];
+    }
+    return CLAUDE_MODELS;
+  }, [task?.model]);
+
   const setOrderingMode = (value: OrderingMode | "inherit") =>
     persist("ordering_mode", async () => {
       if (!task) return;
@@ -539,6 +614,137 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
               />
             )}
           </Stack>
+
+          <Box data-testid="task-detail-model">
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ flexWrap: "wrap" }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Model
+              </Typography>
+              {!editingModel ? (
+                <>
+                  <Chip
+                    size="small"
+                    label={
+                      effectiveModel
+                        ? modelLabel(effectiveModel.model)
+                        : "Loading…"
+                    }
+                    data-testid="task-detail-model-resolved"
+                    aria-label={
+                      effectiveModel
+                        ? `Resolved model: ${modelLabel(effectiveModel.model)}`
+                        : "Loading resolved model"
+                    }
+                  />
+                  {effectiveModel && (
+                    <Chip
+                      size="small"
+                      label={modelSourceLabel(effectiveModel.source)}
+                      variant="outlined"
+                      color={
+                        effectiveModel.source === "override"
+                          ? "primary"
+                          : "default"
+                      }
+                      data-testid="task-detail-model-source"
+                      aria-label={`Model source: ${modelSourceLabel(
+                        effectiveModel.source
+                      )}`}
+                    />
+                  )}
+                  {task.model === null && (
+                    <Chip
+                      size="small"
+                      label="using default"
+                      variant="outlined"
+                      data-testid="task-detail-model-default"
+                    />
+                  )}
+                  <Tooltip title="Edit model">
+                    <IconButton
+                      size="small"
+                      onClick={startEditModel}
+                      aria-label="Edit model"
+                      disabled={savingField === "model"}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              ) : (
+                <>
+                  <TextField
+                    select
+                    size="small"
+                    label="Model"
+                    value={modelDraft}
+                    onChange={(e) => setModelDraft(e.target.value)}
+                    disabled={savingField === "model"}
+                    sx={{ minWidth: 220 }}
+                    data-testid="task-detail-model-select"
+                    SelectProps={{
+                      inputProps: {
+                        "aria-label": "Model override",
+                        "data-testid": "task-detail-model-input",
+                      },
+                    }}
+                  >
+                    <MenuItem
+                      value={MODEL_INHERIT_VALUE}
+                      data-testid="task-detail-model-option-inherit"
+                    >
+                      Use inherited / default
+                    </MenuItem>
+                    {modelOptions.map((opt) => (
+                      <MenuItem
+                        key={opt.id}
+                        value={opt.id}
+                        data-testid={`task-detail-model-option-${opt.id}`}
+                      >
+                        {opt.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<SaveIcon />}
+                    disabled={savingField === "model"}
+                    onClick={() => void saveModel()}
+                    data-testid="task-detail-model-save"
+                  >
+                    Save
+                  </Button>
+                  {task.model !== null && (
+                    <Button
+                      size="small"
+                      color="error"
+                      disabled={savingField === "model"}
+                      onClick={() => {
+                        setModelDraft(MODEL_INHERIT_VALUE);
+                      }}
+                      data-testid="task-detail-model-clear"
+                    >
+                      Clear override
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    onClick={() => setEditingModel(false)}
+                    disabled={savingField === "model"}
+                    data-testid="task-detail-model-cancel"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </Stack>
+          </Box>
 
           <Box>
             <Stack

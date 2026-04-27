@@ -17,6 +17,7 @@ import type {
   SetupInput,
   SetupStatus,
   TaskDetail,
+  TaskEffectiveModel,
   TaskEvent,
   TaskNote,
   TaskNoteInput,
@@ -125,6 +126,8 @@ export const tasksApi = {
       body: JSON.stringify(input),
     }),
   events: (id: number) => apiFetch<TaskEvent[]>(`/api/tasks/${id}/events`),
+  effectiveModel: (id: number) =>
+    apiFetch<TaskEffectiveModel>(`/api/tasks/${id}/effective-model`),
   usage: (id: number) =>
     apiFetch<TaskUsageResponse>(`/api/tasks/${id}/usage`),
   log: async (id: number): Promise<string> => {

@@ -348,8 +348,30 @@ export async function resolveTaskModel(
   db: Knex,
   taskId: number
 ): Promise<string> {
+  const { model } = await resolveTaskModelWithSource(db, taskId);
+  return model;
+}
+
+// Phase 11: same resolution as resolveTaskModel, but also reports where the
+// effective model came from so the GUI can render an "override / parent /
+// default" badge without re-implementing the walk.
+//   - 'override' → the task itself has a non-empty model column.
+//   - 'parent'   → an ancestor (walking parent_id) had a non-empty model.
+//   - 'default'  → no override anywhere in the chain; settings.default_model.
+export type TaskModelSource = "override" | "parent" | "default";
+
+export interface ResolvedTaskModel {
+  model: string;
+  source: TaskModelSource;
+}
+
+export async function resolveTaskModelWithSource(
+  db: Knex,
+  taskId: number
+): Promise<ResolvedTaskModel> {
   const visited = new Set<number>();
   let currentId: number | null = taskId;
+  let isOriginTask = true;
 
   while (currentId !== null && !visited.has(currentId)) {
     visited.add(currentId);
@@ -360,10 +382,17 @@ export async function resolveTaskModel(
       .where({ id: currentId })
       .first();
     if (!row) break;
-    if (row.model != null && row.model !== "") return row.model;
+    if (row.model != null && row.model !== "") {
+      return {
+        model: row.model,
+        source: isOriginTask ? "override" : "parent",
+      };
+    }
+    isOriginTask = false;
     currentId = row.parent_id;
   }
 
-  return getDefaultModel(db);
+  const model = await getDefaultModel(db);
+  return { model, source: "default" };
 }
 

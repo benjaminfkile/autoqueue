@@ -156,6 +156,18 @@ export interface RepoUsageResponse {
   totals: TokenUsageTotals;
 }
 
+// Phase 11: shape returned by GET /api/tasks/:id/effective-model. `source` is
+// where the resolved model came from:
+//   - 'override' → the task itself has a non-empty model column.
+//   - 'parent'   → an ancestor (walking parent_id) had a non-empty model.
+//   - 'default'  → no override anywhere in the chain; settings.default_model.
+export type TaskModelSource = "override" | "parent" | "default";
+
+export interface TaskEffectiveModel {
+  model: string;
+  source: TaskModelSource;
+}
+
 export interface TaskEvent {
   id: number;
   task_id: number;

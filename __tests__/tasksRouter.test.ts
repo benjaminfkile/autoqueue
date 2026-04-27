@@ -29,6 +29,7 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  resolveTaskModelWithSource,
 } from "../src/db/tasks";
 
 // Mock acceptance criteria DB layer
@@ -777,6 +778,54 @@ describe("tasksRouter", () => {
         .get("/api/tasks/1/usage");
       expect(res.status).toBe(500);
       expect(res.body.error).toMatch(/db down/);
+    });
+  });
+
+  // Phase 11: per-task model override on the GUI relies on this endpoint to
+  // render the resolved model with a "where it came from" badge.
+  describe("GET /api/tasks/:id/effective-model", () => {
+    it("returns 400 when id is not numeric", async () => {
+      const res = await request(app).get("/api/tasks/abc/effective-model");
+      expect(res.status).toBe(400);
+      expect(resolveTaskModelWithSource).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the task does not exist", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue(undefined);
+
+      const res = await request(app).get("/api/tasks/999/effective-model");
+      expect(res.status).toBe(404);
+      expect(resolveTaskModelWithSource).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 with model + source from the resolver", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue(mockTask);
+      (resolveTaskModelWithSource as jest.Mock).mockResolvedValue({
+        model: "claude-sonnet-4-6",
+        source: "parent",
+      });
+
+      const res = await request(app).get("/api/tasks/1/effective-model");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        model: "claude-sonnet-4-6",
+        source: "parent",
+      });
+      expect(resolveTaskModelWithSource).toHaveBeenCalledWith(
+        expect.anything(),
+        1
+      );
+    });
+
+    it("returns 500 when the resolver throws", async () => {
+      (getTaskById as jest.Mock).mockResolvedValue(mockTask);
+      (resolveTaskModelWithSource as jest.Mock).mockRejectedValue(
+        new Error("resolver boom")
+      );
+
+      const res = await request(app).get("/api/tasks/1/effective-model");
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/resolver boom/);
     });
   });
 });
