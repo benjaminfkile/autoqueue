@@ -8,6 +8,7 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  resolveTaskModelWithSource,
 } from "../db/tasks";
 import {
   getCriteriaByTaskId,
@@ -376,6 +377,30 @@ tasksRouter.get("/:id/usage", async (req: Request, res: Response) => {
       getUsageRowsForTask(db, taskId),
     ]);
     return res.status(200).json({ totals, runs });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/tasks/:id/effective-model — return the resolved Claude model for a
+// task with the source (override / parent / default). Lets the GUI render the
+// effective model and a "where it came from" chip without re-implementing the
+// resolution walk client-side.
+tasksRouter.get("/:id/effective-model", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+
+    const db = getDb();
+    const task = await getTaskById(db, id);
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    const resolved = await resolveTaskModelWithSource(db, id);
+    return res.status(200).json(resolved);
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

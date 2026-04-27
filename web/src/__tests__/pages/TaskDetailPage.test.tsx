@@ -53,6 +53,7 @@ interface Routes {
   "GET /api/tasks/:id/events"?: RouteHandler;
   "GET /api/tasks/:id/log"?: RouteHandler;
   "GET /api/tasks/:id/notes"?: RouteHandler;
+  "GET /api/tasks/:id/effective-model"?: RouteHandler;
   "POST /api/tasks/:id/notes"?: RouteHandler;
   "PATCH /api/tasks/:id"?: RouteHandler;
   "PATCH /api/tasks/:taskId/criteria/:criterionId"?: RouteHandler;
@@ -95,6 +96,21 @@ function installFetch(routes: Routes) {
         routes["GET /api/tasks/:id/events"]
       ) {
         return routes["GET /api/tasks/:id/events"](init ?? {}, urlObj);
+      }
+      if (
+        method === "GET" &&
+        /^\/api\/tasks\/\d+\/effective-model$/.test(path)
+      ) {
+        if (routes["GET /api/tasks/:id/effective-model"]) {
+          return routes["GET /api/tasks/:id/effective-model"](
+            init ?? {},
+            urlObj
+          );
+        }
+        return jsonResponse({
+          model: "claude-opus-4-7",
+          source: "default",
+        });
       }
       if (
         method === "GET" &&
@@ -1144,5 +1160,174 @@ describe("TaskDetailPage", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows the resolved model with a 'using default' chip when no override is set", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse(makeDetail({ id: 300, model: null })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/effective-model": () =>
+        jsonResponse({ model: "claude-opus-4-7", source: "default" }),
+    });
+    render(<TaskDetailPage taskId={300} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-resolved")).toHaveTextContent(
+        "Opus 4.7"
+      )
+    );
+    expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+      "using default"
+    );
+    expect(
+      screen.getByTestId("task-detail-model-default")
+    ).toBeInTheDocument();
+  });
+
+  it("shows 'from parent' source when an ancestor's override is in effect", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse(makeDetail({ id: 301, model: null, parent_id: 1 })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/effective-model": () =>
+        jsonResponse({ model: "claude-sonnet-4-6", source: "parent" }),
+    });
+    render(<TaskDetailPage taskId={301} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-resolved")).toHaveTextContent(
+        "Sonnet 4.6"
+      )
+    );
+    expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+      "from parent"
+    );
+    // The "using default" chip is only for null overrides where there is no
+    // ancestor either; this task inherits, so it should still be present
+    // (task.model === null means the per-task slot has no override).
+    expect(
+      screen.getByTestId("task-detail-model-default")
+    ).toBeInTheDocument();
+  });
+
+  it("shows 'override' source and no 'using default' chip when the task has its own model", async () => {
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse(makeDetail({ id: 302, model: "claude-haiku-4-5" })),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/effective-model": () =>
+        jsonResponse({ model: "claude-haiku-4-5", source: "override" }),
+    });
+    render(<TaskDetailPage taskId={302} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-resolved")).toHaveTextContent(
+        "Haiku 4.5"
+      )
+    );
+    expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+      "override"
+    );
+    expect(
+      screen.queryByTestId("task-detail-model-default")
+    ).not.toBeInTheDocument();
+  });
+
+  it("PATCHes /api/tasks/:id with the chosen model when the user selects a new override", async () => {
+    const detail = makeDetail({ id: 303, model: null });
+    let resolvedModel = "claude-opus-4-7";
+    let resolvedSource = "default";
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse({ ...detail, model: detail.model }),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/effective-model": () =>
+        jsonResponse({ model: resolvedModel, source: resolvedSource }),
+      "PATCH /api/tasks/:id": (init) => {
+        const body = JSON.parse(String(init.body));
+        if ("model" in body) {
+          detail.model = body.model;
+          resolvedModel = body.model ?? "claude-opus-4-7";
+          resolvedSource = body.model ? "override" : "default";
+        }
+        return jsonResponse({ ...detail, ...body });
+      },
+    });
+    const user = userEvent.setup();
+    render(<TaskDetailPage taskId={303} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-resolved")).toHaveTextContent(
+        "Opus 4.7"
+      )
+    );
+
+    await user.click(screen.getByRole("button", { name: /edit model/i }));
+    await user.click(screen.getByLabelText("Model override"));
+    const listbox = await screen.findByRole("listbox");
+    await user.click(within(listbox).getByText("Sonnet 4.6"));
+    await user.click(screen.getByTestId("task-detail-model-save"));
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.url === "/api/tasks/303"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch!.body!)).toEqual({ model: "claude-sonnet-4-6" });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+        "override"
+      )
+    );
+  });
+
+  it("PATCHes model:null when the user clears the per-task override", async () => {
+    const detail = makeDetail({ id: 304, model: "claude-haiku-4-5" });
+    let resolvedModel = "claude-haiku-4-5";
+    let resolvedSource = "override";
+    installFetch({
+      "GET /api/tasks/:id": () =>
+        jsonResponse({ ...detail, model: detail.model }),
+      "GET /api/tasks/:id/events": () => jsonResponse([]),
+      "GET /api/tasks/:id/log": () => textResponse(""),
+      "GET /api/tasks/:id/effective-model": () =>
+        jsonResponse({ model: resolvedModel, source: resolvedSource }),
+      "PATCH /api/tasks/:id": (init) => {
+        const body = JSON.parse(String(init.body));
+        if ("model" in body) {
+          detail.model = body.model;
+          resolvedModel = body.model ?? "claude-opus-4-7";
+          resolvedSource = body.model ? "override" : "default";
+        }
+        return jsonResponse({ ...detail, ...body });
+      },
+    });
+    const user = userEvent.setup();
+    render(<TaskDetailPage taskId={304} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+        "override"
+      )
+    );
+
+    await user.click(screen.getByRole("button", { name: /edit model/i }));
+    await user.click(screen.getByTestId("task-detail-model-clear"));
+    await user.click(screen.getByTestId("task-detail-model-save"));
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.url === "/api/tasks/304"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch!.body!)).toEqual({ model: null });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("task-detail-model-source")).toHaveTextContent(
+        "using default"
+      )
+    );
+    expect(screen.getByTestId("task-detail-model-default")).toBeInTheDocument();
   });
 });

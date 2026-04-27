@@ -10,6 +10,7 @@ import {
   updateTask,
   deleteTask,
   resolveTaskModel,
+  resolveTaskModelWithSource,
 } from "../src/db/tasks";
 
 // ---------------------------------------------------------------------------
@@ -1026,5 +1027,68 @@ describe("resolveTaskModel", () => {
     const result = await resolveTaskModel(knex as any, 1);
 
     expect(result).toBe("claude-sonnet-4-6");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTaskModelWithSource — same chain as resolveTaskModel but reports
+// where the resolved model came from so the GUI can render an
+// "override / parent / default" badge without re-walking the tree.
+// ---------------------------------------------------------------------------
+describe("resolveTaskModelWithSource", () => {
+  it("reports source='override' when the task itself has a model set", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce({
+      model: "claude-opus-4-7",
+      parent_id: null,
+    });
+
+    const result = await resolveTaskModelWithSource(knex as any, 42);
+
+    expect(result).toEqual({ model: "claude-opus-4-7", source: "override" });
+  });
+
+  it("reports source='parent' when an ancestor's model wins the walk", async () => {
+    const { knex, chain } = createMockKnex();
+    // task 30 → null model, parent 20
+    // task 20 → model='claude-sonnet-4-6', parent 10 (the win)
+    chain.first
+      .mockResolvedValueOnce({ model: null, parent_id: 20 })
+      .mockResolvedValueOnce({ model: "claude-sonnet-4-6", parent_id: 10 });
+
+    const result = await resolveTaskModelWithSource(knex as any, 30);
+
+    expect(result).toEqual({ model: "claude-sonnet-4-6", source: "parent" });
+  });
+
+  it("reports source='default' when the chain has no overrides and falls back to settings", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first
+      .mockResolvedValueOnce({ model: null, parent_id: 20 })
+      .mockResolvedValueOnce({ model: null, parent_id: null })
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModelWithSource(knex as any, 30);
+
+    expect(result).toEqual({ model: "claude-sonnet-4-6", source: "default" });
+  });
+
+  it("treats an empty-string model on the origin task as 'not set' (so source is default, not override)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first
+      .mockResolvedValueOnce({ model: "", parent_id: null })
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModelWithSource(knex as any, 1);
+
+    expect(result).toEqual({ model: "claude-sonnet-4-6", source: "default" });
   });
 });
