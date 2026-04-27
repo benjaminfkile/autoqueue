@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Knex } from "knex";
 import { getSetting, setSetting } from "../db/appSettings";
+import { refreshDockerState } from "./dockerProbe";
 
 export const RUNNER_IMAGE_NAME = "grunt/runner";
 export const RUNNER_IMAGE_HASH_KEY = "runner_image_hash";
@@ -167,6 +168,23 @@ export async function ensureRunnerImage(db: Knex): Promise<RunnerImageState> {
       finishedAt: null,
       error: null,
     };
+
+    // Skip the build (and the inspect probe) entirely when Docker isn't
+    // reachable. Without this guard, both `docker image inspect` and
+    // `docker build` would fail with shell errors that surface in the UI as
+    // "build failed" — misleading, since the real cause is a missing daemon.
+    // The dedicated Docker banner reports the install/start guidance; here we
+    // just leave the runner-image state idle until Docker comes back.
+    const dockerState = await refreshDockerState();
+    if (!dockerState.available) {
+      state = {
+        ...state,
+        status: "idle",
+        finishedAt: new Date().toISOString(),
+        error: null,
+      };
+      return;
+    }
 
     let hash: string;
     let context: string;

@@ -30,6 +30,12 @@ jest.mock("../src/services/imageBuilder", () => ({
 }));
 import { getRunnerImageState } from "../src/services/imageBuilder";
 
+jest.mock("../src/services/dockerProbe", () => ({
+  DOCKER_INSTALL_URL: "https://www.docker.com/products/docker-desktop/",
+  refreshDockerState: jest.fn(),
+}));
+import { refreshDockerState } from "../src/services/dockerProbe";
+
 import { WORKER_ID } from "../src/services/scheduler";
 
 const ORIGINAL_IS_WORKER = process.env.IS_WORKER;
@@ -42,6 +48,11 @@ beforeEach(() => {
     startedAt: null,
     finishedAt: null,
     error: null,
+  });
+  (refreshDockerState as jest.Mock).mockResolvedValue({
+    available: true,
+    error: null,
+    lastCheckedAt: null,
   });
 });
 
@@ -231,6 +242,54 @@ describe("systemRouter GET /api/system/runner-image", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("error");
     expect(res.body.error).toMatch(/docker build/);
+  });
+});
+
+describe("systemRouter GET /api/system/docker", () => {
+  it("returns available=true with no error when the daemon is reachable", async () => {
+    (refreshDockerState as jest.Mock).mockResolvedValue({
+      available: true,
+      error: null,
+      lastCheckedAt: "2026-04-26T10:00:00.000Z",
+    });
+
+    const res = await request(app).get("/api/system/docker");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      available: true,
+      error: null,
+      last_checked_at: "2026-04-26T10:00:00.000Z",
+      install_url: "https://www.docker.com/products/docker-desktop/",
+    });
+  });
+
+  it("returns available=false with the captured error when Docker is missing", async () => {
+    (refreshDockerState as jest.Mock).mockResolvedValue({
+      available: false,
+      error: "Docker is not installed or not on PATH",
+      lastCheckedAt: "2026-04-26T10:00:00.000Z",
+    });
+
+    const res = await request(app).get("/api/system/docker");
+
+    expect(res.status).toBe(200);
+    expect(res.body.available).toBe(false);
+    expect(res.body.error).toMatch(/not installed/);
+    expect(res.body.install_url).toBe(
+      "https://www.docker.com/products/docker-desktop/"
+    );
+  });
+
+  it("returns 500 with the error message when the probe throws unexpectedly", async () => {
+    (refreshDockerState as jest.Mock).mockRejectedValue(
+      new Error("spawn failed")
+    );
+
+    const res = await request(app).get("/api/system/docker");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/spawn failed/);
   });
 });
 

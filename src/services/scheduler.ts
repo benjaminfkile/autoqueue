@@ -5,6 +5,7 @@ import { getActiveRepos } from "../db/repos";
 import { claimNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
 import { recordEvent } from "../db/taskEvents";
 import { runTask } from "./taskRunner";
+import { refreshDockerState } from "./dockerProbe";
 
 const LEASE_SECONDS = 30 * 60;
 
@@ -46,6 +47,21 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
     }
     isRunning = true;
     try {
+      // Probe Docker before doing any task work. If Docker isn't reachable,
+      // every task would fail at `docker run` time anyway, so we pause the
+      // worker (skip the tick) rather than burn through retry budgets while
+      // the daemon is down. The next tick re-probes; once Docker is back the
+      // scheduler resumes automatically with no operator intervention.
+      const dockerState = await refreshDockerState({ force: true });
+      if (!dockerState.available) {
+        console.log(
+          `[scheduler] Docker unavailable — pausing worker. ${
+            dockerState.error ?? ""
+          }`.trim()
+        );
+        return;
+      }
+
       const repos = await getActiveRepos(db);
       for (const repo of repos) {
         await autoCompleteParentTasks(db, repo.id, repo.on_parent_child_fail);

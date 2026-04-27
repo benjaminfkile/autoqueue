@@ -23,6 +23,7 @@ import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
 import SettingsPanel from "./pages/SettingsPanel";
 import RunnerImageBanner from "./pages/RunnerImageBanner";
+import DockerStatusBanner from "./pages/DockerStatusBanner";
 import ThemeToggle from "./theme/ThemeToggle";
 import { setupApi } from "./api/client";
 import type { SetupStatus } from "./api/types";
@@ -181,6 +182,7 @@ export default function App() {
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 4 }}>
+        <DockerStatusBanner />
         <RunnerImageBanner />
         <ActiveWorkersPanel status={status} />
         <ReposPage />

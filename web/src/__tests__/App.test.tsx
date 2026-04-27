@@ -48,6 +48,14 @@ function installFetchMock(): ReturnType<typeof vi.fn> {
         error: null,
       });
     }
+    if (url.startsWith("/api/system/docker")) {
+      return jsonResponse({
+        available: true,
+        error: null,
+        last_checked_at: null,
+        install_url: "https://www.docker.com/products/docker-desktop/",
+      });
+    }
     return jsonResponse([]);
   });
   (globalThis as unknown as { fetch: typeof fetch }).fetch =

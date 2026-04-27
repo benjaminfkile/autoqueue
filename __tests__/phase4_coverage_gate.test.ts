@@ -501,6 +501,13 @@ jest.mock("../src/services/imageBuilder", () => ({
     error: null,
   }),
 }));
+jest.mock("../src/services/dockerProbe", () => ({
+  refreshDockerState: jest.fn().mockResolvedValue({
+    available: true,
+    error: null,
+    lastCheckedAt: null,
+  }),
+}));
 // Mock only runClaudeOnTask — keep parseNotesFromOutput real so the parsing
 // tests above run against the actual implementation.
 jest.mock("../src/services/claudeRunner", () => {

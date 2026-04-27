@@ -10,6 +10,7 @@ import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
 import { startPullWorker } from "./src/services/pullWorker";
 import { ensureRunnerImage } from "./src/services/imageBuilder";
+import { refreshDockerState } from "./src/services/dockerProbe";
 import * as secrets from "./src/secrets";
 import morgan from "morgan";
 
@@ -84,6 +85,13 @@ async function start() {
     console.log(
       `[startup] Reclaimed ${reclaimedCount} orphaned task(s) back to pending (worker_id=${WORKER_ID}).`
     );
+
+    // Probe Docker once before kicking off the image build so the SPA banner
+    // has fresh state on first paint and ensureRunnerImage doesn't have to
+    // wait on its own probe.
+    void refreshDockerState({ force: true }).catch((err) => {
+      console.error("[startup] refreshDockerState failed:", err);
+    });
 
     startScheduler(getDb(), appConfig);
     startPullWorker(getDb(), appConfig);

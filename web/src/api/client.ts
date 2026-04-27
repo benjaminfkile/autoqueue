@@ -3,6 +3,7 @@ import type {
   AcceptanceCriterionUpdateInput,
   ChatMessage,
   ChatStreamEvent,
+  DockerStatus,
   MaterializedTaskTree,
   Repo,
   RepoInput,
@@ -155,6 +156,7 @@ export const notesApi = {
 export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
   runnerImage: () => apiFetch<RunnerImageState>("/api/system/runner-image"),
+  docker: () => apiFetch<DockerStatus>("/api/system/docker"),
 };
 
 export const setupApi = {
