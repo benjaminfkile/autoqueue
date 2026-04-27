@@ -1,6 +1,9 @@
 import knex, { Knex } from "knex";
 import path from "path";
-import { getWeeklyTokens } from "../src/db/usageAggregations";
+import {
+  getDailyTokens,
+  getWeeklyTokens,
+} from "../src/db/usageAggregations";
 
 // ---------------------------------------------------------------------------
 // Pure-mock unit tests — verify the call shape without a real DB. The
@@ -360,5 +363,156 @@ describe("getWeeklyTokens — boundary conditions against real SQLite", () => {
     ));
     expect(typeof migration.up).toBe("function");
     expect(typeof migration.down).toBe("function");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daily-bucket aggregation — drives the /api/usage/weekly chart. The SPA
+// expects a contiguous trailing-N-day timeline with zero-fill, so a chart can
+// render bars by index without re-deriving the date axis.
+// ---------------------------------------------------------------------------
+describe("getDailyTokens — boundary conditions against real SQLite", () => {
+  let db: Knex;
+
+  beforeAll(async () => {
+    db = knex({
+      client: "better-sqlite3",
+      connection: { filename: ":memory:" },
+      useNullAsDefault: true,
+    });
+    await db.schema.createTable("task_usage", (table) => {
+      table.increments("id").primary();
+      table.integer("task_id").notNullable();
+      table.integer("repo_id").notNullable();
+      table.integer("input_tokens").notNullable().defaultTo(0);
+      table.integer("output_tokens").notNullable().defaultTo(0);
+      table
+        .integer("cache_creation_input_tokens")
+        .notNullable()
+        .defaultTo(0);
+      table
+        .integer("cache_read_input_tokens")
+        .notNullable()
+        .defaultTo(0);
+      table.text("created_at").notNullable();
+    });
+  });
+
+  afterAll(async () => {
+    await db.destroy();
+  });
+
+  beforeEach(async () => {
+    await db("task_usage").delete();
+  });
+
+  async function insertUsage(opts: {
+    created_at: string;
+    input?: number;
+    output?: number;
+    cache_creation?: number;
+    cache_read?: number;
+  }) {
+    await db("task_usage").insert({
+      task_id: 1,
+      repo_id: 1,
+      input_tokens: opts.input ?? 0,
+      output_tokens: opts.output ?? 0,
+      cache_creation_input_tokens: opts.cache_creation ?? 0,
+      cache_read_input_tokens: opts.cache_read ?? 0,
+      created_at: opts.created_at,
+    });
+  }
+
+  it("returns exactly `days` zero-filled buckets when the window has no rows so the SPA chart always has a contiguous timeline", async () => {
+    const result = await getDailyTokens(
+      db,
+      new Date("2026-04-26T12:00:00.000Z"),
+      30
+    );
+    expect(result).toHaveLength(30);
+    expect(result.every((b) => b.total === 0)).toBe(true);
+    // First and last bucket bracket the expected window: 30-day trailing
+    // ending today inclusive → start = today - 29 days.
+    expect(result[0].date).toBe("2026-03-28");
+    expect(result[result.length - 1].date).toBe("2026-04-26");
+  });
+
+  it("aggregates rows into UTC date buckets and zero-fills empty days between them", async () => {
+    const now = new Date("2026-04-26T12:00:00.000Z");
+    await insertUsage({
+      created_at: "2026-04-25 10:00:00",
+      input: 100,
+      output: 50,
+    });
+    await insertUsage({
+      created_at: "2026-04-25 12:00:00",
+      input: 25,
+    });
+    await insertUsage({
+      created_at: "2026-04-26 00:30:00",
+      input: 7,
+    });
+
+    const result = await getDailyTokens(db, now, 5);
+
+    expect(result).toHaveLength(5);
+    // Days inside the window with no usage stay zero — the SPA relies on this
+    // for evenly spaced bars.
+    const byDate = Object.fromEntries(result.map((b) => [b.date, b.total]));
+    expect(byDate["2026-04-22"]).toBe(0);
+    expect(byDate["2026-04-23"]).toBe(0);
+    expect(byDate["2026-04-24"]).toBe(0);
+    expect(byDate["2026-04-25"]).toBe(100 + 50 + 25);
+    expect(byDate["2026-04-26"]).toBe(7);
+  });
+
+  it("excludes rows outside the trailing window — a row from before the start day must not bleed into the first bucket", async () => {
+    const now = new Date("2026-04-26T12:00:00.000Z");
+    // 5-day window → start = 2026-04-22. This row is on 2026-04-21 → out.
+    await insertUsage({
+      created_at: "2026-04-21 23:59:59",
+      input: 9999,
+    });
+    await insertUsage({
+      created_at: "2026-04-22 00:00:00",
+      input: 42,
+    });
+
+    const result = await getDailyTokens(db, now, 5);
+    const byDate = Object.fromEntries(result.map((b) => [b.date, b.total]));
+    expect(byDate["2026-04-22"]).toBe(42);
+    // The chart must not display a value derived from rows outside the
+    // window — verify total across all buckets matches only the in-window row.
+    const sum = result.reduce((s, b) => s + b.total, 0);
+    expect(sum).toBe(42);
+  });
+
+  it("sums all four token categories into the daily total so the chart matches the cap-comparison total in getWeeklyTokens", async () => {
+    const now = new Date("2026-04-26T12:00:00.000Z");
+    await insertUsage({
+      created_at: "2026-04-26 09:00:00",
+      input: 1,
+      output: 2,
+      cache_creation: 4,
+      cache_read: 8,
+    });
+
+    const result = await getDailyTokens(db, now, 1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ date: "2026-04-26", total: 1 + 2 + 4 + 8 });
+  });
+
+  it("rejects a non-positive days argument so a misuse fails loudly instead of returning an empty array", async () => {
+    const now = new Date("2026-04-26T12:00:00.000Z");
+    await expect(getDailyTokens(db, now, 0)).rejects.toThrow(
+      /positive integer/
+    );
+    await expect(getDailyTokens(db, now, -1)).rejects.toThrow(
+      /positive integer/
+    );
+    await expect(getDailyTokens(db, now, 1.5)).rejects.toThrow(
+      /positive integer/
+    );
   });
 });
