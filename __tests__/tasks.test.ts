@@ -9,6 +9,7 @@ import {
   getChildTasks,
   updateTask,
   deleteTask,
+  resolveTaskModel,
 } from "../src/db/tasks";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ function createMockKnex(overrides: Record<string, unknown> = {}) {
     "delete",
     "returning",
     "orderBy",
+    "select",
   ];
 
   for (const m of methods) {
@@ -867,5 +869,162 @@ describe("deleteTask", () => {
 
     expect(chain.where).toHaveBeenCalledWith({ id: 42 });
     expect(chain.delete).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createTask — model field flows through to the insert payload (Phase 11)
+// ---------------------------------------------------------------------------
+describe("createTask (model field)", () => {
+  it("forwards an explicit model string into the insert payload", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce({ max_pos: null });
+    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+
+    await createTask(knex as any, {
+      repo_id: 1,
+      title: "t",
+      model: "claude-haiku-4-5",
+    });
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "claude-haiku-4-5" })
+    );
+  });
+
+  it("inserts model: null when the caller omits it (NULL signals 'inherit' per the resolution rule)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce({ max_pos: null });
+    chain.returning.mockResolvedValueOnce([{ id: 1 }]);
+
+    await createTask(knex as any, { repo_id: 1, title: "t" });
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ model: null })
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTaskModel — task → parent → settings.default_model resolution
+//
+// Documented rule (see src/db/tasks.ts): the effective Claude model for a
+// task is the first non-null value in this lookup chain:
+//   1. task.model
+//   2. nearest ancestor's model (walk parent_id; first hit wins)
+//   3. settings.default_model
+// The walk keeps inheritance live — clearing or changing an ancestor
+// re-routes descendants without a backfill.
+// ---------------------------------------------------------------------------
+describe("resolveTaskModel", () => {
+  it("returns the task's own model when it is set (rule #1: per-task override wins)", async () => {
+    const { knex, chain } = createMockKnex();
+    // The first lookup is the task itself; .first() resolves with a row that
+    // has a non-null model, so the walk short-circuits and never consults the
+    // ancestors or the settings table.
+    chain.first.mockResolvedValueOnce({
+      model: "claude-opus-4-7",
+      parent_id: null,
+    });
+
+    const result = await resolveTaskModel(knex as any, 42);
+
+    expect(result).toBe("claude-opus-4-7");
+    // Only one tasks lookup; the settings table is never queried.
+    expect(knex).toHaveBeenCalledTimes(1);
+    expect(knex).toHaveBeenCalledWith("tasks");
+  });
+
+  it("walks up parent_id and returns the nearest ancestor's model (rule #2)", async () => {
+    const { knex, chain } = createMockKnex();
+    // task 30 → null model, parent 20
+    // task 20 → model='claude-sonnet-4-6' (the win)
+    chain.first
+      .mockResolvedValueOnce({ model: null, parent_id: 20 })
+      .mockResolvedValueOnce({ model: "claude-sonnet-4-6", parent_id: 10 });
+
+    const result = await resolveTaskModel(knex as any, 30);
+
+    expect(result).toBe("claude-sonnet-4-6");
+    // Two tasks lookups, no settings lookup (the ancestor satisfied the rule).
+    expect(knex).toHaveBeenCalledTimes(2);
+    for (const call of (knex as unknown as jest.Mock).mock.calls) {
+      expect(call[0]).toBe("tasks");
+    }
+  });
+
+  it("falls back to settings.default_model when no task in the chain has a model set (rule #3)", async () => {
+    const { knex, chain } = createMockKnex();
+    // task 30 → null, parent 20
+    // task 20 → null, parent 10
+    // task 10 → null, no parent (root)
+    // → settings.default_model
+    chain.first
+      .mockResolvedValueOnce({ model: null, parent_id: 20 })
+      .mockResolvedValueOnce({ model: null, parent_id: 10 })
+      .mockResolvedValueOnce({ model: null, parent_id: null })
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModel(knex as any, 30);
+
+    expect(result).toBe("claude-sonnet-4-6");
+    // 3 tasks lookups + 1 settings lookup.
+    const tableCalls = (knex as unknown as jest.Mock).mock.calls.map(
+      (c) => c[0]
+    );
+    expect(tableCalls).toEqual(["tasks", "tasks", "tasks", "settings"]);
+  });
+
+  it("treats an empty-string model as 'not set' so legacy/empty values don't poison resolution", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first
+      .mockResolvedValueOnce({ model: "", parent_id: null })
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModel(knex as any, 1);
+
+    expect(result).toBe("claude-sonnet-4-6");
+  });
+
+  it("falls back to settings.default_model when the task id does not exist (defensive: no row to read)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModel(knex as any, 999);
+
+    expect(result).toBe("claude-sonnet-4-6");
+  });
+
+  it("does not loop forever if parent_id ever points at an already-visited id (defense against cycles in legacy data)", async () => {
+    const { knex, chain } = createMockKnex();
+    // task 1 → null, parent 2
+    // task 2 → null, parent 1   (cycle)
+    // → must terminate and fall back to settings.default_model
+    chain.first
+      .mockResolvedValueOnce({ model: null, parent_id: 2 })
+      .mockResolvedValueOnce({ model: null, parent_id: 1 })
+      .mockResolvedValueOnce({
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      });
+
+    const result = await resolveTaskModel(knex as any, 1);
+
+    expect(result).toBe("claude-sonnet-4-6");
   });
 });

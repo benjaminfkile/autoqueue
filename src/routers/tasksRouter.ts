@@ -102,6 +102,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       description,
       order_position,
       ordering_mode,
+      model,
       acceptanceCriteria,
     } = req.body as {
       repo_id: number;
@@ -110,6 +111,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       description?: string;
       order_position?: number;
       ordering_mode?: OrderingMode | null;
+      model?: string | null;
       acceptanceCriteria?: string[];
     };
 
@@ -125,6 +127,10 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid ordering_mode" });
     }
 
+    if (model !== undefined && model !== null && typeof model !== "string") {
+      return res.status(400).json({ error: "Invalid model" });
+    }
+
     const db = getDb();
     const task = await createTask(db, {
       repo_id,
@@ -133,6 +139,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       description,
       order_position,
       ordering_mode,
+      model,
     });
 
     let criteria: Awaited<ReturnType<typeof createCriterion>>[] = [];
@@ -168,6 +175,7 @@ tasksRouter.patch("/:id", async (req: Request, res: Response) => {
       status: "pending" | "active" | "done" | "failed";
       ordering_mode: OrderingMode | null;
       requires_approval: boolean;
+      model: string | null;
     }>;
 
     if (
@@ -183,6 +191,14 @@ tasksRouter.patch("/:id", async (req: Request, res: Response) => {
       typeof data.requires_approval !== "boolean"
     ) {
       return res.status(400).json({ error: "Invalid requires_approval" });
+    }
+
+    if (
+      data.model !== undefined &&
+      data.model !== null &&
+      typeof data.model !== "string"
+    ) {
+      return res.status(400).json({ error: "Invalid model" });
     }
 
     const db = getDb();
