@@ -14,6 +14,7 @@ import systemRouter from "./routers/systemRouter";
 import chatRouter from "./routers/chatRouter";
 import templatesRouter from "./routers/templatesRouter";
 import setupRouter from "./routers/setupRouter";
+import settingsRouter from "./routers/settingsRouter";
 
 const app: Express = express();
 
@@ -24,6 +25,7 @@ app.use(express.json());
 
 app.use("/api/health", healthRouter);
 app.use("/api/setup", setupRouter);
+app.use("/api/settings", settingsRouter);
 app.use("/api/repos", reposRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/system", systemRouter);

@@ -242,6 +242,16 @@ export interface SetupInput {
   GH_PAT: string;
 }
 
+export interface AppSettings {
+  id: number;
+  default_model: string;
+  updated_at: string;
+}
+
+export interface AppSettingsUpdateInput {
+  default_model?: string;
+}
+
 export interface ProposedTaskNode {
   title: string;
   description?: string;
