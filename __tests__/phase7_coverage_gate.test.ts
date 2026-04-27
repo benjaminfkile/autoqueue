@@ -168,6 +168,27 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.doMock("../src/services/taskRunner", () => ({
       runTask: jest.fn(),
     }));
+    // Phase 12 added a weekly-cap pre-check inside buildWorkQueue. With no
+    // cap configured, the gate is a no-op and the approval-skip behavior we
+    // care about here is unaffected.
+    jest.doMock("../src/db/settings", () => ({
+      getSettings: jest.fn().mockResolvedValue({
+        id: 1,
+        default_model: "sonnet",
+        weekly_token_cap: null,
+        session_token_cap: null,
+        updated_at: new Date(),
+      }),
+    }));
+    jest.doMock("../src/db/usageAggregations", () => ({
+      getWeeklyTokens: jest.fn().mockResolvedValue({
+        input: 0,
+        output: 0,
+        cache_creation: 0,
+        cache_read: 0,
+        total: 0,
+      }),
+    }));
 
     const { buildWorkQueue: scopedBuildWorkQueue } = await import(
       "../src/services/scheduler"
@@ -182,6 +203,8 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.dontMock("../src/db/tasks");
     jest.dontMock("../src/db/taskEvents");
     jest.dontMock("../src/services/taskRunner");
+    jest.dontMock("../src/db/settings");
+    jest.dontMock("../src/db/usageAggregations");
   });
 
   it("flipping requires_approval back to false makes the same task claimable on the next cycle (unblock path)", async () => {
@@ -229,6 +252,26 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.doMock("../src/services/taskRunner", () => ({
       runTask: jest.fn(),
     }));
+    // See note above: with no cap configured, the Phase 12 weekly-cap
+    // pre-check inside buildWorkQueue is a no-op for this approval-gate path.
+    jest.doMock("../src/db/settings", () => ({
+      getSettings: jest.fn().mockResolvedValue({
+        id: 1,
+        default_model: "sonnet",
+        weekly_token_cap: null,
+        session_token_cap: null,
+        updated_at: new Date(),
+      }),
+    }));
+    jest.doMock("../src/db/usageAggregations", () => ({
+      getWeeklyTokens: jest.fn().mockResolvedValue({
+        input: 0,
+        output: 0,
+        cache_creation: 0,
+        cache_read: 0,
+        total: 0,
+      }),
+    }));
 
     const { buildWorkQueue: scopedBuildWorkQueue } = await import(
       "../src/services/scheduler"
@@ -251,6 +294,8 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.dontMock("../src/db/tasks");
     jest.dontMock("../src/db/taskEvents");
     jest.dontMock("../src/services/taskRunner");
+    jest.dontMock("../src/db/settings");
+    jest.dontMock("../src/db/usageAggregations");
   });
 });
 

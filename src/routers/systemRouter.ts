@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import { getActiveWorkers } from "../db/workers";
-import { WORKER_ID } from "../services/scheduler";
+import { WORKER_ID, evaluateCapStatus } from "../services/scheduler";
 import { isPullWorkerPaused, setPullWorkerPaused } from "../db/appSettings";
 import {
   getRunnerImageState,
@@ -120,6 +120,29 @@ systemRouter.get("/runner-image", (_req: Request, res: Response) => {
     finished_at: s.finishedAt,
     error: s.error,
   });
+});
+
+/**
+ * GET /api/system/capped
+ * Reports whether the worker is currently paused due to the weekly token cap
+ * being reached. The SPA polls this so it can render a "weekly cap reached —
+ * raise the cap or wait for the window to roll" banner and disable new chat
+ * turns. The check is computed fresh on each request (cap from settings,
+ * usage from the trailing-7-day aggregation) so the response always reflects
+ * current state, not a cached snapshot.
+ */
+systemRouter.get("/capped", async (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const status = await evaluateCapStatus(db);
+    return res.status(200).json({
+      capped: status.capped,
+      weekly_total: status.weekly_total,
+      weekly_cap: status.weekly_cap,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 export default systemRouter;
