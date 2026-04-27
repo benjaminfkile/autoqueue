@@ -320,6 +320,7 @@ describe("streamChatTextDeltas", () => {
     const out: string[] = [];
     for await (const chunk of streamChatTextDeltas({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "hi" }],
       client: fakeClient,
@@ -345,6 +346,7 @@ describe("streamChatTextDeltas", () => {
     await expect(async () => {
       for await (const _ of streamChatTextDeltas({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "hi" }],
         client: fakeClient,
@@ -564,6 +566,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "hi" }],
       client: fakeClient,
@@ -580,6 +583,7 @@ describe("streamChatEvents", () => {
     };
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "hi" }],
       client: fakeClient,
@@ -637,6 +641,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client: fakeClient,
@@ -670,6 +675,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client: fakeClient,
@@ -706,6 +712,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client: fakeClient,
@@ -741,6 +748,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client: fakeClient,
@@ -776,6 +784,7 @@ describe("streamChatEvents", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "hi" }],
       client: fakeClient,
@@ -881,6 +890,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "review" }],
       client,
@@ -943,6 +953,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client,
@@ -982,6 +993,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "read missing" }],
       client,
@@ -1014,6 +1026,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "search x" }],
       client,
@@ -1044,6 +1057,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "read x" }],
       client,
@@ -1083,6 +1097,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "any matches?" }],
       client,
@@ -1114,6 +1129,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "plan" }],
       client,
@@ -1145,6 +1161,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "plan" }],
       client,
@@ -1182,6 +1199,7 @@ describe("streamChatEvents — multi-tool turn loop", () => {
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "go" }],
       client,
@@ -1294,6 +1312,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "what repos?" }],
       client,
@@ -1324,6 +1343,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "no repo here" }],
       client,
@@ -1360,6 +1380,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "read across" }],
       client,
@@ -1403,6 +1424,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "browse linked" }],
       client,
@@ -1435,6 +1457,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "leak" }],
       client,
@@ -1469,6 +1492,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "leak" }],
       client,
@@ -1511,6 +1535,7 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
 
     for await (const _ of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "no scope" }],
       client,
@@ -1630,6 +1655,7 @@ describe("streamChatEvents — propose_task_tree scope enforcement (task #304)",
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "plan across" }],
       client,
@@ -1667,6 +1693,7 @@ describe("streamChatEvents — propose_task_tree scope enforcement (task #304)",
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "plan" }],
       client,
@@ -1701,6 +1728,7 @@ describe("streamChatEvents — propose_task_tree scope enforcement (task #304)",
     const out: ChatStreamEvent[] = [];
     for await (const e of streamChatEvents({
       apiKey: "x",
+      model: "claude-test-model",
       system: "sys",
       messages: [{ role: "user", content: "no scope plan" }],
       client,

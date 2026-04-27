@@ -213,6 +213,7 @@ describe("Phase 8 — path traversal is blocked through the full tool-dispatch c
       const events = await drain(
         streamChatEvents({
           apiKey: "x",
+          model: "claude-test-model",
           system: "sys",
           messages: [{ role: "user", content: "go" }],
           client,
@@ -260,6 +261,7 @@ describe("Phase 8 — path traversal is blocked through the full tool-dispatch c
     await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "go" }],
         client,
@@ -300,6 +302,7 @@ describe("Phase 8 — path traversal is blocked through the full tool-dispatch c
       await drain(
         streamChatEvents({
           apiKey: "x",
+          model: "claude-test-model",
           system: "sys",
           messages: [{ role: "user", content: "go" }],
           client,
@@ -366,6 +369,7 @@ describe("Phase 8 — read_file byte cap is enforced through the full tool-dispa
     await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "read it" }],
         client,
@@ -411,6 +415,7 @@ describe("Phase 8 — read_file byte cap is enforced through the full tool-dispa
     await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "slice it" }],
         client,
@@ -451,6 +456,7 @@ describe("Phase 8 — read_file byte cap is enforced through the full tool-dispa
     await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "read it" }],
         client,
@@ -546,6 +552,7 @@ describe("Phase 8 — simulated multi-tool turn round-trips through the real too
     const events = await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "what's in here?" }],
         client,
@@ -691,6 +698,7 @@ describe("Phase 8 — simulated multi-tool turn round-trips through the real too
     await drain(
       streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "sys",
         messages: [{ role: "user", content: "look around" }],
         client,

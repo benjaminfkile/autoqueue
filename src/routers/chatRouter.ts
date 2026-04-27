@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import * as secrets from "../secrets";
+import { getDefaultModel } from "../db/settings";
 import {
   buildSystemPrompt,
   ChatMessage,
@@ -17,9 +18,10 @@ const chatRouter = express.Router();
 // POST /api/chat — accept a message history (optionally scoped to a repo) and
 // stream Claude's reply back as SSE text deltas.
 chatRouter.post("/", async (req: Request, res: Response) => {
-  const { messages, repo_id } = req.body as {
+  const { messages, repo_id, model } = req.body as {
     messages?: unknown;
     repo_id?: number | null;
+    model?: unknown;
   };
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -59,6 +61,18 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     repoIdNum = parsed;
   }
 
+  // Optional per-session model override. When the client passes `model`, we
+  // use it verbatim; otherwise we fall back to the workspace default read
+  // from the settings table on every request (so a settings change takes
+  // effect immediately for the next chat).
+  let modelOverride: string | null = null;
+  if (model !== undefined && model !== null) {
+    if (typeof model !== "string" || model.trim().length === 0) {
+      return res.status(400).json({ error: "Invalid model" });
+    }
+    modelOverride = model;
+  }
+
   const apiKey = secrets.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return res
@@ -67,8 +81,10 @@ chatRouter.post("/", async (req: Request, res: Response) => {
   }
 
   let context;
+  let resolvedModel: string;
   try {
     context = await loadChatContext(getDb(), repoIdNum);
+    resolvedModel = modelOverride ?? (await getDefaultModel(getDb()));
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
@@ -90,6 +106,7 @@ chatRouter.post("/", async (req: Request, res: Response) => {
   try {
     for await (const event of streamChatEvents({
       apiKey,
+      model: resolvedModel,
       system,
       messages: validated,
       tools: [PROPOSE_TASK_TREE_TOOL, ...REPO_READ_TOOLS],

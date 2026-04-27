@@ -13,7 +13,6 @@ import {
   SearchInput,
 } from "./repoTools";
 
-const DEFAULT_MODEL = "claude-opus-4-7";
 const DEFAULT_MAX_TOKENS = 4096;
 const RECENT_TASK_LIMIT = 10;
 
@@ -607,7 +606,10 @@ async function loadRepoScope(db: Knex, primary: Repo): Promise<ChatRepoScope> {
 
 export interface StreamChatOptions {
   apiKey: string;
-  model?: string;
+  // The Claude model to call. Required — chatService no longer hardcodes a
+  // default; the caller (chatRouter) resolves it from settings.default_model
+  // and an optional per-request override before invoking us.
+  model: string;
   maxTokens?: number;
   system: string;
   messages: ChatMessage[];
@@ -731,7 +733,7 @@ export async function* streamChatEvents(
 
   for (let turn = 0; turn < maxTurns; turn++) {
     const stream = await client.messages.create({
-      model: options.model ?? DEFAULT_MODEL,
+      model: options.model,
       max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
       system: options.system,
       messages: conversation,
