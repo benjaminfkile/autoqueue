@@ -3,6 +3,10 @@ import { getDb } from "../db/db";
 import { getActiveWorkers } from "../db/workers";
 import { WORKER_ID } from "../services/scheduler";
 import { isPullWorkerPaused, setPullWorkerPaused } from "../db/appSettings";
+import {
+  getRunnerImageState,
+  RUNNER_IMAGE_NAME,
+} from "../services/imageBuilder";
 
 const systemRouter = express.Router();
 
@@ -71,6 +75,24 @@ systemRouter.patch("/pull-worker", async (req: Request, res: Response) => {
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
+});
+
+/**
+ * GET /api/system/runner-image
+ * Reports the current state of the grunt/runner Docker image build. The GUI
+ * polls this so it can show a "building image, this may take a few minutes"
+ * banner on first install / after Dockerfile changes.
+ */
+systemRouter.get("/runner-image", (_req: Request, res: Response) => {
+  const s = getRunnerImageState();
+  return res.status(200).json({
+    image: RUNNER_IMAGE_NAME,
+    status: s.status,
+    hash: s.hash,
+    started_at: s.startedAt,
+    finished_at: s.finishedAt,
+    error: s.error,
+  });
 });
 
 export default systemRouter;

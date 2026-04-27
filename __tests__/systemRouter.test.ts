@@ -24,12 +24,25 @@ jest.mock("../src/db/appSettings", () => ({
 }));
 import { isPullWorkerPaused, setPullWorkerPaused } from "../src/db/appSettings";
 
+jest.mock("../src/services/imageBuilder", () => ({
+  RUNNER_IMAGE_NAME: "grunt/runner",
+  getRunnerImageState: jest.fn(),
+}));
+import { getRunnerImageState } from "../src/services/imageBuilder";
+
 import { WORKER_ID } from "../src/services/scheduler";
 
 const ORIGINAL_IS_WORKER = process.env.IS_WORKER;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (getRunnerImageState as jest.Mock).mockReturnValue({
+    status: "ready",
+    hash: "abc123",
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+  });
 });
 
 afterEach(() => {
@@ -178,6 +191,46 @@ describe("systemRouter GET /api/system/pull-worker", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/db down/);
+  });
+});
+
+describe("systemRouter GET /api/system/runner-image", () => {
+  it("returns the current image build state with snake_case timestamps", async () => {
+    (getRunnerImageState as jest.Mock).mockReturnValue({
+      status: "building",
+      hash: "deadbeef",
+      startedAt: "2026-04-26T10:00:00.000Z",
+      finishedAt: null,
+      error: null,
+    });
+
+    const res = await request(app).get("/api/system/runner-image");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      image: "grunt/runner",
+      status: "building",
+      hash: "deadbeef",
+      started_at: "2026-04-26T10:00:00.000Z",
+      finished_at: null,
+      error: null,
+    });
+  });
+
+  it("propagates an error message when the build has failed", async () => {
+    (getRunnerImageState as jest.Mock).mockReturnValue({
+      status: "error",
+      hash: "deadbeef",
+      startedAt: "2026-04-26T10:00:00.000Z",
+      finishedAt: "2026-04-26T10:01:00.000Z",
+      error: "docker build exited with code 1",
+    });
+
+    const res = await request(app).get("/api/system/runner-image");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("error");
+    expect(res.body.error).toMatch(/docker build/);
   });
 });
 

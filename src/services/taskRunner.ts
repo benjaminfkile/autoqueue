@@ -25,6 +25,7 @@ import {
 import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
 import { triggerWebhooks } from "./webhookDelivery";
+import { ensureRunnerImage } from "./imageBuilder";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_SECONDS = 30 * 60;
@@ -44,6 +45,12 @@ export async function runTask(
     console.error(`[taskRunner] Missing task (${taskId}) or repo (${repoId})`);
     return "failed";
   }
+
+  // Make sure the runner image is built before we let the agent start. On the
+  // very first task after install this triggers a multi-minute docker build;
+  // on subsequent runs it's a fast cache hit (digest unchanged → image
+  // already present). Concurrent calls coalesce inside imageBuilder.
+  await ensureRunnerImage(db);
 
   const renewalTimer = setInterval(() => {
     renewTaskLease(db, taskId, LEASE_SECONDS).catch((err) => {

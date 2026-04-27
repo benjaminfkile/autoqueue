@@ -66,6 +66,16 @@ jest.mock("../src/services/webhookDelivery", () => ({
   triggerWebhooks: jest.fn(),
 }));
 
+jest.mock("../src/services/imageBuilder", () => ({
+  ensureRunnerImage: jest.fn().mockResolvedValue({
+    status: "ready",
+    hash: "abc123",
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+  }),
+}));
+
 import { getRepoById } from "../src/db/repos";
 import {
   getTaskById,
