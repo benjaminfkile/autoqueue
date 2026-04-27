@@ -250,6 +250,16 @@ export interface DockerStatus {
   install_url: string;
 }
 
+// Snapshot returned by GET /api/system/capped. `capped === true` means new chat
+// turns / new task claims are blocked until the user raises the cap or the
+// trailing-7-day window rolls and usage drops back under the ceiling.
+// `weekly_cap === null` means the cap is unlimited (so capped is always false).
+export interface CapStatus {
+  capped: boolean;
+  weekly_total: number;
+  weekly_cap: number | null;
+}
+
 export type RunnerImageStatus =
   | "idle"
   | "checking"

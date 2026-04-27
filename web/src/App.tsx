@@ -26,6 +26,7 @@ import SettingsPanel from "./pages/SettingsPanel";
 import UsageDashboard from "./pages/UsageDashboard";
 import RunnerImageBanner from "./pages/RunnerImageBanner";
 import DockerStatusBanner from "./pages/DockerStatusBanner";
+import CappedBanner from "./pages/CappedBanner";
 import ThemeToggle from "./theme/ThemeToggle";
 import { setupApi } from "./api/client";
 import type { SetupStatus } from "./api/types";
@@ -195,6 +196,10 @@ export default function App() {
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 4 }}>
+        <CappedBanner
+          onOpenUsage={() => setUsageOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
         <DockerStatusBanner />
         <RunnerImageBanner />
         <ActiveWorkersPanel status={status} />
