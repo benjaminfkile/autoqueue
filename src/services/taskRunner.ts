@@ -3,6 +3,7 @@ import * as path from "path";
 import { IAppSecrets, TaskPayload } from "../interfaces";
 import * as secrets from "../secrets";
 import { getRepoById } from "../db/repos";
+import { buildMountManifest } from "./mountManifest";
 import {
   getTaskById,
   getChildTasks,
@@ -177,9 +178,11 @@ async function runTaskBody(
     }
 
     // 9. Run Claude
-    const workDir = repo.is_local_folder
-      ? repo.local_path!
-      : path.join(config.REPOS_PATH, repo.owner!, repo.repo_name!);
+    // Phase 10: the mount manifest carries both the primary workspace and any
+    // directly-linked repos under /context/<name>. Built per-attempt so that
+    // a repo_links permission change between retries is reflected immediately.
+    const mountManifest = await buildMountManifest(db, repo, config.REPOS_PATH);
+    const workDir = mountManifest.primary.hostPath;
 
     await recordEvent(db, task.id, "claude_started", { attempt });
     const logFilePath = path.join(
@@ -198,6 +201,7 @@ async function runTaskBody(
       anthropicApiKey: secrets.get("ANTHROPIC_API_KEY"),
       ghPat: repo.github_token ?? secrets.get("GH_PAT"),
       logFilePath,
+      contextMounts: mountManifest.context,
       onFirstByte: () => {
         updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
           console.error(

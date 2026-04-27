@@ -8,6 +8,7 @@ import {
   TokenUsage,
 } from "../interfaces";
 import { RUNNER_IMAGE_NAME } from "./imageBuilder";
+import { MountSpec } from "./mountManifest";
 
 const TIMEOUT_MS = 1_800_000;
 const CONTAINER_WORKSPACE = "/workspace";
@@ -224,6 +225,10 @@ export function runClaudeOnTask(options: {
   ghPat?: string;
   logFilePath?: string;
   onFirstByte?: () => void;
+  // Phase 10: bind-mount each linked repo at /context/<name>. Built by
+  // buildMountManifest from repo_links — :ro for read-only links, :rw for
+  // write-allowed ones. Anything not in this list is invisible to the container.
+  contextMounts?: MountSpec[];
 }): Promise<{
   success: boolean;
   output: string;
@@ -237,6 +242,7 @@ export function runClaudeOnTask(options: {
     ghPat,
     logFilePath,
     onFirstByte,
+    contextMounts,
   } = options;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -326,9 +332,15 @@ ${NOTES_PROTOCOL_DOC}`;
       "--rm",
       "-v",
       `${workDir}:${CONTAINER_WORKSPACE}:rw`,
-      "-w",
-      CONTAINER_WORKSPACE,
     ];
+    // Phase 10: append one -v per linked-repo mount. Inserted *before* -w and
+    // the image positional so docker still parses them as flags. The manifest
+    // controls the entire mount surface — anything not here is unreachable
+    // from inside the container.
+    for (const mount of contextMounts ?? []) {
+      dockerArgs.push("-v", `${mount.hostPath}:${mount.containerPath}:${mount.mode}`);
+    }
+    dockerArgs.push("-w", CONTAINER_WORKSPACE);
     if (hasSecrets) {
       dockerArgs.push(
         "--tmpfs",

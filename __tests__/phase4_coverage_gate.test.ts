@@ -517,6 +517,21 @@ jest.mock("../src/services/claudeRunner", () => {
     runClaudeOnTask: jest.fn(),
   };
 });
+// The mount manifest builder hits the real DB layer (listLinksForRepo) and
+// expects a knex instance. These tests use a stub db, so short-circuit the
+// builder with a manifest derived from the repo fixture.
+jest.mock("../src/services/mountManifest", () => ({
+  buildMountManifest: jest.fn(async (_db, repo, reposPath) => ({
+    primary: {
+      hostPath: repo.is_local_folder
+        ? repo.local_path
+        : `${reposPath}/${repo.owner}/${repo.repo_name}`,
+      containerPath: "/workspace",
+      mode: "rw",
+    },
+    context: [],
+  })),
+}));
 
 import { getRepoById } from "../src/db/repos";
 import {
