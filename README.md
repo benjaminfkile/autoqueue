@@ -2,6 +2,24 @@
 
 Grunt is a single-user desktop application. The API server binds to `127.0.0.1` only and is not reachable from other machines on the network. There is no authentication layer — the OS user boundary is the security model.
 
+## Requirements
+
+### Docker
+
+Grunt runs every task inside a Docker container, so a working Docker installation is **required**. The `docker` CLI must be on `PATH` and the daemon must be reachable — Grunt halts the task scheduler and surfaces an in-app banner whenever it can't reach Docker.
+
+| Platform | Install |
+| --- | --- |
+| macOS | [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/) |
+| Windows | [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) |
+| Linux | [Docker Engine](https://docs.docker.com/engine/install/) (Docker Desktop for Linux also works) |
+
+#### First-run build delay
+
+The first task you run after installing or updating Grunt triggers a local build of the `grunt/runner` image (the container image with the Claude CLI pre-installed). This build can take **several minutes** depending on your network and machine — subsequent runs reuse the cached image and start in seconds. The build is content-addressed by the Dockerfile contents, so it only re-runs when the runner image definition changes.
+
+Progress for this initial build is visible in the Grunt UI; tasks queued during the build start automatically as soon as the image is ready.
+
 ## Database
 
 Grunt uses an embedded SQLite database (via `better-sqlite3`). No external database server is required — the file is created automatically on first run inside the OS-standard user data directory:
