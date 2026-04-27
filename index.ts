@@ -31,7 +31,6 @@ function loadAppConfig(): IAppSecrets {
     REPOS_PATH: process.env.REPOS_PATH ?? "",
     POLL_INTERVAL_SECONDS: process.env.POLL_INTERVAL_SECONDS,
     PULL_WORKER_INTERVAL_SECONDS: process.env.PULL_WORKER_INTERVAL_SECONDS,
-    CLAUDE_PATH: process.env.CLAUDE_PATH,
     IS_WORKER: process.env.IS_WORKER,
   };
 }

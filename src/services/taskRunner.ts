@@ -180,7 +180,6 @@ async function runTaskBody(
       workDir,
       taskPayload,
       anthropicApiKey: secrets.get("ANTHROPIC_API_KEY"),
-      claudePath: config.CLAUDE_PATH,
       logFilePath,
       onFirstByte: () => {
         updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
