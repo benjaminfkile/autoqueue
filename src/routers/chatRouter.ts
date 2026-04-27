@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import * as secrets from "../secrets";
 import { getDefaultModel } from "../db/settings";
+import { evaluateCapStatus } from "../services/scheduler";
 import {
   buildSystemPrompt,
   ChatMessage,
@@ -78,6 +79,43 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     return res
       .status(500)
       .json({ error: "ANTHROPIC_API_KEY not configured" });
+  }
+
+  // Weekly cap gate. Block new chat turns when the trailing-7-day token total
+  // is at or above settings.weekly_token_cap. We check here — before any SSE
+  // headers are flushed — so we can return a real HTTP 429 with a JSON body
+  // the SPA can render, instead of opening a stream and immediately closing
+  // it with an `event: error` (which the EventSource client would treat as a
+  // generic connection failure). The check is a single round-trip via the
+  // shared `evaluateCapStatus` helper used by the scheduler (#328) and
+  // systemRouter, so all three surfaces evaluate the cap identically.
+  //
+  // The check is one-shot at request entry: once we drop into the streaming
+  // loop below we never re-check. A turn that crosses the threshold mid-
+  // stream still completes — same trade-off the scheduler makes for in-flight
+  // tasks. The next turn will be gated.
+  //
+  // Note: the parent task (#325) also calls out a per-session cap. There is
+  // no per-session token counter wired into this router yet, so there's
+  // nothing to compare session_token_cap against here. When that counter
+  // lands, add the equivalent gate alongside this one (same shape, different
+  // numerator).
+  try {
+    const capStatus = await evaluateCapStatus(getDb());
+    if (capStatus.capped) {
+      return res.status(429).json({
+        error: "weekly_token_cap_reached",
+        message:
+          `Weekly token cap reached (${capStatus.weekly_total.toLocaleString()} of ${capStatus.weekly_cap?.toLocaleString()} tokens used). ` +
+          `The cap is measured over a rolling 7-day window — usage rolls off as activity older than 7 days ages out, ` +
+          `so the cap will release gradually as old turns fall outside the window. ` +
+          `Raise the cap in Settings to resume immediately, or wait for the window to roll.`,
+        weekly_total: capStatus.weekly_total,
+        weekly_cap: capStatus.weekly_cap,
+      });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
   }
 
   let context;
