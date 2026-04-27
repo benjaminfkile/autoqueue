@@ -62,6 +62,13 @@ jest.mock("../src/services/claudeRunner", () => ({
   runClaudeOnTask: jest.fn(),
 }));
 
+// The mount manifest builder is exercised in mountManifest.test.ts. Here we
+// just need taskRunner's wiring to receive *some* manifest so it can derive
+// workDir + contextMounts to hand off to runClaudeOnTask.
+jest.mock("../src/services/mountManifest", () => ({
+  buildMountManifest: jest.fn(),
+}));
+
 jest.mock("../src/services/webhookDelivery", () => ({
   triggerWebhooks: jest.fn(),
 }));
@@ -106,6 +113,7 @@ import {
 } from "../src/services/git";
 import { createPullRequest } from "../src/services/github";
 import { runClaudeOnTask } from "../src/services/claudeRunner";
+import { buildMountManifest } from "../src/services/mountManifest";
 import { triggerWebhooks } from "../src/services/webhookDelivery";
 import { refreshDockerState } from "../src/services/dockerProbe";
 import { ensureRunnerImage } from "../src/services/imageBuilder";
@@ -132,6 +140,8 @@ const hasUncommittedChangesMock = hasUncommittedChanges as jest.Mock;
 const createPullRequestMock = createPullRequest as jest.Mock;
 const triggerWebhooksMock = triggerWebhooks as jest.Mock;
 
+const buildMountManifestMock = buildMountManifest as jest.Mock;
+
 beforeEach(() => {
   jest.clearAllMocks();
   getChildTasksMock.mockResolvedValue([]);
@@ -141,6 +151,18 @@ beforeEach(() => {
   getNotesForTaskMock.mockResolvedValue([]);
   createNoteMock.mockResolvedValue({ id: 1 });
   recordTaskUsageMock.mockResolvedValue({ id: 1 });
+  // Default manifest mirrors the on-disk path the pre-Phase-10 taskRunner
+  // computed inline, so existing assertions keep working unchanged.
+  buildMountManifestMock.mockImplementation(async (_db, repo, reposPath) => ({
+    primary: {
+      hostPath: repo.is_local_folder
+        ? repo.local_path
+        : `${reposPath}/${repo.owner}/${repo.repo_name}`,
+      containerPath: "/workspace",
+      mode: "rw",
+    },
+    context: [],
+  }));
 });
 
 describe("runTask Docker availability", () => {
@@ -745,6 +767,120 @@ describe("runTask log capture", () => {
       ([, id, data]) => id === 42 && data && data.log_path === capturedLogPath
     );
     expect(logPathUpdate).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mount manifest wiring (Phase 10, task #315): the per-task mount manifest is
+// the SOLE source of truth for what host paths are exposed to the runner.
+// taskRunner must build it and forward both halves to runClaudeOnTask:
+//   - manifest.primary.hostPath → workDir (bind-mounted at /workspace)
+//   - manifest.context           → contextMounts (one bind mount per direct link)
+// Anything not in the manifest is invisible to the container.
+// ---------------------------------------------------------------------------
+describe("runTask mount manifest wiring", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  it("builds the manifest with the running repo and the configured REPOS_PATH", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(buildMountManifestMock).toHaveBeenCalledTimes(1);
+    expect(buildMountManifestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 1 }),
+      "/repos"
+    );
+  });
+
+  it("forwards manifest.primary.hostPath as workDir (so /workspace is the manifest's primary mount)", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    buildMountManifestMock.mockResolvedValueOnce({
+      primary: { hostPath: "/custom/path", containerPath: "/workspace", mode: "rw" },
+      context: [],
+    });
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(runClaudeMock.mock.calls[0][0].workDir).toBe("/custom/path");
+  });
+
+  it("forwards manifest.context to runClaudeOnTask as contextMounts (verbatim, in order)", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const contextMounts = [
+      { hostPath: "/repos/o/lib-a", containerPath: "/context/lib-a", mode: "ro" as const },
+      { hostPath: "/repos/o/lib-b", containerPath: "/context/lib-b", mode: "rw" as const },
+    ];
+    buildMountManifestMock.mockResolvedValueOnce({
+      primary: { hostPath: "/tmp/repo", containerPath: "/workspace", mode: "rw" },
+      context: contextMounts,
+    });
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(runClaudeMock.mock.calls[0][0].contextMounts).toEqual(contextMounts);
+  });
+
+  it("forwards an empty contextMounts array when the primary has no links (no extra host paths leaked)", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    buildMountManifestMock.mockResolvedValueOnce({
+      primary: { hostPath: "/tmp/repo", containerPath: "/workspace", mode: "rw" },
+      context: [],
+    });
+
+    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(runClaudeMock.mock.calls[0][0].contextMounts).toEqual([]);
   });
 });
 

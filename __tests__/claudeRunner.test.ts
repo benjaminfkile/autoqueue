@@ -450,6 +450,165 @@ describe("runClaudeOnTask log capture", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Phase 10: contextMounts — directly-linked repos are bind-mounted under
+  // /context/<name>. Read-link mounts are :ro, write-link mounts are :rw. The
+  // workspace bind mount is unchanged. Anything not in contextMounts must NOT
+  // appear as a -v in the docker invocation.
+  // -------------------------------------------------------------------------
+  it("appends one -v per contextMount entry, in the order provided", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/lib-a", containerPath: "/context/lib-a", mode: "ro" },
+        { hostPath: "/repos/acme/lib-b", containerPath: "/context/lib-b", mode: "rw" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIndices: number[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "-v") vIndices.push(i);
+    }
+    // Three -v total: primary + two context mounts.
+    expect(vIndices).toHaveLength(3);
+    expect(args[vIndices[0] + 1]).toBe(`${tmpRoot}:/workspace:rw`);
+    expect(args[vIndices[1] + 1]).toBe("/repos/acme/lib-a:/context/lib-a:ro");
+    expect(args[vIndices[2] + 1]).toBe("/repos/acme/lib-b:/context/lib-b:rw");
+  });
+
+  it("places every context -v before the image positional (docker won't accept flags after it)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/lib-a", containerPath: "/context/lib-a", mode: "ro" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const imageIdx = args.indexOf("grunt/runner:latest");
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "-v") {
+        expect(i).toBeLessThan(imageIdx);
+      }
+    }
+  });
+
+  it("emits exactly one -v (the primary) when contextMounts is omitted — Phase 10 is opt-in via the manifest", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
+    expect(vIndices).toHaveLength(1);
+    expect(args[vIndices[0] + 1]).toBe(`${tmpRoot}:/workspace:rw`);
+  });
+
+  it("emits exactly one -v (the primary) when contextMounts is an empty array (no links → no extra mounts)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
+    expect(vIndices).toHaveLength(1);
+  });
+
+  it("renders read-link mounts as :ro (the host repo is not writable from inside the container)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/readonly", containerPath: "/context/readonly", mode: "ro" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vEntries = args
+      .map((a, i) => (a === "-v" ? args[i + 1] : null))
+      .filter((v): v is string => v !== null);
+    expect(vEntries).toContain("/repos/acme/readonly:/context/readonly:ro");
+  });
+
+  it("renders write-link mounts as :rw (the agent can edit the linked repo)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/writable", containerPath: "/context/writable", mode: "rw" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vEntries = args
+      .map((a, i) => (a === "-v" ? args[i + 1] : null))
+      .filter((v): v is string => v !== null);
+    expect(vEntries).toContain("/repos/acme/writable:/context/writable:rw");
+  });
+
+  it("coexists with the secrets tmpfs (mount + tmpfs both present, image positional still last among flags)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      anthropicApiKey: "sk-ant-x",
+      contextMounts: [
+        { hostPath: "/repos/acme/lib", containerPath: "/context/lib", mode: "rw" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).toContain("--tmpfs");
+    const vEntries = args
+      .map((a, i) => (a === "-v" ? args[i + 1] : null))
+      .filter((v): v is string => v !== null);
+    // Two -v entries: primary + one context. The tmpfs is a separate flag.
+    expect(vEntries).toEqual([
+      `${tmpRoot}:/workspace:rw`,
+      "/repos/acme/lib:/context/lib:rw",
+    ]);
+  });
+
+  // -------------------------------------------------------------------------
   // Stdout capture — task output drives notes parsing, usage extraction, and
   // the persisted log file. Verify chunked, interleaved stdout/stderr is
   // captured into the result.output buffer in arrival order.
