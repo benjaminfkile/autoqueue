@@ -1,6 +1,8 @@
 import type {
   AcceptanceCriterion,
   AcceptanceCriterionUpdateInput,
+  AppSettings,
+  AppSettingsUpdateInput,
   ChatMessage,
   ChatStreamEvent,
   DockerStatus,
@@ -157,6 +159,15 @@ export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
   runnerImage: () => apiFetch<RunnerImageState>("/api/system/runner-image"),
   docker: () => apiFetch<DockerStatus>("/api/system/docker"),
+};
+
+export const settingsApi = {
+  get: () => apiFetch<AppSettings>("/api/settings"),
+  update: (input: AppSettingsUpdateInput) =>
+    apiFetch<AppSettings>("/api/settings", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 };
 
 export const setupApi = {

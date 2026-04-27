@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../../App";
-import type { SetupStatus } from "../../api/types";
+import type { AppSettings, SetupStatus } from "../../api/types";
 import { ThemeProvider } from "../../theme/ThemeContext";
 
 function renderApp() {
@@ -24,6 +24,8 @@ interface FetchScenario {
   initialStatus: SetupStatus;
   patchOverride?: (body: unknown) => Response | Promise<Response>;
   clearOverride?: (key: string) => Response | Promise<Response>;
+  initialSettings?: AppSettings;
+  settingsPatchOverride?: (body: unknown) => Response | Promise<Response>;
 }
 
 interface RecordedCall {
@@ -34,6 +36,12 @@ interface RecordedCall {
 
 function installFetchMock(scenario: FetchScenario) {
   let currentStatus = scenario.initialStatus;
+  let currentSettings: AppSettings =
+    scenario.initialSettings ?? {
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      updated_at: "2026-04-26T00:00:00.000Z",
+    };
   const calls: RecordedCall[] = [];
 
   const fetchMock = vi.fn(
@@ -99,6 +107,28 @@ function installFetchMock(scenario: FetchScenario) {
           next.configured.ANTHROPIC_API_KEY && next.configured.GH_PAT;
         currentStatus = next;
         return jsonResponse(currentStatus);
+      }
+      if (url === "/api/settings") {
+        if (method === "GET") return jsonResponse(currentSettings);
+        if (method === "PATCH") {
+          if (scenario.settingsPatchOverride) {
+            return scenario.settingsPatchOverride(body);
+          }
+          if (
+            body &&
+            typeof body === "object" &&
+            "default_model" in body &&
+            typeof (body as { default_model: unknown }).default_model ===
+              "string"
+          ) {
+            currentSettings = {
+              ...currentSettings,
+              default_model: (body as { default_model: string }).default_model,
+              updated_at: new Date().toISOString(),
+            };
+          }
+          return jsonResponse(currentSettings);
+        }
       }
       if (url.startsWith("/api/system/worker-status")) {
         return jsonResponse({
@@ -255,5 +285,135 @@ describe("SettingsPanel", () => {
       "sk-x"
     );
     expect(screen.getByTestId("settings-anthropic-key-save")).toBeEnabled();
+  });
+
+  it("renders the default Claude model dropdown with the loaded value", async () => {
+    installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-opus-4-7",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("settings-default-model-input")
+      ).toHaveValue("claude-opus-4-7");
+    });
+  });
+
+  it("PATCHes /api/settings when the user picks a new model", async () => {
+    const { calls } = installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-default-model-input")
+      ).toHaveValue("claude-sonnet-4-6")
+    );
+
+    // MUI's TextField select uses an underlying combobox; we click the
+    // labelled trigger to open the listbox and pick the option by its label.
+    await user.click(screen.getByLabelText("Default Claude model"));
+    const listbox = await screen.findByRole("listbox");
+    await user.click(within(listbox).getByText("Haiku 4.5"));
+
+    await waitFor(() => {
+      const patchCall = calls.find(
+        (c) => c.url === "/api/settings" && c.method === "PATCH"
+      );
+      expect(patchCall).toBeDefined();
+      expect(patchCall?.body).toEqual({ default_model: "claude-haiku-4-5" });
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-default-model-input")
+      ).toHaveValue("claude-haiku-4-5")
+    );
+  });
+
+  it("renders an inline error when the model PATCH fails", async () => {
+    installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+      settingsPatchOverride: () =>
+        jsonResponse({ error: "default_model must be a non-empty string" }, 400),
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-default-model-input")
+      ).toHaveValue("claude-sonnet-4-6")
+    );
+
+    await user.click(screen.getByLabelText("Default Claude model"));
+    const listbox = await screen.findByRole("listbox");
+    await user.click(within(listbox).getByText("Opus 4.7"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-default-model-error")
+      ).toHaveTextContent(/default_model/)
+    );
+  });
+
+  it("keeps a non-curated saved model selectable in the dropdown", async () => {
+    installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-experimental-99",
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-default-model-input")
+      ).toHaveValue("claude-experimental-99")
+    );
+
+    await user.click(screen.getByLabelText("Default Claude model"));
+    const listbox = await screen.findByRole("listbox");
+    expect(
+      within(listbox).getByText(/claude-experimental-99/)
+    ).toBeInTheDocument();
   });
 });
