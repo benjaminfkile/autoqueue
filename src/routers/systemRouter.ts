@@ -7,6 +7,10 @@ import {
   getRunnerImageState,
   RUNNER_IMAGE_NAME,
 } from "../services/imageBuilder";
+import {
+  DOCKER_INSTALL_URL,
+  refreshDockerState,
+} from "../services/dockerProbe";
 
 const systemRouter = express.Router();
 
@@ -72,6 +76,29 @@ systemRouter.patch("/pull-worker", async (req: Request, res: Response) => {
     const db = getDb();
     await setPullWorkerPaused(db, paused);
     return res.status(200).json({ paused });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * GET /api/system/docker
+ * Reports whether the local Docker daemon is reachable. The SPA polls this so
+ * it can render a "Docker Desktop not running — install/start it" banner and
+ * link the user to the install page when the worker is paused for missing
+ * Docker. Each request triggers a fresh `docker version` probe (throttled
+ * inside the service) so the banner reflects current daemon state, not a
+ * stale snapshot.
+ */
+systemRouter.get("/docker", async (_req: Request, res: Response) => {
+  try {
+    const s = await refreshDockerState();
+    return res.status(200).json({
+      available: s.available,
+      error: s.error,
+      last_checked_at: s.lastCheckedAt,
+      install_url: DOCKER_INSTALL_URL,
+    });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

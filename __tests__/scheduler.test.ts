@@ -17,6 +17,14 @@ jest.mock("../src/services/taskRunner", () => ({
   runTask: jest.fn(),
 }));
 
+jest.mock("../src/services/dockerProbe", () => ({
+  refreshDockerState: jest.fn().mockResolvedValue({
+    available: true,
+    error: null,
+    lastCheckedAt: null,
+  }),
+}));
+
 import { getActiveRepos } from "../src/db/repos";
 import { claimNextPendingLeafTask } from "../src/db/tasks";
 import { recordEvent } from "../src/db/taskEvents";

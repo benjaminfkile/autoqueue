@@ -6,6 +6,14 @@ jest.mock("../src/db/appSettings", () => ({
 }));
 import { getSetting, setSetting } from "../src/db/appSettings";
 
+jest.mock("../src/services/dockerProbe", () => ({
+  refreshDockerState: jest.fn().mockResolvedValue({
+    available: true,
+    error: null,
+    lastCheckedAt: null,
+  }),
+}));
+
 jest.mock("child_process", () => ({
   spawn: jest.fn(),
 }));

@@ -202,6 +202,13 @@ export interface WorkerStatus {
   active_workers: ActiveWorker[];
 }
 
+export interface DockerStatus {
+  available: boolean;
+  error: string | null;
+  last_checked_at: string | null;
+  install_url: string;
+}
+
 export type RunnerImageStatus =
   | "idle"
   | "checking"

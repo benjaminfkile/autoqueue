@@ -76,6 +76,14 @@ jest.mock("../src/services/imageBuilder", () => ({
   }),
 }));
 
+jest.mock("../src/services/dockerProbe", () => ({
+  refreshDockerState: jest.fn().mockResolvedValue({
+    available: true,
+    error: null,
+    lastCheckedAt: null,
+  }),
+}));
+
 import { getRepoById } from "../src/db/repos";
 import {
   getTaskById,
@@ -99,6 +107,8 @@ import {
 import { createPullRequest } from "../src/services/github";
 import { runClaudeOnTask } from "../src/services/claudeRunner";
 import { triggerWebhooks } from "../src/services/webhookDelivery";
+import { refreshDockerState } from "../src/services/dockerProbe";
+import { ensureRunnerImage } from "../src/services/imageBuilder";
 import { runTask } from "../src/services/taskRunner";
 
 const getTaskByIdMock = getTaskById as jest.Mock;
@@ -131,6 +141,62 @@ beforeEach(() => {
   getNotesForTaskMock.mockResolvedValue([]);
   createNoteMock.mockResolvedValue({ id: 1 });
   recordTaskUsageMock.mockResolvedValue({ id: 1 });
+});
+
+describe("runTask Docker availability", () => {
+  it("halts (without claiming retries or running claude) when Docker is unavailable", async () => {
+    const task = {
+      id: 42,
+      repo_id: 1,
+      parent_id: null,
+      title: "leaf",
+      description: "",
+      order_position: 0,
+      status: "active",
+      retry_count: 0,
+      pr_url: null,
+      worker_id: "host:123",
+      leased_until: new Date(),
+      created_at: new Date(),
+    };
+    const repo = {
+      id: 1,
+      owner: null,
+      repo_name: null,
+      active: true,
+      base_branch: "main",
+      base_branch_parent: "main",
+      require_pr: false,
+      github_token: null,
+      is_local_folder: true,
+      local_path: "/tmp/repo",
+      created_at: new Date(),
+    };
+
+    getTaskByIdMock.mockResolvedValue(task);
+    getRepoByIdMock.mockResolvedValue(repo);
+    (refreshDockerState as jest.Mock).mockResolvedValueOnce({
+      available: false,
+      error: "Cannot connect to the Docker daemon",
+      lastCheckedAt: new Date().toISOString(),
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const result = await runTask({} as any, secrets, 1, 42);
+      expect(result).toBe("halted");
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    // Image build and claude run must not have been kicked off when Docker
+    // is unavailable — otherwise the user would see misleading
+    // "build failed" errors and the task would burn a retry attempt.
+    expect(ensureRunnerImage).not.toHaveBeenCalled();
+    expect(runClaudeMock).not.toHaveBeenCalled();
+    expect(updateTaskMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("runTask", () => {

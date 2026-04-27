@@ -26,6 +26,7 @@ import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
 import { triggerWebhooks } from "./webhookDelivery";
 import { ensureRunnerImage } from "./imageBuilder";
+import { refreshDockerState } from "./dockerProbe";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_SECONDS = 30 * 60;
@@ -44,6 +45,21 @@ export async function runTask(
   if (!task || !repo) {
     console.error(`[taskRunner] Missing task (${taskId}) or repo (${repoId})`);
     return "failed";
+  }
+
+  // Belt-and-braces guard for the case where a task slipped past the
+  // scheduler's Docker probe (e.g. direct invocation in tests, or Docker
+  // crashed between the scheduler tick and now). Returning "halted" stops
+  // the cycle without burning a retry attempt against the task; once Docker
+  // recovers, the next scheduler tick will reclaim and run it.
+  const dockerState = await refreshDockerState({ force: true });
+  if (!dockerState.available) {
+    console.log(
+      `[taskRunner] Docker unavailable for task #${taskId} — halting. ${
+        dockerState.error ?? ""
+      }`.trim()
+    );
+    return "halted";
   }
 
   // Make sure the runner image is built before we let the agent start. On the
