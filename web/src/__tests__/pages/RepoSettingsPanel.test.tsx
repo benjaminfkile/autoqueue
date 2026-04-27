@@ -56,6 +56,16 @@ function installFetch(patchHandler: PatchHandler) {
       if (method === "PATCH" && /^\/api\/repos\/\d+$/.test(urlObj.pathname)) {
         return patchHandler(init ?? {}, urlObj);
       }
+      // The settings panel fetches linked repos on mount; tests in this file
+      // don't exercise that surface, so respond with an empty list to keep the
+      // panel quiet rather than letting the unhandled-route error alert leak
+      // into assertions.
+      if (
+        method === "GET" &&
+        /^\/api\/repos\/\d+\/links$/.test(urlObj.pathname)
+      ) {
+        return jsonResponse([]);
+      }
       return jsonResponse({ error: `unhandled ${method} ${urlObj.pathname}` }, 500);
     }
   );
@@ -67,6 +77,25 @@ function installFetch(patchHandler: PatchHandler) {
 beforeEach(() => {
   calls.length = 0;
   window.localStorage.clear();
+  // Default fetch stub: tests that don't call installFetch still render the
+  // panel, which fires GET /api/repos/:id/links on mount. Returning an empty
+  // list here keeps those tests from depending on the runtime's real fetch.
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const rawUrl = typeof input === "string" ? input : input.toString();
+      const urlObj = new URL(rawUrl, "http://localhost");
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (
+        method === "GET" &&
+        /^\/api\/repos\/\d+\/links$/.test(urlObj.pathname)
+      ) {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ error: `unhandled ${method} ${urlObj.pathname}` }, 500);
+    }
+  );
+  (globalThis as unknown as { fetch: typeof fetch }).fetch =
+    fetchMock as unknown as typeof fetch;
 });
 
 afterEach(() => {

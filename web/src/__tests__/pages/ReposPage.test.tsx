@@ -109,6 +109,12 @@ function installFetch(routes: Routes) {
       ) {
         return routes["POST /api/repos/:id/clone"](init ?? {}, urlObj);
       }
+      // Settings panel mounts a linked-repos section that fires GET on this
+      // route. Tests in this file don't exercise that surface, so default to
+      // an empty list rather than letting the unhandled-route 500 leak through.
+      if (method === "GET" && /^\/api\/repos\/\d+\/links$/.test(path)) {
+        return jsonResponse([]);
+      }
       return jsonResponse({ error: `unhandled ${method} ${path}` }, 500);
     }
   );
