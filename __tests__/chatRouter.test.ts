@@ -36,9 +36,17 @@ jest.mock("../src/db/settings", () => ({
   getDefaultModel: jest.fn(),
 }));
 
+// Mock the scheduler so chatRouter's cap-gate (sibling task #329) can be
+// driven directly from each test. Without this, the real `evaluateCapStatus`
+// would try to read settings + task_usage from a `{}` mock db and throw.
+jest.mock("../src/services/scheduler", () => ({
+  evaluateCapStatus: jest.fn(),
+}));
+
 import app from "../src/app";
 import * as secrets from "../src/secrets";
 import { getDefaultModel } from "../src/db/settings";
+import { evaluateCapStatus } from "../src/services/scheduler";
 import {
   loadChatContext,
   streamChatEvents,
@@ -71,6 +79,13 @@ beforeEach(() => {
   );
   (loadChatContext as jest.Mock).mockResolvedValue({});
   (getDefaultModel as jest.Mock).mockResolvedValue("claude-default-from-settings");
+  // Default to "not capped" so existing tests behave as they did before the
+  // cap-gate was added. Cap-specific tests override this per-case.
+  (evaluateCapStatus as jest.Mock).mockResolvedValue({
+    capped: false,
+    weekly_total: 0,
+    weekly_cap: null,
+  });
   (streamChatEvents as jest.Mock).mockImplementation(() =>
     asyncIterable([
       { type: "text", text: "Hello" },
@@ -388,5 +403,116 @@ describe("POST /api/chat", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/model/);
+  });
+
+  // ---- task #329 — weekly cap gate ----
+  // The cap is checked before any SSE headers are flushed so the SPA gets a
+  // real HTTP 429 (with a JSON body it can render in a banner) instead of a
+  // dead `text/event-stream` connection.
+  it("AC #1161 — returns HTTP 429 when the weekly cap is reached", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: true,
+      weekly_total: 105_000,
+      weekly_cap: 100_000,
+    });
+
+    const res = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(res.status).toBe(429);
+    // Not an SSE stream — body is JSON the SPA can consume directly.
+    expect(res.headers["content-type"]).toMatch(/application\/json/);
+    expect(res.body.error).toBe("weekly_token_cap_reached");
+    expect(res.body.weekly_total).toBe(105_000);
+    expect(res.body.weekly_cap).toBe(100_000);
+  });
+
+  it("AC #1162 — 429 body explains why the request was blocked AND when it resets", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: true,
+      weekly_total: 250_000,
+      weekly_cap: 200_000,
+    });
+
+    const res = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(res.status).toBe(429);
+    // "Why" — names the cap, includes both the limit and current usage so the
+    // user can see how far over they are.
+    expect(res.body.message).toMatch(/Weekly token cap reached/i);
+    expect(res.body.message).toContain("250,000");
+    expect(res.body.message).toContain("200,000");
+    // "When it resets" — the cap is a sliding 7-day window, so we explain the
+    // rolling-window mechanic rather than naming a single reset instant.
+    expect(res.body.message).toMatch(/rolling 7-day window/i);
+    expect(res.body.message).toMatch(/age[s]? out|roll[s]? off/i);
+    // Plus the lever the user has — raise the cap in Settings.
+    expect(res.body.message).toMatch(/Settings/);
+  });
+
+  it("AC #1161/1163 — when capped, the SSE stream is NOT opened (no event frames, no model call)", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: true,
+      weekly_total: 105_000,
+      weekly_cap: 100_000,
+    });
+
+    const res = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    // No SSE frames in the body — proves we returned before flushing headers.
+    expect(res.text).not.toContain("event: delta");
+    expect(res.text).not.toContain("event: done");
+    expect(res.text).not.toContain("event: error");
+    // And we never reached the model — settings + Anthropic call are skipped.
+    expect(streamChatEvents).not.toHaveBeenCalled();
+    expect(loadChatContext).not.toHaveBeenCalled();
+    expect(getDefaultModel).not.toHaveBeenCalled();
+  });
+
+  it("AC #1163 — cap is checked once at request entry and not re-checked during streaming", async () => {
+    // A "not capped" evaluation lets the stream proceed; if the router were
+    // (incorrectly) re-checking mid-stream we'd see > 1 call here.
+    await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(evaluateCapStatus).toHaveBeenCalledTimes(1);
+    expect(streamChatEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC #1161 — when not capped, the request streams normally (cap-gate is opt-out for unlimited caps)", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: false,
+      weekly_total: 1_000_000,
+      weekly_cap: null, // null cap = unlimited
+    });
+
+    const res = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+    expect(res.text).toContain("event: delta");
+    expect(res.text).toContain("event: done");
+  });
+
+  it("returns 500 when the cap evaluation itself throws (DB unavailable, etc.)", async () => {
+    (evaluateCapStatus as jest.Mock).mockRejectedValue(
+      new Error("settings row missing")
+    );
+
+    const res = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/settings row missing/);
+    expect(streamChatEvents).not.toHaveBeenCalled();
   });
 });

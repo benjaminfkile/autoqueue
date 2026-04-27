@@ -101,6 +101,18 @@ jest.mock("../src/db/settings", () => ({
   getDefaultModel: jest.fn().mockResolvedValue("claude-test-model"),
 }));
 
+// Task #329 — chatRouter now consults the weekly cap before opening the SSE
+// stream (via the shared scheduler helper). The Phase 5 chat tests don't
+// care about the cap, only the streaming behavior, so pin the evaluation to
+// "not capped" here. Cap-gate behavior itself is covered in chatRouter.test.ts.
+jest.mock("../src/services/scheduler", () => ({
+  evaluateCapStatus: jest.fn().mockResolvedValue({
+    capped: false,
+    weekly_total: 0,
+    weekly_cap: null,
+  }),
+}));
+
 // Stub the Anthropic SDK at the import boundary so the chat router exercises
 // real `streamChatEvents` against a fully scripted stream. This is the AC #868
 // boundary — keep one canonical stub here so we don't drift between tests.
