@@ -32,8 +32,13 @@ jest.mock("../src/secrets", () => ({
   getSecretsFilePath: jest.fn(),
 }));
 
+jest.mock("../src/db/settings", () => ({
+  getDefaultModel: jest.fn(),
+}));
+
 import app from "../src/app";
 import * as secrets from "../src/secrets";
+import { getDefaultModel } from "../src/db/settings";
 import {
   loadChatContext,
   streamChatEvents,
@@ -65,6 +70,7 @@ beforeEach(() => {
     key === "ANTHROPIC_API_KEY" ? "sk-ant-test" : undefined
   );
   (loadChatContext as jest.Mock).mockResolvedValue({});
+  (getDefaultModel as jest.Mock).mockResolvedValue("claude-default-from-settings");
   (streamChatEvents as jest.Mock).mockImplementation(() =>
     asyncIterable([
       { type: "text", text: "Hello" },
@@ -310,5 +316,77 @@ describe("POST /api/chat", () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain("event: proposal_error");
     expect(res.text).toContain("parents must be a non-empty array");
+  });
+
+  // ---- task #322 — model resolution (settings.default_model + per-request override) ----
+  it("AC #1144 — reads settings.default_model on each chat call and forwards it to streamChatEvents", async () => {
+    await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(getDefaultModel).toHaveBeenCalledTimes(1);
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
+    expect(args.model).toBe("claude-default-from-settings");
+  });
+
+  it("AC #1144 — re-reads settings.default_model on every chat call (no caching)", async () => {
+    (getDefaultModel as jest.Mock)
+      .mockResolvedValueOnce("first-call-model")
+      .mockResolvedValueOnce("second-call-model");
+
+    await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi" }] });
+    await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "hi again" }] });
+
+    expect(getDefaultModel).toHaveBeenCalledTimes(2);
+    const firstArgs = (streamChatEvents as jest.Mock).mock.calls[0][0];
+    const secondArgs = (streamChatEvents as jest.Mock).mock.calls[1][0];
+    expect(firstArgs.model).toBe("first-call-model");
+    expect(secondArgs.model).toBe("second-call-model");
+  });
+
+  it("AC #1145 — per-request `model` overrides settings.default_model and skips the settings read", async () => {
+    const res = await request(app)
+      .post("/api/chat")
+      .send({
+        messages: [{ role: "user", content: "hi" }],
+        model: "claude-opus-4-7",
+      });
+
+    expect(res.status).toBe(200);
+    // Override is honored verbatim …
+    const args = (streamChatEvents as jest.Mock).mock.calls[0][0];
+    expect(args.model).toBe("claude-opus-4-7");
+    // … and we do not bother reading settings when the caller already pinned
+    // the model for this session.
+    expect(getDefaultModel).not.toHaveBeenCalled();
+  });
+
+  it("AC #1145 — rejects a non-string `model` field with 400", async () => {
+    const res = await request(app)
+      .post("/api/chat")
+      .send({
+        messages: [{ role: "user", content: "hi" }],
+        model: 42,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/model/);
+    expect(streamChatEvents).not.toHaveBeenCalled();
+  });
+
+  it("AC #1145 — rejects an empty/whitespace-only `model` with 400", async () => {
+    const res = await request(app)
+      .post("/api/chat")
+      .send({
+        messages: [{ role: "user", content: "hi" }],
+        model: "   ",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/model/);
   });
 });

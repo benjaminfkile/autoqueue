@@ -92,6 +92,15 @@ jest.mock("../src/db/repoLinks", () => ({
   listLinksForRepo: jest.fn().mockResolvedValue([]),
 }));
 
+// Task #322 — chatRouter now reads settings.default_model on each /api/chat
+// call. The Phase 5 SSE chat tests stub the Anthropic SDK at the import
+// boundary, so the router runs end-to-end through real chatService — which
+// means we need a mocked default-model resolver too. Keep it deterministic
+// here so the SSE assertions don't depend on a settings row.
+jest.mock("../src/db/settings", () => ({
+  getDefaultModel: jest.fn().mockResolvedValue("claude-test-model"),
+}));
+
 // Stub the Anthropic SDK at the import boundary so the chat router exercises
 // real `streamChatEvents` against a fully scripted stream. This is the AC #868
 // boundary — keep one canonical stub here so we don't drift between tests.
@@ -365,6 +374,7 @@ describe("Phase 5 — tool-call schema validation (AC #870)", () => {
       const out: ChatStreamEvent[] = [];
       for await (const e of streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "s",
         messages: [{ role: "user", content: "go" }],
         client: fakeClient,
@@ -409,6 +419,7 @@ describe("Phase 5 — tool-call schema validation (AC #870)", () => {
       const out: ChatStreamEvent[] = [];
       for await (const e of streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "s",
         messages: [{ role: "user", content: "go" }],
         client: fakeClient,
@@ -445,6 +456,7 @@ describe("Phase 5 — tool-call schema validation (AC #870)", () => {
       const out: ChatStreamEvent[] = [];
       for await (const e of streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "s",
         messages: [{ role: "user", content: "go" }],
         client: fakeClient,
@@ -478,6 +490,7 @@ describe("Phase 5 — tool-call schema validation (AC #870)", () => {
       const out: ChatStreamEvent[] = [];
       for await (const e of streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "s",
         messages: [{ role: "user", content: "go" }],
         client: fakeClient,
@@ -533,6 +546,7 @@ describe("Phase 5 — tool-call schema validation (AC #870)", () => {
       const out: ChatStreamEvent[] = [];
       for await (const e of streamChatEvents({
         apiKey: "x",
+        model: "claude-test-model",
         system: "s",
         messages: [{ role: "user", content: "go" }],
         client: fakeClient,
