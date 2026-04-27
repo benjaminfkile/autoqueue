@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Knex } from "knex";
 import { getRepoById } from "../db/repos";
+import { listLinksForRepo } from "../db/repoLinks";
 import { getTasksByRepoId } from "../db/tasks";
 import { Repo, Task } from "../interfaces";
 import {
@@ -113,6 +114,7 @@ export interface TaskTreeProposal {
 export const LIST_FILES_TOOL_NAME = "list_files";
 export const READ_FILE_TOOL_NAME = "read_file";
 export const SEARCH_TOOL_NAME = "search";
+export const LIST_REPOS_TOOL_NAME = "list_repos";
 
 export const LIST_FILES_TOOL = {
   name: LIST_FILES_TOOL_NAME,
@@ -247,6 +249,25 @@ export const SEARCH_TOOL = {
   },
 };
 
+export const LIST_REPOS_TOOL = {
+  name: LIST_REPOS_TOOL_NAME,
+  description:
+    "List the repos this chat can browse with the other read-only tools. " +
+    "When the chat is scoped to a repo, the available set is that repo plus " +
+    "any directly-linked repos (a single hop — transitive links are NOT " +
+    "followed). Each entry includes its `id`, a human-readable `slug`, " +
+    "whether it is the primary (the repo the chat is anchored to), and the " +
+    "link `role` for non-primary entries (the descriptive label set when the " +
+    "link was created; null when no role was given). Use this whenever you " +
+    "need to know which `repo_id` values you may pass to `list_files`, " +
+    "`read_file`, or `search`. Read-only.",
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false,
+    properties: {},
+  },
+};
+
 // Convenience bundle of every read-only repo tool. Call sites that wire the
 // planning chat into the Anthropic streaming call should pass these alongside
 // `PROPOSE_TASK_TREE_TOOL` so the model can browse the discussed repo.
@@ -254,6 +275,7 @@ export const REPO_READ_TOOLS = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
   SEARCH_TOOL,
+  LIST_REPOS_TOOL,
 ];
 
 export type ValidateProposalResult =
@@ -339,9 +361,31 @@ function validateNode(input: unknown, path: string): NodeResult {
   return { valid: true, node };
 }
 
+// One repo entry in the chat's read-only scope. Each row corresponds to
+// either the primary repo (the one the chat is anchored to) or a directly-
+// linked sibling. `role` is the link's descriptive label (e.g. "frontend"),
+// shared by both sides of the symmetric link; the primary itself has no role.
+export interface ChatRepoScopeEntry {
+  id: number;
+  slug: string;
+  is_primary: boolean;
+  role: string | null;
+}
+
+// The complete set of repos a chat may browse via list_files/read_file/search.
+// Built once per chat request as: { primary repo } ∪ { repos directly linked
+// to primary }. Transitive links are deliberately NOT followed — a regression
+// that walks more than one hop would bypass the per-link permission boundary
+// the user set up when creating the link.
+export interface ChatRepoScope {
+  primary_repo_id: number;
+  repos: ChatRepoScopeEntry[];
+}
+
 export interface ChatContext {
   repo?: Repo;
   recentTasks?: Task[];
+  scope?: ChatRepoScope;
 }
 
 export function buildSystemPrompt(context: ChatContext = {}): string {
@@ -358,11 +402,22 @@ export function buildSystemPrompt(context: ChatContext = {}): string {
   );
 
   sections.push(
-    `## Read-only repo tools\nWhen the user is discussing a specific repo, you can browse its clone with three read-only tools — there are no write/edit/exec counterparts.\n- \`${LIST_FILES_TOOL_NAME}(repo_id, path?, depth?)\` — list directory entries to understand the layout. \`path\` is relative to the repo root; \`depth\` defaults to 1 (max 3).\n- \`${READ_FILE_TOOL_NAME}(repo_id, path, start_line?, end_line?)\` — read a slice of a file. Output is byte-capped, so for large files pass \`start_line\`/\`end_line\` (1-indexed, inclusive).\n- \`${SEARCH_TOOL_NAME}(repo_id, pattern, path?, literal?)\` — regex search across the clone (pass \`literal: true\` for a fixed-string match). Be specific; results are capped, so narrow \`pattern\` or scope by \`path\` if you hit the cap.\nUse these to ground your suggestions in the actual code instead of guessing. Prefer \`${SEARCH_TOOL_NAME}\` to locate symbols, then \`${READ_FILE_TOOL_NAME}\` to inspect them. Paths are always relative to the repo root and traversal (\`..\`) is rejected.`
+    `## Read-only repo tools\nWhen the user is discussing a specific repo, you can browse its clone with four read-only tools — there are no write/edit/exec counterparts.\n- \`${LIST_REPOS_TOOL_NAME}()\` — list the repos in scope for this chat (the primary repo plus any directly-linked repos). Each entry has an \`id\`, a \`slug\`, an \`is_primary\` flag, and the link \`role\` for non-primary entries. Call this whenever you are unsure which \`repo_id\` values are valid.\n- \`${LIST_FILES_TOOL_NAME}(repo_id, path?, depth?)\` — list directory entries to understand the layout. \`path\` is relative to the repo root; \`depth\` defaults to 1 (max 3).\n- \`${READ_FILE_TOOL_NAME}(repo_id, path, start_line?, end_line?)\` — read a slice of a file. Output is byte-capped, so for large files pass \`start_line\`/\`end_line\` (1-indexed, inclusive).\n- \`${SEARCH_TOOL_NAME}(repo_id, pattern, path?, literal?)\` — regex search across the clone (pass \`literal: true\` for a fixed-string match). Be specific; results are capped, so narrow \`pattern\` or scope by \`path\` if you hit the cap.\nUse these to ground your suggestions in the actual code instead of guessing. Prefer \`${SEARCH_TOOL_NAME}\` to locate symbols, then \`${READ_FILE_TOOL_NAME}\` to inspect them. Paths are always relative to the repo root and traversal (\`..\`) is rejected. \`repo_id\` must be one of the repos returned by \`${LIST_REPOS_TOOL_NAME}\` — the chat sees the primary repo and its directly-linked siblings only (no transitive expansion).`
   );
 
   if (context.repo) {
     sections.push(`## Current repo\n${formatRepo(context.repo)}`);
+  }
+
+  if (context.scope && context.scope.repos.length > 1) {
+    const linked = context.scope.repos.filter((r) => !r.is_primary);
+    const lines = linked.map((r) => {
+      const role = r.role ? ` (role: ${r.role})` : "";
+      return `- id ${r.id}: ${r.slug}${role}`;
+    });
+    sections.push(
+      `## Linked repos (read-only, one hop)\nThe primary repo is linked to the following repos. You can pass any of their ids to \`${LIST_FILES_TOOL_NAME}\`/\`${READ_FILE_TOOL_NAME}\`/\`${SEARCH_TOOL_NAME}\`. Links are NOT transitive — repos linked to these repos are not in scope.\n${lines.join("\n")}`
+    );
   }
 
   if (context.recentTasks && context.recentTasks.length > 0) {
@@ -376,14 +431,15 @@ export function buildSystemPrompt(context: ChatContext = {}): string {
   return sections.join("\n\n");
 }
 
+function repoSlug(repo: Repo): string {
+  if (repo.owner && repo.repo_name) return `${repo.owner}/${repo.repo_name}`;
+  return repo.local_path ?? `repo#${repo.id}`;
+}
+
 function formatRepo(repo: Repo): string {
-  const slug =
-    repo.owner && repo.repo_name
-      ? `${repo.owner}/${repo.repo_name}`
-      : repo.local_path ?? `repo#${repo.id}`;
   return [
     `id: ${repo.id}`,
-    `slug: ${slug}`,
+    `slug: ${repoSlug(repo)}`,
     `base_branch: ${repo.base_branch}`,
     `ordering_mode: ${repo.ordering_mode}`,
     `on_failure: ${repo.on_failure}`,
@@ -414,7 +470,46 @@ export async function loadChatContext(
       return bTs - aTs;
     })
     .slice(0, RECENT_TASK_LIMIT);
-  return { repo, recentTasks };
+  const scope = await loadRepoScope(db, repo);
+  return { repo, recentTasks, scope };
+}
+
+// Build the read-only scope for a chat anchored to `primary`. Walks the
+// repo_links table once and resolves each linked id to a real repo row so
+// callers see slugs/roles, not just ids. Links pointing to repos that no
+// longer exist are dropped silently — the caller cannot meaningfully use a
+// dangling id and a hard error here would block the whole chat.
+//
+// IMPORTANT: this is a single-hop expansion. We do NOT recurse into the
+// linked repos' own links — that would silently widen the scope past what the
+// user explicitly authorized when they created each link.
+async function loadRepoScope(db: Knex, primary: Repo): Promise<ChatRepoScope> {
+  const links = await listLinksForRepo(db, primary.id);
+  const linkedEntries: ChatRepoScopeEntry[] = [];
+  for (const link of links) {
+    const otherId =
+      link.repo_a_id === primary.id ? link.repo_b_id : link.repo_a_id;
+    const other = await getRepoById(db, otherId);
+    if (!other) continue;
+    linkedEntries.push({
+      id: other.id,
+      slug: repoSlug(other),
+      is_primary: false,
+      role: link.role,
+    });
+  }
+  return {
+    primary_repo_id: primary.id,
+    repos: [
+      {
+        id: primary.id,
+        slug: repoSlug(primary),
+        is_primary: true,
+        role: null,
+      },
+      ...linkedEntries,
+    ],
+  };
 }
 
 export interface StreamChatOptions {
@@ -440,6 +535,12 @@ export interface StreamChatOptions {
 export interface RepoToolsContext {
   db: Knex;
   reposPath: string;
+  // When set, list_files/read_file/search calls whose `repo_id` is not in
+  // `scope.repos` are rejected with an is_error tool_result. When undefined
+  // (e.g. a chat with no anchoring repo, or a test that does not bother
+  // building a scope), no enforcement happens — the underlying tool's own
+  // repo lookup is the only gate.
+  scope?: ChatRepoScope;
 }
 
 // Anthropic tool definition (Tool from the SDK). We mirror the relevant
@@ -744,6 +845,27 @@ async function dispatchRepoTool(
   name: string,
   input: unknown
 ): Promise<{ content: string; isError: boolean }> {
+  if (name === LIST_REPOS_TOOL_NAME) {
+    if (!ctx.scope) {
+      return {
+        content:
+          "list_repos: this chat is not scoped to a repo, so no repos are available.",
+        isError: true,
+      };
+    }
+    return {
+      content: JSON.stringify({ repos: ctx.scope.repos }),
+      isError: false,
+    };
+  }
+  if (
+    name === LIST_FILES_TOOL_NAME ||
+    name === READ_FILE_TOOL_NAME ||
+    name === SEARCH_TOOL_NAME
+  ) {
+    const scopeError = checkRepoIdInScope(ctx, input);
+    if (scopeError) return { content: scopeError, isError: true };
+  }
   if (name === LIST_FILES_TOOL_NAME) {
     const result = await listFiles(
       ctx.db,
@@ -784,6 +906,30 @@ async function dispatchRepoTool(
     };
   }
   return { content: `unknown tool: ${name}`, isError: true };
+}
+
+// Reject a tool call whose `repo_id` is not in the chat's scope. Only runs
+// when the caller built a scope; absent a scope (no anchoring repo) the
+// underlying tool's own repo lookup is the only gate, which is the same
+// behavior the tools had before scope was introduced.
+function checkRepoIdInScope(
+  ctx: RepoToolsContext,
+  input: unknown
+): string | null {
+  if (!ctx.scope) return null;
+  const requested = (input as { repo_id?: unknown })?.repo_id;
+  // Defer non-numeric/missing repo_id to the tool's own validator — its
+  // error message is more specific than anything we could produce here.
+  if (typeof requested !== "number" || !Number.isInteger(requested)) {
+    return null;
+  }
+  if (ctx.scope.repos.some((r) => r.id === requested)) return null;
+  const allowed = ctx.scope.repos.map((r) => r.id).join(", ");
+  return (
+    `repo_id ${requested} is not in scope for this chat. ` +
+    `Allowed repo ids: ${allowed}. ` +
+    `Call list_repos to see the available repos with their roles.`
+  );
 }
 
 const SAFE_PARSE_FAILURE = Symbol("json-parse-failure");
