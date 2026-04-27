@@ -30,10 +30,12 @@ beforeEach(() => {
 });
 
 describe("settingsRouter GET /api/settings", () => {
-  it("returns the singleton settings row", async () => {
+  it("returns the singleton settings row including token caps", async () => {
     getSettingsMock.mockResolvedValueOnce({
       id: 1,
       default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: 8000,
       updated_at: "2026-04-26T00:00:00.000Z",
     });
 
@@ -43,6 +45,8 @@ describe("settingsRouter GET /api/settings", () => {
     expect(res.body).toEqual({
       id: 1,
       default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: 8000,
       updated_at: "2026-04-26T00:00:00.000Z",
     });
   });
@@ -139,5 +143,166 @@ describe("settingsRouter PATCH /api/settings", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/disk full/);
+  });
+
+  it("accepts a numeric weekly_token_cap and forwards it as-is", async () => {
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      weekly_token_cap: 250000,
+      session_token_cap: null,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: 250000 });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      weekly_token_cap: 250000,
+    });
+    expect(res.body.weekly_token_cap).toBe(250000);
+  });
+
+  it("accepts a very large integer weekly_token_cap (BIGINT column)", async () => {
+    const big = 9_000_000_000;
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      weekly_token_cap: big,
+      session_token_cap: null,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: big });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      weekly_token_cap: big,
+    });
+  });
+
+  it("treats null weekly_token_cap as a clear-to-NULL signal (unlimited)", async () => {
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: null,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: null });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      weekly_token_cap: null,
+    });
+    expect(res.body.weekly_token_cap).toBeNull();
+  });
+
+  it("accepts a numeric session_token_cap", async () => {
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: 8000,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ session_token_cap: 8000 });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      session_token_cap: 8000,
+    });
+  });
+
+  it("treats null session_token_cap as unlimited", async () => {
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: null,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ session_token_cap: null });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      session_token_cap: null,
+    });
+  });
+
+  it("can patch caps and default_model in the same request", async () => {
+    updateSettingsMock.mockResolvedValueOnce({
+      id: 1,
+      default_model: "claude-opus-4-7",
+      weekly_token_cap: 1000,
+      session_token_cap: null,
+      updated_at: "2026-04-26T01:00:00.000Z",
+    });
+
+    const res = await request(app).patch("/api/settings").send({
+      default_model: "claude-opus-4-7",
+      weekly_token_cap: 1000,
+      session_token_cap: null,
+    });
+
+    expect(res.status).toBe(200);
+    expect(updateSettingsMock.mock.calls[0][1]).toEqual({
+      default_model: "claude-opus-4-7",
+      weekly_token_cap: 1000,
+      session_token_cap: null,
+    });
+  });
+
+  it("rejects negative weekly_token_cap", async () => {
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: -1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/weekly_token_cap/);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-integer weekly_token_cap", async () => {
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: 1.5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/weekly_token_cap/);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects string-encoded weekly_token_cap (caller must send a JSON number)", async () => {
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ weekly_token_cap: "1000" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/weekly_token_cap/);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects negative session_token_cap", async () => {
+    const res = await request(app)
+      .patch("/api/settings")
+      .send({ session_token_cap: -10 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/session_token_cap/);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
   });
 });

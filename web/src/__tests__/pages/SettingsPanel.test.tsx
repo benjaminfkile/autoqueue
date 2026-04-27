@@ -40,6 +40,8 @@ function installFetchMock(scenario: FetchScenario) {
     scenario.initialSettings ?? {
       id: 1,
       default_model: "claude-sonnet-4-6",
+      weekly_token_cap: null,
+      session_token_cap: null,
       updated_at: "2026-04-26T00:00:00.000Z",
     };
   const calls: RecordedCall[] = [];
@@ -126,6 +128,24 @@ function installFetchMock(scenario: FetchScenario) {
               default_model: (body as { default_model: string }).default_model,
               updated_at: new Date().toISOString(),
             };
+          }
+          for (const key of [
+            "weekly_token_cap",
+            "session_token_cap",
+          ] as const) {
+            if (body && typeof body === "object" && key in body) {
+              const raw = (body as Record<string, unknown>)[key];
+              currentSettings = {
+                ...currentSettings,
+                [key]:
+                  raw === null
+                    ? null
+                    : typeof raw === "number"
+                    ? raw
+                    : currentSettings[key],
+                updated_at: new Date().toISOString(),
+              };
+            }
           }
           return jsonResponse(currentSettings);
         }
@@ -296,6 +316,8 @@ describe("SettingsPanel", () => {
       initialSettings: {
         id: 1,
         default_model: "claude-opus-4-7",
+        weekly_token_cap: null,
+        session_token_cap: null,
         updated_at: "2026-04-26T00:00:00.000Z",
       },
     });
@@ -319,6 +341,8 @@ describe("SettingsPanel", () => {
       initialSettings: {
         id: 1,
         default_model: "claude-sonnet-4-6",
+        weekly_token_cap: null,
+        session_token_cap: null,
         updated_at: "2026-04-26T00:00:00.000Z",
       },
     });
@@ -362,6 +386,8 @@ describe("SettingsPanel", () => {
       initialSettings: {
         id: 1,
         default_model: "claude-sonnet-4-6",
+        weekly_token_cap: null,
+        session_token_cap: null,
         updated_at: "2026-04-26T00:00:00.000Z",
       },
       settingsPatchOverride: () =>
@@ -388,6 +414,144 @@ describe("SettingsPanel", () => {
     );
   });
 
+  it("PATCHes /api/settings with a numeric weekly_token_cap when the user enters a value", async () => {
+    const { calls } = installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-weekly-token-cap-input")
+      ).toBeInTheDocument()
+    );
+
+    const weeklyInput = screen.getByTestId("settings-weekly-token-cap-input");
+    await user.type(weeklyInput, "1000000000");
+    await user.click(screen.getByTestId("settings-weekly-token-cap-save"));
+
+    await waitFor(() => {
+      const patchCall = calls.find(
+        (c) =>
+          c.url === "/api/settings" &&
+          c.method === "PATCH" &&
+          c.body !== undefined &&
+          typeof c.body === "object" &&
+          "weekly_token_cap" in (c.body as Record<string, unknown>)
+      );
+      expect(patchCall).toBeDefined();
+      expect(patchCall?.body).toEqual({ weekly_token_cap: 1000000000 });
+    });
+  });
+
+  it("PATCHes /api/settings with null when the user clears a cap", async () => {
+    const { calls } = installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        weekly_token_cap: 250000,
+        session_token_cap: 8000,
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-session-token-cap-input")).toHaveValue(
+        "8000"
+      )
+    );
+
+    const sessionInput = screen.getByTestId("settings-session-token-cap-input");
+    await user.clear(sessionInput);
+    await user.click(screen.getByTestId("settings-session-token-cap-save"));
+
+    await waitFor(() => {
+      const patchCall = calls.find(
+        (c) =>
+          c.url === "/api/settings" &&
+          c.method === "PATCH" &&
+          c.body !== undefined &&
+          typeof c.body === "object" &&
+          "session_token_cap" in (c.body as Record<string, unknown>)
+      );
+      expect(patchCall).toBeDefined();
+      expect(patchCall?.body).toEqual({ session_token_cap: null });
+    });
+  });
+
+  it("rejects non-numeric cap input client-side without hitting the API", async () => {
+    const { calls } = installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("settings-weekly-token-cap-input")
+      ).toBeInTheDocument()
+    );
+
+    const weeklyInput = screen.getByTestId("settings-weekly-token-cap-input");
+    await user.type(weeklyInput, "not-a-number");
+    await user.click(screen.getByTestId("settings-weekly-token-cap-save"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-token-cap-error")).toHaveTextContent(
+        /weekly_token_cap/
+      )
+    );
+    expect(
+      calls.find(
+        (c) => c.url === "/api/settings" && c.method === "PATCH"
+      )
+    ).toBeUndefined();
+  });
+
+  it("loads existing cap values into the inputs", async () => {
+    installFetchMock({
+      initialStatus: {
+        ready: true,
+        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+      },
+      initialSettings: {
+        id: 1,
+        default_model: "claude-sonnet-4-6",
+        weekly_token_cap: 5000000,
+        session_token_cap: 50000,
+        updated_at: "2026-04-26T00:00:00.000Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await openSettingsPanel(user);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-weekly-token-cap-input")).toHaveValue(
+        "5000000"
+      )
+    );
+    expect(
+      screen.getByTestId("settings-session-token-cap-input")
+    ).toHaveValue("50000");
+  });
+
   it("keeps a non-curated saved model selectable in the dropdown", async () => {
     installFetchMock({
       initialStatus: {
@@ -397,6 +561,8 @@ describe("SettingsPanel", () => {
       initialSettings: {
         id: 1,
         default_model: "claude-experimental-99",
+        weekly_token_cap: null,
+        session_token_cap: null,
         updated_at: "2026-04-26T00:00:00.000Z",
       },
     });
