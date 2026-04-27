@@ -282,11 +282,19 @@ export interface SetupInput {
 export interface AppSettings {
   id: number;
   default_model: string;
+  // NULL = unlimited. Callers must branch on `=== null` rather than treating
+  // the field as a numeric ceiling.
+  weekly_token_cap: number | null;
+  session_token_cap: number | null;
   updated_at: string;
 }
 
 export interface AppSettingsUpdateInput {
   default_model?: string;
+  // null clears the cap (NULL in the DB → unlimited). Numbers must be
+  // non-negative integers; the server rejects anything else.
+  weekly_token_cap?: number | null;
+  session_token_cap?: number | null;
 }
 
 export interface ProposedTaskNode {

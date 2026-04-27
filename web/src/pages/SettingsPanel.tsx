@@ -64,6 +64,17 @@ export default function SettingsPanel({
   const [modelSaving, setModelSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
+  // Cap drafts are kept as raw strings so an empty field round-trips as ""
+  // (which we send as null = unlimited). Once persisted we re-render from
+  // appSettings, so drafts only diverge from the saved value while the user
+  // is actively typing.
+  const [weeklyDraft, setWeeklyDraft] = useState("");
+  const [sessionDraft, setSessionDraft] = useState("");
+  const [capSaving, setCapSaving] = useState<
+    "weekly_token_cap" | "session_token_cap" | null
+  >(null);
+  const [capError, setCapError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -74,6 +85,12 @@ export default function SettingsPanel({
       .then((next) => {
         if (cancelled) return;
         setAppSettings(next);
+        setWeeklyDraft(
+          next.weekly_token_cap === null ? "" : String(next.weekly_token_cap)
+        );
+        setSessionDraft(
+          next.session_token_cap === null ? "" : String(next.session_token_cap)
+        );
       })
       .catch((err) => {
         if (cancelled) return;
@@ -95,10 +112,11 @@ export default function SettingsPanel({
     setBusyAction(null);
     setError(null);
     setSettingsError(null);
+    setCapError(null);
   }
 
   function handleClose() {
-    if (busyKey || modelSaving) return;
+    if (busyKey || modelSaving || capSaving) return;
     resetState();
     onClose();
   }
@@ -137,6 +155,49 @@ export default function SettingsPanel({
     } finally {
       setBusyKey(null);
       setBusyAction(null);
+    }
+  }
+
+  async function handleCapSave(
+    field: "weekly_token_cap" | "session_token_cap",
+    raw: string
+  ) {
+    const trimmed = raw.trim();
+    let value: number | null;
+    if (trimmed.length === 0) {
+      value = null;
+    } else {
+      // Reject anything other than a run of digits up front so we don't
+      // accidentally send NaN, Infinity, or a float to the server. The DB
+      // column is a bigint; we cap at MAX_SAFE_INTEGER so the JSON round-trip
+      // is lossless.
+      if (!/^\d+$/.test(trimmed)) {
+        setCapError(`${field} must be a non-negative whole number`);
+        return;
+      }
+      const parsed = Number(trimmed);
+      if (!Number.isSafeInteger(parsed)) {
+        setCapError(`${field} is too large to send safely`);
+        return;
+      }
+      value = parsed;
+    }
+
+    setCapError(null);
+    setCapSaving(field);
+    try {
+      const next = await settingsApi.update({ [field]: value });
+      setAppSettings(next);
+      // Re-sync the draft from the persisted value so the field shows
+      // exactly what the server stored (e.g. trims/caps applied).
+      const stored = next[field];
+      const synced = stored === null ? "" : String(stored);
+      if (field === "weekly_token_cap") setWeeklyDraft(synced);
+      else setSessionDraft(synced);
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : `Failed to update ${field}`);
+    } finally {
+      setCapSaving(null);
     }
   }
 
@@ -240,6 +301,105 @@ export default function SettingsPanel({
             </Stack>
           </Box>
 
+          <Box
+            data-testid="settings-token-caps-row"
+            sx={{
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              p: 2,
+            }}
+          >
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle1">Token caps</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Pause new work when usage hits these thresholds. Leave a field
+                empty to remove its cap (unlimited).
+              </Typography>
+              {capError && (
+                <Alert severity="error" data-testid="settings-token-cap-error">
+                  {capError}
+                </Alert>
+              )}
+              {(
+                [
+                  {
+                    field: "weekly_token_cap" as const,
+                    label: "Weekly token cap",
+                    helper:
+                      "Trailing 7-day token total across input, output, and cache reads/writes.",
+                    draft: weeklyDraft,
+                    setDraft: setWeeklyDraft,
+                    testIdPrefix: "settings-weekly-token-cap",
+                    saved: appSettings?.weekly_token_cap ?? null,
+                  },
+                  {
+                    field: "session_token_cap" as const,
+                    label: "Per-session token cap",
+                    helper: "Maximum tokens spent on any single chat or task run.",
+                    draft: sessionDraft,
+                    setDraft: setSessionDraft,
+                    testIdPrefix: "settings-session-token-cap",
+                    saved: appSettings?.session_token_cap ?? null,
+                  },
+                ]
+              ).map((row) => {
+                const rowSaving = capSaving === row.field;
+                const otherSaving = capSaving !== null && !rowSaving;
+                const savedAsString =
+                  row.saved === null ? "" : String(row.saved);
+                const dirty = row.draft.trim() !== savedAsString;
+                return (
+                  <Stack
+                    key={row.field}
+                    direction="row"
+                    spacing={1}
+                    alignItems="flex-start"
+                    data-testid={`${row.testIdPrefix}-row`}
+                  >
+                    <TextField
+                      label={row.label}
+                      value={row.draft}
+                      onChange={(e) => row.setDraft(e.target.value)}
+                      disabled={!appSettings || rowSaving || otherSaving}
+                      placeholder="Unlimited"
+                      fullWidth
+                      size="small"
+                      inputProps={{
+                        "data-testid": `${row.testIdPrefix}-input`,
+                        inputMode: "numeric",
+                        // type=text + numeric inputmode keeps the value as a
+                        // plain digit string — type=number switches very
+                        // large values into scientific notation.
+                        pattern: "[0-9]*",
+                      }}
+                      helperText={
+                        rowSaving
+                          ? "Saving…"
+                          : `${row.helper}${
+                              row.saved === null
+                                ? " Currently: unlimited."
+                                : ` Currently: ${row.saved.toLocaleString()} tokens.`
+                            }`
+                      }
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={() => void handleCapSave(row.field, row.draft)}
+                      disabled={
+                        !appSettings || rowSaving || otherSaving || !dirty
+                      }
+                      data-testid={`${row.testIdPrefix}-save`}
+                      sx={{ mt: 0.5, flexShrink: 0 }}
+                    >
+                      {rowSaving ? "Saving…" : "Save"}
+                    </Button>
+                  </Stack>
+                );
+              })}
+            </Stack>
+          </Box>
+
           <Typography variant="body2" color="text.secondary">
             Stored secrets are encrypted on this machine. Update or clear each
             value below — values are never displayed in plaintext.
@@ -328,7 +488,7 @@ export default function SettingsPanel({
       <DialogActions>
         <Button
           onClick={handleClose}
-          disabled={busyKey !== null || modelSaving}
+          disabled={busyKey !== null || modelSaving || capSaving !== null}
           data-testid="settings-close"
         >
           Close
