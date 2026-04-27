@@ -26,6 +26,7 @@ jest.mock("../src/db/tasks", () => ({
   updateTask: jest.fn(),
   getTasksByRepoId: jest.fn(),
   renewTaskLease: jest.fn(),
+  resolveTaskModel: jest.fn(),
 }));
 
 jest.mock("../src/db/acceptanceCriteria", () => ({
@@ -98,6 +99,7 @@ import {
   getChildTasks,
   getTasksByRepoId,
   renewTaskLease,
+  resolveTaskModel,
 } from "../src/db/tasks";
 import { getCriteriaByTaskId } from "../src/db/acceptanceCriteria";
 import { recordEvent } from "../src/db/taskEvents";
@@ -127,6 +129,7 @@ const runClaudeMock = runClaudeOnTask as jest.Mock;
 const getChildTasksMock = getChildTasks as jest.Mock;
 const getTasksByRepoIdMock = getTasksByRepoId as jest.Mock;
 const renewTaskLeaseMock = renewTaskLease as jest.Mock;
+const resolveTaskModelMock = resolveTaskModel as jest.Mock;
 const recordEventMock = recordEvent as jest.Mock;
 const getNotesForTaskMock = getNotesForTask as jest.Mock;
 const createNoteMock = createNote as jest.Mock;
@@ -151,6 +154,7 @@ beforeEach(() => {
   getNotesForTaskMock.mockResolvedValue([]);
   createNoteMock.mockResolvedValue({ id: 1 });
   recordTaskUsageMock.mockResolvedValue({ id: 1 });
+  resolveTaskModelMock.mockResolvedValue("claude-opus-4-7");
   // Default manifest mirrors the on-disk path the pre-Phase-10 taskRunner
   // computed inline, so existing assertions keep working unchanged.
   buildMountManifestMock.mockImplementation(async (_db, repo, reposPath) => ({
@@ -1500,5 +1504,86 @@ describe("runTask webhook firing", () => {
     // No spurious 'failed' or 'halted' calls on the success path.
     const eventsFired = triggerWebhooksMock.mock.calls.map((c) => c[3]);
     expect(eventsFired).toEqual(["done"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 11 (task #321): taskRunner resolves the effective Claude model at
+// task start (via resolveTaskModel) and forwards it to runClaudeOnTask so the
+// docker invocation can include --model <id>. The same value is logged on
+// claude_started so the events timeline shows which model the run used.
+// ---------------------------------------------------------------------------
+describe("runTask resolves and forwards the effective model", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 1,
+    parent_id: null,
+    title: "leaf",
+    description: "",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const baseRepo = {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: true,
+    local_path: "/tmp/repo",
+    created_at: new Date(),
+  };
+
+  it("calls resolveTaskModel with the running task's id", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(resolveTaskModelMock).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it("forwards the resolved model to runClaudeOnTask as `model`", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+    resolveTaskModelMock.mockResolvedValueOnce("claude-sonnet-4-6");
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    expect(runClaudeMock.mock.calls[0][0].model).toBe("claude-sonnet-4-6");
+  });
+
+  it("includes the resolved model in the claude_started event payload (so the events timeline shows what was used)", async () => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(baseRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    updateTaskMock.mockResolvedValue(baseTask);
+    resolveTaskModelMock.mockResolvedValueOnce("claude-haiku-4-5");
+
+    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    await runTask({} as any, secrets, 1, 42);
+
+    const claudeStarted = recordEventMock.mock.calls.find(
+      (c) => c[1] === 42 && c[2] === "claude_started"
+    );
+    expect(claudeStarted).toBeDefined();
+    expect(claudeStarted![3]).toMatchObject({ model: "claude-haiku-4-5" });
   });
 });
