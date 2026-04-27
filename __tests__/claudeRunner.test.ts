@@ -295,6 +295,239 @@ describe("runClaudeOnTask log capture", () => {
     expect(child.stdin.write).not.toHaveBeenCalled();
   });
 
+  // -------------------------------------------------------------------------
+  // Mount manifest — the docker invocation must bind-mount the host workDir at
+  // /workspace :rw, set the container cwd to /workspace, run with --rm so
+  // containers don't accumulate, and target the runner image's :latest tag.
+  // Phase 9 explicitly scopes the runner to a single primary-repo bind mount;
+  // no additional read-only or read-write mounts should be added here. These
+  // tests freeze that contract so a future refactor can't quietly broaden the
+  // mount surface (which would weaken the multi-repo-write story for Phase 10).
+  // -------------------------------------------------------------------------
+  it("bind-mounts the host workDir at /workspace with :rw mode", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    // The bind mount is the FIRST -v after `run`. We don't `args.indexOf("-v")`
+    // on the value side because there is exactly one -v in the no-secrets path,
+    // and the secrets path adds --tmpfs (not another -v) — so a future change
+    // that swaps order or appends an unexpected -v will trip this assertion.
+    const vIdx = args.indexOf("-v");
+    expect(vIdx).toBeGreaterThan(-1);
+    expect(args[vIdx + 1]).toBe(`${tmpRoot}:/workspace:rw`);
+    // No second -v: Phase 9 mounts only the primary repo. Adding a second mount
+    // here would silently expand the runner's blast radius.
+    expect(args.lastIndexOf("-v")).toBe(vIdx);
+  });
+
+  it("sets the container working directory to /workspace via -w", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const wIdx = args.indexOf("-w");
+    expect(wIdx).toBeGreaterThan(-1);
+    expect(args[wIdx + 1]).toBe("/workspace");
+  });
+
+  it("invokes `docker run --rm` so containers do not accumulate after each task", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args[0]).toBe("run");
+    expect(args).toContain("--rm");
+  });
+
+  it("targets the runner image at the :latest tag (refreshed by ensureRunnerImage on every build)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    // The image positional sits between the docker flags and the in-container
+    // command. `claude` is the entrypoint we pass, so the image is the slot
+    // immediately before it.
+    const claudeIdx = args.indexOf("claude");
+    expect(claudeIdx).toBeGreaterThan(0);
+    expect(args[claudeIdx - 1]).toBe("grunt/runner:latest");
+  });
+
+  it("places the workspace bind mount before the image positional (docker flag/positional ordering)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    // docker run rejects flags that appear after the image positional. This
+    // test catches a regression where someone reorders the args builder and
+    // accidentally moves -v/-w past the image.
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIdx = args.indexOf("-v");
+    const wIdx = args.indexOf("-w");
+    const imageIdx = args.indexOf("grunt/runner:latest");
+    expect(vIdx).toBeLessThan(imageIdx);
+    expect(wIdx).toBeLessThan(imageIdx);
+  });
+
+  it("uses the caller-supplied workDir verbatim (no path normalization or substitution)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    // A path with a trailing space-ish character would surface accidental
+    // string concatenation bugs ("workDir + ':/workspace'") vs. proper
+    // template-literal formation. We just need a host path distinct from the
+    // ephemeral default to confirm the value flows through unchanged.
+    const customDir = path.join(tmpRoot, "nested", "repo");
+    fs.mkdirSync(customDir, { recursive: true });
+
+    const promise = runClaudeOnTask({
+      workDir: customDir,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIdx = args.indexOf("-v");
+    expect(args[vIdx + 1]).toBe(`${customDir}:/workspace:rw`);
+  });
+
+  it("keeps the bind-mount manifest stable when secrets are also injected (mount + tmpfs coexist)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      anthropicApiKey: "sk-ant-x",
+    });
+    child.emit("close", 0);
+    await promise;
+
+    // Even with secrets in play, the workspace bind mount must remain the
+    // single -v entry and continue to point at /workspace :rw — the secrets
+    // path adds --tmpfs, not a second -v.
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const vIdx = args.indexOf("-v");
+    expect(vIdx).toBeGreaterThan(-1);
+    expect(args[vIdx + 1]).toBe(`${tmpRoot}:/workspace:rw`);
+    expect(args.lastIndexOf("-v")).toBe(vIdx);
+    expect(args).toContain("--tmpfs");
+  });
+
+  // -------------------------------------------------------------------------
+  // Stdout capture — task output drives notes parsing, usage extraction, and
+  // the persisted log file. Verify chunked, interleaved stdout/stderr is
+  // captured into the result.output buffer in arrival order.
+  // -------------------------------------------------------------------------
+  it("captures interleaved stdout and stderr chunks into result.output in arrival order", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+
+    child.stdout.emit("data", Buffer.from("chunk-1 "));
+    child.stderr.emit("data", Buffer.from("warn-A "));
+    child.stdout.emit("data", Buffer.from("chunk-2 "));
+    child.stderr.emit("data", Buffer.from("warn-B"));
+
+    await new Promise((r) => setImmediate(r));
+    child.emit("close", 0);
+    const result = await promise;
+
+    // Stdout and stderr are merged into a single buffer because both feed the
+    // notes/usage parsers, and the agent CLI emits its JSON envelope on stdout
+    // but warnings on stderr — losing either would break downstream parsing.
+    expect(result.output).toBe("chunk-1 warn-A chunk-2 warn-B");
+  });
+
+  it("captures stdout produced AFTER the first byte was already seen (cumulative buffering)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const onFirstByte = jest.fn();
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      onFirstByte,
+    });
+
+    child.stdout.emit("data", Buffer.from("first"));
+    child.stdout.emit("data", Buffer.from(" second"));
+    child.stdout.emit("data", Buffer.from(" third"));
+
+    await new Promise((r) => setImmediate(r));
+    child.emit("close", 0);
+    const result = await promise;
+
+    // The handler stops invoking onFirstByte after the first chunk; this test
+    // catches a regression where someone short-circuits the data handler
+    // entirely after firstByteSeen is true and stops appending to `output`.
+    expect(onFirstByte).toHaveBeenCalledTimes(1);
+    expect(result.output).toBe("first second third");
+  });
+
+  it("returns success=false but still surfaces captured output when the docker child errors out before close", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+
+    child.stdout.emit("data", Buffer.from("partial output before crash\n"));
+    await new Promise((r) => setImmediate(r));
+    // 'error' fires when spawn itself fails (e.g. ENOENT on docker). The
+    // existing 'docker not installed' coverage in the runner tests is
+    // implicit; this test makes the contract explicit at the runner layer.
+    child.emit("error", new Error("spawn docker ENOENT"));
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("partial output before crash");
+    expect(result.output).toContain("spawn docker ENOENT");
+    expect(result.notes).toEqual([]);
+    expect(result.usage).toBeNull();
+  });
+
   it("the prompt documents the NOTES_TO_SAVE protocol so the agent knows how to emit notes", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
