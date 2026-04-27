@@ -20,6 +20,7 @@ const spawnMock = spawn as unknown as jest.Mock;
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
+  stdin = { write: jest.fn(), end: jest.fn() };
   kill = jest.fn();
 }
 
@@ -183,7 +184,7 @@ describe("runClaudeOnTask log capture", () => {
     expect(prompt).toMatch(/task\.notes/);
   });
 
-  it("closes stdin so the CLI doesn't pause 3s waiting for piped input that never comes", async () => {
+  it("closes stdin when there are no secrets so the CLI doesn't pause 3s waiting for piped input", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
 
@@ -195,10 +196,103 @@ describe("runClaudeOnTask log capture", () => {
     await promise;
 
     // Without an explicit stdin source, claude waits 3s for piped data
-    // before printing a "no stdin received" warning and proceeding. We
-    // never write to stdin, so it must be 'ignore'.
+    // before printing a "no stdin received" warning and proceeding. With no
+    // secrets to feed the entrypoint, we close stdin via 'ignore'.
     const opts = spawnMock.mock.calls[0][2] as { stdio?: unknown };
     expect(opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
+  });
+
+  it("does not pass secret values via -e (would expose them in `docker inspect`)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      anthropicApiKey: "sk-ant-secret-value",
+      ghPat: "ghp_secret_value",
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const joined = args.join(" ");
+    // Secret values must never appear in argv. The flag-form `-e KEY=value`
+    // would surface in `docker inspect` and is the bug we're guarding against.
+    expect(joined).not.toContain("sk-ant-secret-value");
+    expect(joined).not.toContain("ghp_secret_value");
+    expect(args).not.toContain("ANTHROPIC_API_KEY");
+    expect(args).not.toContain("GH_PAT");
+  });
+
+  it("mounts a tmpfs at /run/grunt-secrets and signals the entrypoint via -e GRUNT_SECRETS_FROM_STDIN=1", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      anthropicApiKey: "sk-ant-x",
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const tmpfsIdx = args.indexOf("--tmpfs");
+    expect(tmpfsIdx).toBeGreaterThan(-1);
+    // mode=01777 lets the unprivileged `node` user create the secrets file
+    // even though docker mounts the tmpfs as root.
+    expect(args[tmpfsIdx + 1]).toMatch(/^\/run\/grunt-secrets:/);
+    expect(args[tmpfsIdx + 1]).toMatch(/mode=01777/);
+
+    // The flag (not the value) is what tells the entrypoint to read stdin.
+    const eIdx = args.indexOf("-e");
+    expect(eIdx).toBeGreaterThan(-1);
+    expect(args[eIdx + 1]).toBe("GRUNT_SECRETS_FROM_STDIN=1");
+  });
+
+  it("writes KEY=value lines for every provided secret to docker stdin", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      anthropicApiKey: "sk-ant-abc",
+      ghPat: "ghp_def",
+    });
+    child.emit("close", 0);
+    await promise;
+
+    expect(child.stdin.write).toHaveBeenCalledTimes(1);
+    const payload = child.stdin.write.mock.calls[0][0] as string;
+    expect(payload).toContain("ANTHROPIC_API_KEY=sk-ant-abc");
+    expect(payload).toContain("GH_PAT=ghp_def");
+    // Final newline so the entrypoint's `read` loop captures the last line.
+    expect(payload.endsWith("\n")).toBe(true);
+    expect(child.stdin.end).toHaveBeenCalledTimes(1);
+
+    // With secrets, stdin must be a writable pipe.
+    const opts = spawnMock.mock.calls[0][2] as { stdio?: unknown };
+    expect(opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
+  });
+
+  it("omits the tmpfs/-i/-e plumbing when no secrets are provided", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain("--tmpfs");
+    expect(args).not.toContain("-i");
+    expect(args).not.toContain("-e");
+    expect(child.stdin.write).not.toHaveBeenCalled();
   });
 
   it("the prompt documents the NOTES_TO_SAVE protocol so the agent knows how to emit notes", async () => {

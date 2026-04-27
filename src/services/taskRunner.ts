@@ -180,6 +180,7 @@ async function runTaskBody(
       workDir,
       taskPayload,
       anthropicApiKey: secrets.get("ANTHROPIC_API_KEY"),
+      ghPat: repo.github_token ?? secrets.get("GH_PAT"),
       logFilePath,
       onFirstByte: () => {
         updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
