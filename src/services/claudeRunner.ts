@@ -7,8 +7,10 @@ import {
   TaskPayload,
   TokenUsage,
 } from "../interfaces";
+import { RUNNER_IMAGE_NAME } from "./imageBuilder";
 
 const TIMEOUT_MS = 1_800_000;
+const CONTAINER_WORKSPACE = "/workspace";
 
 const VALID_VISIBILITIES: ReadonlySet<NoteVisibility> = new Set([
   "self",
@@ -219,7 +221,6 @@ export function runClaudeOnTask(options: {
   workDir: string;
   taskPayload: TaskPayload;
   anthropicApiKey?: string;
-  claudePath?: string;
   logFilePath?: string;
   onFirstByte?: () => void;
 }): Promise<{
@@ -232,7 +233,6 @@ export function runClaudeOnTask(options: {
     workDir,
     taskPayload,
     anthropicApiKey,
-    claudePath,
     logFilePath,
     onFirstByte,
   } = options;
@@ -252,9 +252,6 @@ Instructions:
 - Do not commit anything.
 - The \`task.notes\` array contains notes left by previous agents and by users that are visible to this task per the project's note-visibility rules. Read it carefully before starting — it may contain context, warnings, or follow-up guidance that affects how you should approach this task. An empty array means no notes are visible to this task.
 ${NOTES_PROTOCOL_DOC}`;
-
-  // Prefer explicit arg, then .env/process env, then PATH lookup.
-  const resolvedClaudePath = claudePath ?? process.env.CLAUDE_PATH ?? "claude";
 
   let logStream: fs.WriteStream | null = null;
   if (logFilePath) {
@@ -295,29 +292,45 @@ ${NOTES_PROTOCOL_DOC}`;
       }
     };
 
+    // The runner image was built/tagged by ensureRunnerImage before this task
+    // started, so `:latest` reliably points at the current build. The repo is
+    // bind-mounted at /workspace :rw and that's the container's cwd.
+    // ANTHROPIC_API_KEY is forwarded by name (no value in argv) so the secret
+    // never appears in `ps` output — docker reads it from our spawned env.
+    //
     // `--output-format stream-json` makes the CLI emit one JSON object per
     // event (including a `usage` block on assistant messages and the final
     // result envelope). `--verbose` is required for stream-json to include the
     // result envelope. Without these, usage is unavailable from the CLI and
     // task_usage rows can never be written.
-    const child = spawn(
-      resolvedClaudePath,
-      [
-        "--print",
-        "--dangerously-skip-permissions",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        prompt,
-      ],
-      {
-        cwd: workDir,
-        env,
-        // Without an explicit stdin source the CLI waits 3s for piped input
-        // before proceeding. We never write to stdin, so close it.
-        stdio: ["ignore", "pipe", "pipe"],
-      }
+    const dockerArgs: string[] = [
+      "run",
+      "--rm",
+      "-v",
+      `${workDir}:${CONTAINER_WORKSPACE}:rw`,
+      "-w",
+      CONTAINER_WORKSPACE,
+    ];
+    if (anthropicApiKey) {
+      dockerArgs.push("-e", "ANTHROPIC_API_KEY");
+    }
+    dockerArgs.push(
+      `${RUNNER_IMAGE_NAME}:latest`,
+      "claude",
+      "--print",
+      "--dangerously-skip-permissions",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      prompt
     );
+
+    const child = spawn("docker", dockerArgs, {
+      env,
+      // Without an explicit stdin source the CLI waits 3s for piped input
+      // before proceeding. We never write to stdin, so close it.
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     child.stdout.on("data", (data: Buffer) => {
       handleFirstByte();
