@@ -2,6 +2,22 @@ export type RepoOnFailure = "halt_repo" | "halt_subtree" | "retry" | "continue";
 export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 export type OrderingMode = "sequential" | "parallel";
 export type RepoCloneStatus = "pending" | "cloning" | "ready" | "error";
+export type RepoLinkPermission = "read" | "write";
+
+export interface RepoLink {
+  id: number;
+  repo_a_id: number;
+  repo_b_id: number;
+  role: string | null;
+  permission: RepoLinkPermission;
+  created_at: string;
+}
+
+export interface RepoLinkCreateInput {
+  other_repo_id: number;
+  role?: string | null;
+  permission?: RepoLinkPermission;
+}
 export type TaskStatus =
   | "pending"
   | "active"

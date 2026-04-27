@@ -6,6 +6,9 @@ import type {
   MaterializedTaskTree,
   Repo,
   RepoInput,
+  RepoLink,
+  RepoLinkCreateInput,
+  RepoLinkPermission,
   RepoUsageResponse,
   SetupInput,
   SetupStatus,
@@ -86,6 +89,26 @@ export const reposApi = {
     apiFetch<RepoUsageResponse>(`/api/repos/${id}/usage`),
   clone: (id: number) =>
     apiFetch<Repo>(`/api/repos/${id}/clone`, { method: "POST" }),
+  listLinks: (id: number) =>
+    apiFetch<RepoLink[]>(`/api/repos/${id}/links`),
+  createLink: (id: number, input: RepoLinkCreateInput) =>
+    apiFetch<RepoLink>(`/api/repos/${id}/links`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateLinkPermission: (
+    id: number,
+    linkId: number,
+    permission: RepoLinkPermission
+  ) =>
+    apiFetch<RepoLink>(`/api/repos/${id}/links/${linkId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ permission }),
+    }),
+  deleteLink: (id: number, linkId: number) =>
+    apiFetch<void>(`/api/repos/${id}/links/${linkId}`, {
+      method: "DELETE",
+    }),
 };
 
 export const tasksApi = {

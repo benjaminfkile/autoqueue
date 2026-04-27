@@ -520,6 +520,7 @@ export default function ReposPage() {
               </Stack>
               <RepoSettingsPanel
                 repo={settingsRepo}
+                allRepos={repos}
                 onChange={(updated) =>
                   setRepos((prev) =>
                     prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))

@@ -18,6 +18,7 @@ import type {
   RepoOnParentChildFail,
 } from "../../api/types";
 import { repoDisplayName } from "./repoDisplay";
+import LinkedReposSection from "./LinkedReposSection";
 
 const ON_FAILURE_OPTIONS: RepoOnFailure[] = [
   "halt_repo",
@@ -35,11 +36,13 @@ const ORDERING_MODE_OPTIONS: OrderingMode[] = ["sequential", "parallel"];
 export interface RepoSettingsPanelProps {
   repo: Repo;
   onChange: (repo: Repo) => void;
+  allRepos?: Repo[];
 }
 
 export default function RepoSettingsPanel({
   repo,
   onChange,
+  allRepos,
 }: RepoSettingsPanelProps) {
   const [savingField, setSavingField] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -265,6 +268,8 @@ export default function RepoSettingsPanel({
             label="Require PR before merge"
           />
         </Box>
+
+        <LinkedReposSection repo={repo} allRepos={allRepos ?? []} />
       </Stack>
     </Box>
   );
