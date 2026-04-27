@@ -283,6 +283,10 @@ export function runClaudeOnTask(options: {
   // buildMountManifest from repo_links — :ro for read-only links, :rw for
   // write-allowed ones. Anything not in this list is invisible to the container.
   contextMounts?: MountSpec[];
+  // Phase 11: the effective Claude model for this task (resolved by
+  // taskRunner via resolveTaskModel). Forwarded to the CLI as `--model <id>`
+  // so each run targets the user-selected model rather than the CLI default.
+  model?: string;
 }): Promise<{
   success: boolean;
   output: string;
@@ -297,6 +301,7 @@ export function runClaudeOnTask(options: {
     logFilePath,
     onFirstByte,
     contextMounts,
+    model,
   } = options;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -414,9 +419,18 @@ ${NOTES_PROTOCOL_DOC}`;
       "--dangerously-skip-permissions",
       "--output-format",
       "stream-json",
-      "--verbose",
-      prompt
+      "--verbose"
     );
+    // Phase 11: route the run to the resolved model. The flag is omitted when
+    // no model was supplied (defensive — taskRunner always supplies one in
+    // production, but unit tests and ad-hoc callers may not).
+    if (model && model !== "") {
+      dockerArgs.push("--model", model);
+      console.log(
+        `[claudeRunner] Running task #${taskPayload.task.id} with model: ${model}`
+      );
+    }
+    dockerArgs.push(prompt);
 
     const child = spawn("docker", dockerArgs, {
       env,

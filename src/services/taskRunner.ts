@@ -10,6 +10,7 @@ import {
   updateTask,
   getTasksByRepoId,
   renewTaskLease,
+  resolveTaskModel,
 } from "../db/tasks";
 import { getCriteriaByTaskId } from "../db/acceptanceCriteria";
 import { recordEvent } from "../db/taskEvents";
@@ -111,6 +112,14 @@ async function runTaskBody(
   // 5. Load notes visible to this task per visibility rules
   const notes = await getNotesForTask(db, task.id);
 
+  // Phase 11: resolve the effective Claude model once at task start. The walk
+  // (task.model → ancestor → settings.default_model) reads the live DB state,
+  // so the value reflects any changes made after the task was created.
+  const effectiveModel = await resolveTaskModel(db, task.id);
+  console.log(
+    `[taskRunner] Task #${task.id} resolved model: ${effectiveModel}`
+  );
+
   // 6. Build TaskPayload
   const taskPayload: TaskPayload = {
     task: {
@@ -184,7 +193,10 @@ async function runTaskBody(
     const mountManifest = await buildMountManifest(db, repo, config.REPOS_PATH);
     const workDir = mountManifest.primary.hostPath;
 
-    await recordEvent(db, task.id, "claude_started", { attempt });
+    await recordEvent(db, task.id, "claude_started", {
+      attempt,
+      model: effectiveModel,
+    });
     const logFilePath = path.join(
       config.REPOS_PATH,
       "_logs",
@@ -202,6 +214,7 @@ async function runTaskBody(
       ghPat: repo.github_token ?? secrets.get("GH_PAT"),
       logFilePath,
       contextMounts: mountManifest.context,
+      model: effectiveModel,
       onFirstByte: () => {
         updateTask(db, task.id, { log_path: logFilePath }).catch((err) => {
           console.error(

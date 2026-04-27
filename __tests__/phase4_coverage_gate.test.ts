@@ -471,6 +471,7 @@ jest.mock("../src/db/tasks", () => ({
   updateTask: jest.fn(),
   getTasksByRepoId: jest.fn(),
   renewTaskLease: jest.fn(),
+  resolveTaskModel: jest.fn().mockResolvedValue("claude-opus-4-7"),
 }));
 jest.mock("../src/db/acceptanceCriteria", () => ({
   getCriteriaByTaskId: jest.fn(),

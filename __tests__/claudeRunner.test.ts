@@ -1305,3 +1305,95 @@ describe("runClaudeOnTask usage extraction", () => {
     expect(args[args.length - 1]).toMatch(/task\.notes/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 11: --model flag wiring. taskRunner resolves the effective model
+// (task → ancestor → settings.default_model) and forwards it to runClaudeOnTask
+// as `model`. The runner must include `--model <id>` in the docker run argv so
+// the CLI invocation targets that model rather than the CLI default.
+// ---------------------------------------------------------------------------
+describe("runClaudeOnTask --model wiring", () => {
+  it("includes `--model <id>` immediately before the prompt when a model is provided", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const promise = runClaudeOnTask({
+        workDir: tmpRoot,
+        taskPayload: samplePayload,
+        model: "claude-sonnet-4-6",
+      });
+      child.emit("close", 0);
+      await promise;
+
+      const args = spawnMock.mock.calls[0][1] as string[];
+      const modelIdx = args.indexOf("--model");
+      expect(modelIdx).toBeGreaterThan(-1);
+      expect(args[modelIdx + 1]).toBe("claude-sonnet-4-6");
+      // Prompt remains the trailing positional after the flag pair.
+      expect(args[args.length - 1]).toMatch(/task\.notes/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("logs the model id at run time so logs show what was used", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const promise = runClaudeOnTask({
+        workDir: tmpRoot,
+        taskPayload: samplePayload,
+        model: "claude-haiku-4-5",
+      });
+      child.emit("close", 0);
+      await promise;
+
+      const logged = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(logged).toContain("claude-haiku-4-5");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("omits the --model flag when no model is supplied (defensive — taskRunner always supplies one in production)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain("--model");
+  });
+
+  it("places --model before the prompt positional (docker would pass any flag after the prompt as another arg to claude)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const promise = runClaudeOnTask({
+        workDir: tmpRoot,
+        taskPayload: samplePayload,
+        model: "claude-opus-4-7",
+      });
+      child.emit("close", 0);
+      await promise;
+
+      const args = spawnMock.mock.calls[0][1] as string[];
+      const modelIdx = args.indexOf("--model");
+      const promptIdx = args.length - 1;
+      expect(modelIdx).toBeLessThan(promptIdx);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
