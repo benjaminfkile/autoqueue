@@ -38,6 +38,16 @@ function installFetchMock(): ReturnType<typeof vi.fn> {
         active_workers: [],
       });
     }
+    if (url.startsWith("/api/system/runner-image")) {
+      return jsonResponse({
+        image: "grunt/runner",
+        status: "ready",
+        hash: "abc123",
+        started_at: null,
+        finished_at: null,
+        error: null,
+      });
+    }
     return jsonResponse([]);
   });
   (globalThis as unknown as { fetch: typeof fetch }).fetch =

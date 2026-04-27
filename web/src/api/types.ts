@@ -202,6 +202,22 @@ export interface WorkerStatus {
   active_workers: ActiveWorker[];
 }
 
+export type RunnerImageStatus =
+  | "idle"
+  | "checking"
+  | "building"
+  | "ready"
+  | "error";
+
+export interface RunnerImageState {
+  image: string;
+  status: RunnerImageStatus;
+  hash: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
 export interface SetupStatus {
   ready: boolean;
   configured: {

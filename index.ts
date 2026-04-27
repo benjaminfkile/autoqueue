@@ -9,6 +9,7 @@ import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
 import { startPullWorker } from "./src/services/pullWorker";
+import { ensureRunnerImage } from "./src/services/imageBuilder";
 import * as secrets from "./src/secrets";
 import morgan from "morgan";
 
@@ -87,6 +88,15 @@ async function start() {
 
     startScheduler(getDb(), appConfig);
     startPullWorker(getDb(), appConfig);
+
+    // Kick off the runner image build in the background. Don't await — the
+    // server should listen even while the (possibly multi-minute) first-time
+    // docker build runs. The /api/system/runner-image endpoint surfaces
+    // progress to the GUI, and ensureRunnerImage() coalesces with the
+    // taskRunner's pre-task call so neither path duplicates work.
+    void ensureRunnerImage(getDb()).catch((err) => {
+      console.error("[startup] ensureRunnerImage failed:", err);
+    });
 
     const server = http.createServer(app);
 

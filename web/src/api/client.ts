@@ -10,6 +10,7 @@ import type {
   RepoLinkCreateInput,
   RepoLinkPermission,
   RepoUsageResponse,
+  RunnerImageState,
   SetupInput,
   SetupStatus,
   TaskDetail,
@@ -153,6 +154,7 @@ export const notesApi = {
 
 export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
+  runnerImage: () => apiFetch<RunnerImageState>("/api/system/runner-image"),
 };
 
 export const setupApi = {
