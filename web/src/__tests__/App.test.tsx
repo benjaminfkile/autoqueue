@@ -56,6 +56,13 @@ function installFetchMock(): ReturnType<typeof vi.fn> {
         install_url: "https://www.docker.com/products/docker-desktop/",
       });
     }
+    if (url.startsWith("/api/system/capped")) {
+      return jsonResponse({
+        capped: false,
+        weekly_total: 0,
+        weekly_cap: null,
+      });
+    }
     return jsonResponse([]);
   });
   (globalThis as unknown as { fetch: typeof fetch }).fetch =

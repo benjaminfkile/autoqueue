@@ -12,13 +12,14 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import SendIcon from "@mui/icons-material/Send";
-import { chatApi, reposApi } from "../../api/client";
+import { ApiError, chatApi, reposApi } from "../../api/client";
 import type {
   ChatMessage,
   Repo,
   TaskTreeProposal,
 } from "../../api/types";
 import ProposalCard from "./ProposalCard";
+import { pingCappedStatus } from "../CappedBanner";
 
 interface ChatDrawerProps {
   open: boolean;
@@ -160,6 +161,12 @@ export default function ChatDrawer({ open, onClose }: ChatDrawerProps) {
       const aborted =
         err instanceof DOMException && err.name === "AbortError";
       if (!aborted) {
+        // A 429 from /api/chat means the weekly cap tripped. Ask the
+        // CappedBanner to refresh now so the user sees the site-wide banner
+        // appear immediately rather than waiting up to one poll interval.
+        if (err instanceof ApiError && err.status === 429) {
+          pingCappedStatus();
+        }
         const message =
           err instanceof Error ? err.message : "Chat request failed";
         setMessages((prev) =>

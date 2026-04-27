@@ -3,6 +3,7 @@ import type {
   AcceptanceCriterionUpdateInput,
   AppSettings,
   AppSettingsUpdateInput,
+  CapStatus,
   ChatMessage,
   ChatStreamEvent,
   DockerStatus,
@@ -163,6 +164,7 @@ export const systemApi = {
   workerStatus: () => apiFetch<WorkerStatus>("/api/system/worker-status"),
   runnerImage: () => apiFetch<RunnerImageState>("/api/system/runner-image"),
   docker: () => apiFetch<DockerStatus>("/api/system/docker"),
+  capped: () => apiFetch<CapStatus>("/api/system/capped"),
 };
 
 export const settingsApi = {
