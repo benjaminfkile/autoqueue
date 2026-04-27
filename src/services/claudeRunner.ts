@@ -25,6 +25,60 @@ const VALID_VISIBILITIES: ReadonlySet<NoteVisibility> = new Set([
 // agent may emit zero, one, or more blocks across the run; we collect them all.
 const NOTES_BLOCK_RE = /<NOTES_TO_SAVE>([\s\S]*?)<\/NOTES_TO_SAVE>/g;
 
+// Render the "Working environment" section of the system prompt. The agent
+// runs inside a container with a deliberately small mount surface — the
+// primary repo at /workspace :rw plus zero-or-more linked repos under
+// /context/<name>. Modes come straight from the mount manifest (which derives
+// them from repo_links.permission). The agent must know exactly which paths
+// are writable: a write to a :ro mount fails at the kernel layer (EROFS) and
+// the agent cannot recover by retrying. Repos absent from this list are not
+// mounted at all, so the agent must not assume they exist on disk.
+function buildContextLayoutDoc(contextMounts: MountSpec[]): string {
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("## Working environment");
+  lines.push("");
+  lines.push(
+    "You are running inside a container whose host-visible paths are limited to the mounts listed below. Anything not listed is invisible — do not assume other repos or directories exist on disk."
+  );
+  lines.push("");
+  lines.push(
+    "- `/workspace` (read-write) — the primary repo for this task. This is your working directory; make all required code changes here unless the task explicitly says otherwise."
+  );
+
+  if (contextMounts.length === 0) {
+    lines.push("");
+    lines.push("No additional context repos are mounted for this task.");
+    return lines.join("\n");
+  }
+
+  lines.push("");
+  lines.push("Linked repos mounted under `/context/`:");
+  for (const m of contextMounts) {
+    const label = m.mode === "rw" ? "read-write" : "read-only";
+    lines.push(`- \`${m.containerPath}\` (${label})`);
+  }
+  lines.push("");
+  lines.push(
+    "**Read-only paths (`:ro`) must not be modified.** Any write to a read-only mount will fail at the filesystem layer (EROFS / read-only filesystem). Do not retry, chmod, or try to work around the failure — treat read-only repos as reference material only."
+  );
+  lines.push("");
+  lines.push(
+    "Read-write context paths (`:rw`) may be edited, but only when the task explicitly requires cross-repo changes. When coordinating across repos:"
+  );
+  lines.push(
+    "- Make the minimum set of changes needed in each repo; keep edits in `/workspace` and any `/context/*` :rw mount consistent with each other."
+  );
+  lines.push(
+    "- Do not run `git commit`, `git push`, or any branch operation inside a `/context/*` mount — commits and merges for linked repos are handled by the task runner outside the container."
+  );
+  lines.push(
+    "- If the task does not call for changes in a writable context repo, treat it as read-only in practice and leave it untouched."
+  );
+
+  return lines.join("\n");
+}
+
 // Documentation appended to the agent prompt. Describes the structured output
 // the agent can emit to leave notes for sibling/ancestor/descendant tasks.
 const NOTES_PROTOCOL_DOC = `
@@ -258,9 +312,12 @@ export function runClaudeOnTask(options: {
   if (ghPat) secretLines.push(`GH_PAT=${ghPat}`);
   const hasSecrets = secretLines.length > 0;
 
+  const contextLayoutDoc = buildContextLayoutDoc(contextMounts ?? []);
+
   const prompt = `You are an automated coding agent. You have been assigned the following task:
 
 ${JSON.stringify(taskPayload, null, 2)}
+${contextLayoutDoc}
 
 Instructions:
 - Complete the task described above.

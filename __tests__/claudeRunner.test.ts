@@ -687,6 +687,116 @@ describe("runClaudeOnTask log capture", () => {
     expect(result.usage).toBeNull();
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase 10: the system prompt documents the per-task mount surface so the
+  // agent knows which paths exist, which are writable, and that writes to :ro
+  // mounts will fail at the kernel layer. Also delivers cross-repo coordination
+  // guidance for :rw context mounts. These tests freeze the contract between
+  // the mount manifest and what the agent is told about it.
+  // ---------------------------------------------------------------------------
+  it("the prompt names /workspace as the read-write primary repo", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    expect(prompt).toMatch(/`\/workspace`/);
+    expect(prompt).toMatch(/read-write/);
+  });
+
+  it("the prompt enumerates context mounts with their permission labels", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/lib-a", containerPath: "/context/lib-a", mode: "ro" },
+        { hostPath: "/repos/acme/lib-b", containerPath: "/context/lib-b", mode: "rw" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    // Each mount appears with its container path and a clear permission label.
+    expect(prompt).toMatch(/`\/context\/lib-a`\s*\(read-only\)/);
+    expect(prompt).toMatch(/`\/context\/lib-b`\s*\(read-write\)/);
+  });
+
+  it("the prompt explicitly warns that writes to read-only context mounts will fail", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/lib-a", containerPath: "/context/lib-a", mode: "ro" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    // The warning must surface BOTH that read-only paths must not be modified
+    // AND that writes will fail at the OS layer (EROFS), so the agent knows
+    // not to retry or look for a workaround.
+    expect(prompt).toMatch(/read-only.*must not be modified|must not.*modify.*read-only/i);
+    expect(prompt).toMatch(/EROFS|read-only filesystem|will fail/i);
+  });
+
+  it("the prompt provides cross-repo coordination guidance when context mounts are present", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [
+        { hostPath: "/repos/acme/lib-b", containerPath: "/context/lib-b", mode: "rw" },
+      ],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    // Cross-repo coordination cues: minimum-changes, no commits in /context/*,
+    // and the steer that :rw context isn't carte blanche to edit.
+    expect(prompt).toMatch(/cross-repo|coordinat/i);
+    expect(prompt).toMatch(/git commit|commits.*outside the container|task runner/i);
+  });
+
+  it("the prompt notes when no context repos are mounted (so the agent doesn't hallucinate /context/*)", async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = runClaudeOnTask({
+      workDir: tmpRoot,
+      taskPayload: samplePayload,
+      contextMounts: [],
+    });
+    child.emit("close", 0);
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const prompt = args[args.length - 1];
+    expect(prompt).toMatch(/No additional context repos are mounted/i);
+    // No fake /context/<name> entries should sneak in.
+    expect(prompt).not.toMatch(/`\/context\/[a-z]/);
+  });
+
   it("the prompt documents the NOTES_TO_SAVE protocol so the agent knows how to emit notes", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
