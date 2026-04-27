@@ -405,7 +405,10 @@ reposRouter.post("/:id/clone", async (req: Request, res: Response) => {
 });
 
 // POST /api/repos/:id/materialize-tree — atomically create a proposed task
-// tree (parents → children → acceptance criteria) under this repo.
+// tree (parents → children → acceptance criteria) under this repo. Top-level
+// parents may set their own `repo_id` to target a directly-linked sibling
+// repo, mirroring the chat planner's multi-repo proposals; any such id must
+// be either this repo's id or one of its directly-linked repos (single hop).
 reposRouter.post("/:id/materialize-tree", async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -419,7 +422,9 @@ reposRouter.post("/:id/materialize-tree", async (req: Request, res: Response) =>
       return res.status(404).json({ error: "Repo not found" });
     }
 
-    const validation = validateTaskTreeProposal(req.body);
+    const allowedRepoIds = await collectAllowedRepoIds(db, id);
+
+    const validation = validateTaskTreeProposal(req.body, { allowedRepoIds });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
@@ -430,6 +435,22 @@ reposRouter.post("/:id/materialize-tree", async (req: Request, res: Response) =>
     return res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// Build the in-scope repo id set for materialize-tree: this repo plus any
+// repo it is directly linked to. Single-hop only — same scoping rule the
+// chat planner uses, so a proposal that the chat accepted can be replayed
+// here without surprise rejections.
+async function collectAllowedRepoIds(
+  db: ReturnType<typeof getDb>,
+  primaryId: number
+): Promise<number[]> {
+  const links = await listLinksForRepo(db, primaryId);
+  const ids = new Set<number>([primaryId]);
+  for (const link of links) {
+    ids.add(link.repo_a_id === primaryId ? link.repo_b_id : link.repo_a_id);
+  }
+  return Array.from(ids);
+}
 
 // POST /api/repos/:id/instantiate-template/:templateId — replay a saved
 // template into this repo as a fresh task tree. Validates the stored proposal

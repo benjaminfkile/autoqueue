@@ -483,6 +483,68 @@ describe("validateTaskTreeProposal", () => {
     if (!r.valid)
       expect(r.error).toMatch(/parents\[0\].children\[1\]/);
   });
+
+  // ---- task #304: per-parent repo_id ----
+  it("AC #1097 — accepts a top-level node with a repo_id", () => {
+    const r = validateTaskTreeProposal({
+      parents: [{ title: "Frontend work", repo_id: 8 }],
+    });
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.proposal.parents[0].repo_id).toBe(8);
+  });
+
+  it("AC #1097 — rejects a non-integer repo_id", () => {
+    const r = validateTaskTreeProposal({
+      parents: [{ title: "T", repo_id: 3.14 }],
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid) expect(r.error).toMatch(/repo_id/);
+  });
+
+  it("AC #1097 — rejects repo_id on a child node (children inherit their parent's repo)", () => {
+    const r = validateTaskTreeProposal({
+      parents: [
+        {
+          title: "Parent",
+          children: [{ title: "Child", repo_id: 9 }],
+        },
+      ],
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.error).toMatch(/repo_id/);
+      expect(r.error).toMatch(/parents\[0\]\.children\[0\]/);
+    }
+  });
+
+  it("AC #1099 — rejects a top-level repo_id outside the allowedRepoIds set", () => {
+    const r = validateTaskTreeProposal(
+      { parents: [{ title: "T", repo_id: 99 }] },
+      { allowedRepoIds: [7, 8] }
+    );
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.error).toMatch(/repo_id/);
+      expect(r.error).toMatch(/not in scope/);
+      expect(r.error).toMatch(/7, 8/);
+    }
+  });
+
+  it("AC #1099 — accepts a top-level repo_id inside the allowedRepoIds set", () => {
+    const r = validateTaskTreeProposal(
+      { parents: [{ title: "T", repo_id: 8 }] },
+      { allowedRepoIds: [7, 8] }
+    );
+    expect(r.valid).toBe(true);
+  });
+
+  it("with allowedRepoIds set, parents that omit repo_id are still accepted", () => {
+    const r = validateTaskTreeProposal(
+      { parents: [{ title: "T" }] },
+      { allowedRepoIds: [7, 8] }
+    );
+    expect(r.valid).toBe(true);
+  });
 });
 
 describe("streamChatEvents", () => {
@@ -1457,5 +1519,196 @@ describe("streamChatEvents — list_repos and scope enforcement (Phase 8 task #3
     }
 
     expect(readFileMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PROPOSE_TASK_TREE_TOOL definition — task #304 (per-parent repo_id)", () => {
+  it("AC #1097 — top-level parent items declare an optional integer repo_id", () => {
+    const schema = PROPOSE_TASK_TREE_TOOL.input_schema as {
+      $defs?: {
+        top_level_task_node?: {
+          properties?: { repo_id?: { type?: string; minimum?: number } };
+        };
+      };
+      properties?: {
+        parents?: { items?: { $ref?: string } };
+      };
+    };
+    // Parents reference the top-level node schema (which includes repo_id)
+    // — NOT the recursive task_node schema (which does not).
+    expect(schema.properties?.parents?.items?.$ref).toBe(
+      "#/$defs/top_level_task_node"
+    );
+    const repoIdProp = schema.$defs?.top_level_task_node?.properties?.repo_id;
+    expect(repoIdProp?.type).toBe("integer");
+    expect(repoIdProp?.minimum).toBe(1);
+  });
+});
+
+describe("streamChatEvents — propose_task_tree scope enforcement (task #304)", () => {
+  // Local helpers — duplicated here so the block is self-contained even if the
+  // upstream describe-scoped helpers are reorganized later.
+  type Block =
+    | { kind: "text"; text: string }
+    | { kind: "tool_use"; id: string; name: string; input: unknown };
+
+  function buildStream(blocks: Block[]): AnthropicStreamEvent[] {
+    const out: AnthropicStreamEvent[] = [{ type: "message_start" }];
+    blocks.forEach((b, i) => {
+      if (b.kind === "text") {
+        out.push({
+          type: "content_block_start",
+          index: i,
+          content_block: { type: "text" },
+        });
+        out.push({
+          type: "content_block_delta",
+          index: i,
+          delta: { type: "text_delta", text: b.text },
+        });
+        out.push({ type: "content_block_stop", index: i });
+      } else {
+        out.push({
+          type: "content_block_start",
+          index: i,
+          content_block: { type: "tool_use", id: b.id, name: b.name },
+        });
+        out.push({
+          type: "content_block_delta",
+          index: i,
+          delta: {
+            type: "input_json_delta",
+            partial_json: JSON.stringify(b.input),
+          },
+        });
+        out.push({ type: "content_block_stop", index: i });
+      }
+    });
+    out.push({ type: "message_stop" });
+    return out;
+  }
+
+  function fakeClient(turns: AnthropicStreamEvent[][]): {
+    client: AnthropicLike;
+    create: jest.Mock;
+  } {
+    const create = jest.fn();
+    for (const events of turns) {
+      create.mockResolvedValueOnce(toAsyncIterable(events));
+    }
+    create.mockResolvedValue(toAsyncIterable([]));
+    return { client: { messages: { create } }, create };
+  }
+
+  const scope: ChatRepoScope = {
+    primary_repo_id: 7,
+    repos: [
+      { id: 7, slug: "acme/widgets", is_primary: true, role: null },
+      { id: 8, slug: "acme/ui", is_primary: false, role: "frontend" },
+    ],
+  };
+
+  it("AC #1097 — accepts a multi-repo proposal whose top-level repo_ids are all in scope", async () => {
+    const proposal = {
+      parents: [
+        { title: "Backend changes", repo_id: 7 },
+        { title: "Frontend changes", repo_id: 8 },
+      ],
+    };
+    const { client } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_p",
+          name: "propose_task_tree",
+          input: proposal,
+        },
+      ]),
+    ]);
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "plan across" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ type: "proposal", proposal });
+  });
+
+  it("AC #1099 — emits proposal_error when a top-level repo_id is outside the chat's scope", async () => {
+    const proposal = {
+      parents: [
+        { title: "Backend", repo_id: 7 },
+        // 99 is not in scope (scope = {7, 8}). Even if 99 were transitively
+        // reachable via a link, the chat planner must not be allowed to
+        // target it — that would silently bypass the per-link permission
+        // boundary the user authorized.
+        { title: "Sneaky", repo_id: 99 },
+      ],
+    };
+    const { client } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_p",
+          name: "propose_task_tree",
+          input: proposal,
+        },
+      ]),
+    ]);
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "plan" }],
+      client,
+      repoToolsContext: { db: {} as never, reposPath: "/r", scope },
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe("proposal_error");
+    if (out[0].type === "proposal_error") {
+      expect(out[0].error).toMatch(/repo_id/);
+      expect(out[0].error).toMatch(/not in scope/);
+    }
+  });
+
+  it("absent a scope, a proposal with any repo_id is accepted (back-compat)", async () => {
+    const proposal = {
+      parents: [{ title: "Anywhere", repo_id: 12345 }],
+    };
+    const { client } = fakeClient([
+      buildStream([
+        {
+          kind: "tool_use",
+          id: "tu_p",
+          name: "propose_task_tree",
+          input: proposal,
+        },
+      ]),
+    ]);
+
+    const out: ChatStreamEvent[] = [];
+    for await (const e of streamChatEvents({
+      apiKey: "x",
+      system: "sys",
+      messages: [{ role: "user", content: "no scope plan" }],
+      client,
+      // No repoToolsContext — therefore no scope to enforce against.
+    })) {
+      out.push(e);
+    }
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ type: "proposal", proposal });
   });
 });

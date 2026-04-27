@@ -123,6 +123,7 @@ describe("ProposalCard", () => {
           title: "Renamed",
           parent_id: null,
           order_position: 0,
+          repo_id: 3,
           acceptance_criteria_ids: [],
           children: [],
         },

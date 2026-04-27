@@ -204,6 +204,10 @@ export interface ProposedTaskNode {
   description?: string;
   acceptance_criteria?: string[];
   children?: ProposedTaskNode[];
+  // Top-level proposed parents may target a specific repo (the chat's
+  // primary repo or one of its directly-linked siblings). Children always
+  // inherit their parent's repo, so this is only meaningful at the top level.
+  repo_id?: number;
 }
 
 export interface TaskTreeProposal {
@@ -215,6 +219,7 @@ export interface MaterializedTaskNode {
   title: string;
   parent_id: number | null;
   order_position: number;
+  repo_id: number;
   acceptance_criteria_ids: number[];
   children: MaterializedTaskNode[];
 }
