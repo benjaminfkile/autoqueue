@@ -6,10 +6,41 @@ import { claimNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
 import { recordEvent } from "../db/taskEvents";
 import { runTask } from "./taskRunner";
 import { refreshDockerState } from "./dockerProbe";
+import { getWeeklyTokens } from "../db/usageAggregations";
+import { getSettings } from "../db/settings";
 
 const LEASE_SECONDS = 30 * 60;
 
 export const WORKER_ID = `${os.hostname()}:${process.pid}`;
+
+// Snapshot of the current weekly-cap evaluation. The scheduler refreshes this
+// every time it considers claiming a task, and the systemRouter exposes the
+// fresh value via GET /api/system/capped so the SPA can render a banner /
+// disable controls without polling the worker over a side channel.
+export interface CapStatus {
+  capped: boolean;
+  weekly_total: number;
+  weekly_cap: number | null;
+}
+
+// Re-reads the weekly cap and the trailing-7-day token total in one call. A
+// null cap means "unlimited" → never capped, regardless of usage. The check
+// is `>=` (not `>`) so once usage hits the cap exactly we stop claiming —
+// matching the chat-router check (sibling task #329) which uses the same
+// threshold to block new turns.
+export async function evaluateCapStatus(
+  db: Knex,
+  now: Date = new Date()
+): Promise<CapStatus> {
+  const settings = await getSettings(db);
+  const cap = settings.weekly_token_cap;
+  const usage = await getWeeklyTokens(db, now);
+  return {
+    capped: cap !== null && usage.total >= cap,
+    weekly_total: usage.total,
+    weekly_cap: cap,
+  };
+}
 
 export async function buildWorkQueue(
   db: Knex,
@@ -20,6 +51,18 @@ export async function buildWorkQueue(
   const queue: Array<{ repoId: number; taskId: number }> = [];
 
   for (const repo of repos) {
+    // Re-check the weekly cap before each claim so a cycle that crosses the
+    // threshold partway through stops claiming new work mid-loop. In-flight
+    // tasks are unaffected — runTask runs after this loop returns and we
+    // never preempt a running task here.
+    const status = await evaluateCapStatus(db);
+    if (status.capped) {
+      console.log(
+        `[scheduler] capped — weekly tokens ${status.weekly_total} >= cap ${status.weekly_cap}. Skipping new claims until next cycle.`
+      );
+      break;
+    }
+
     const task = await claimNextPendingLeafTask(db, repo.id, workerId, leaseSeconds);
     if (task) {
       await recordEvent(db, task.id, "claimed", { worker_id: workerId });

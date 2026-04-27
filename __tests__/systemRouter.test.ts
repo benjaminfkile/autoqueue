@@ -36,7 +36,14 @@ jest.mock("../src/services/dockerProbe", () => ({
 }));
 import { refreshDockerState } from "../src/services/dockerProbe";
 
-import { WORKER_ID } from "../src/services/scheduler";
+jest.mock("../src/services/scheduler", () => {
+  const actual = jest.requireActual("../src/services/scheduler");
+  return {
+    ...actual,
+    evaluateCapStatus: jest.fn(),
+  };
+});
+import { WORKER_ID, evaluateCapStatus } from "../src/services/scheduler";
 
 const ORIGINAL_IS_WORKER = process.env.IS_WORKER;
 
@@ -290,6 +297,68 @@ describe("systemRouter GET /api/system/docker", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/spawn failed/);
+  });
+});
+
+describe("systemRouter GET /api/system/capped", () => {
+  it("returns capped=false with the current usage and cap when usage is below the cap", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: false,
+      weekly_total: 500,
+      weekly_cap: 1000,
+    });
+
+    const res = await request(app).get("/api/system/capped");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      capped: false,
+      weekly_total: 500,
+      weekly_cap: 1000,
+    });
+  });
+
+  it("returns capped=true when usage has reached the weekly cap", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: true,
+      weekly_total: 1500,
+      weekly_cap: 1000,
+    });
+
+    const res = await request(app).get("/api/system/capped");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      capped: true,
+      weekly_total: 1500,
+      weekly_cap: 1000,
+    });
+  });
+
+  it("returns capped=false with weekly_cap=null when no cap is configured (unlimited)", async () => {
+    (evaluateCapStatus as jest.Mock).mockResolvedValue({
+      capped: false,
+      weekly_total: 999_999,
+      weekly_cap: null,
+    });
+
+    const res = await request(app).get("/api/system/capped");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      capped: false,
+      weekly_total: 999_999,
+      weekly_cap: null,
+    });
+  });
+
+  it("returns 500 with the error message when the cap evaluation throws", async () => {
+    (evaluateCapStatus as jest.Mock).mockRejectedValue(new Error("db down"));
+
+    const res = await request(app).get("/api/system/capped");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/db down/);
   });
 });
 
