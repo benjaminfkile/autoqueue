@@ -15,6 +15,7 @@ import chatRouter from "./routers/chatRouter";
 import templatesRouter from "./routers/templatesRouter";
 import setupRouter from "./routers/setupRouter";
 import settingsRouter from "./routers/settingsRouter";
+import usageRouter from "./routers/usageRouter";
 
 const app: Express = express();
 
@@ -31,6 +32,7 @@ app.use("/api/tasks", tasksRouter);
 app.use("/api/system", systemRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/templates", templatesRouter);
+app.use("/api/usage", usageRouter);
 
 // Static SPA serving for the React + MUI GUI built under /web/dist.
 // Resolves both when running compiled (<repo>/dist/src/app.js) and when

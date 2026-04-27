@@ -156,6 +156,31 @@ export interface RepoUsageResponse {
   totals: TokenUsageTotals;
 }
 
+// Phase 12 usage dashboard payload. `weekly_cap === null` means "unlimited"
+// (the SPA renders that as "—" or hides the cap row); `weekly_total` is
+// directly comparable against `weekly_cap` because both sum the same four
+// token categories. `daily` is a contiguous trailing-30-day timeline with
+// zero-filled days, so the chart can render bars by index without re-deriving
+// the date axis.
+export interface DailyUsageBucket {
+  date: string;
+  total: number;
+}
+
+export interface WeeklyUsageBreakdown {
+  input: number;
+  output: number;
+  cache_creation: number;
+  cache_read: number;
+}
+
+export interface WeeklyUsageResponse {
+  weekly_total: number;
+  weekly_cap: number | null;
+  weekly_breakdown: WeeklyUsageBreakdown;
+  daily: DailyUsageBucket[];
+}
+
 // Phase 11: shape returned by GET /api/tasks/:id/effective-model. `source` is
 // where the resolved model came from:
 //   - 'override' → the task itself has a non-empty model column.

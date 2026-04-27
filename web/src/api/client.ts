@@ -25,6 +25,7 @@ import type {
   TaskTreeProposal,
   TaskUpdateInput,
   TaskUsageResponse,
+  WeeklyUsageResponse,
   WorkerStatus,
 } from "./types";
 
@@ -171,6 +172,10 @@ export const settingsApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+};
+
+export const usageApi = {
+  weekly: () => apiFetch<WeeklyUsageResponse>("/api/usage/weekly"),
 };
 
 export const setupApi = {

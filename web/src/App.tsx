@@ -18,10 +18,12 @@ import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import ChatIcon from "@mui/icons-material/Chat";
 import SettingsIcon from "@mui/icons-material/Settings";
+import InsightsIcon from "@mui/icons-material/Insights";
 import ReposPage from "./pages/ReposPage";
 import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
 import SettingsPanel from "./pages/SettingsPanel";
+import UsageDashboard from "./pages/UsageDashboard";
 import RunnerImageBanner from "./pages/RunnerImageBanner";
 import DockerStatusBanner from "./pages/DockerStatusBanner";
 import ThemeToggle from "./theme/ThemeToggle";
@@ -44,6 +46,7 @@ export default function App() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const refreshSetup = useCallback(async () => {
@@ -139,6 +142,16 @@ export default function App() {
               <ChatIcon />
             </IconButton>
           </Tooltip>
+          <Tooltip title="Usage">
+            <IconButton
+              aria-label="Open usage dashboard"
+              onClick={() => setUsageOpen(true)}
+              sx={{ ml: 1 }}
+              data-testid="usage-button"
+            >
+              <InsightsIcon />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Settings">
             <IconButton
               ref={settingsButtonRef}
@@ -188,6 +201,7 @@ export default function App() {
         <ReposPage />
       </Container>
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      <UsageDashboard open={usageOpen} onClose={() => setUsageOpen(false)} />
       {setupStatus && (
         <SettingsPanel
           open={settingsOpen}
