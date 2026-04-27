@@ -76,6 +76,7 @@ const makeTask = (overrides: Partial<Task>): Task => ({
   ordering_mode: null,
   log_path: null,
   requires_approval: false,
+  model: null,
   created_at: new Date("2026-04-10T00:00:00Z"),
   ...overrides,
 });

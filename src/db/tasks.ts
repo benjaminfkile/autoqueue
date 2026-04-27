@@ -1,5 +1,6 @@
 import { Knex } from "knex";
 import { OrderingMode, RepoOnParentChildFail, Task } from "../interfaces";
+import { getDefaultModel } from "./settings";
 
 export async function getTasksByRepoId(
   db: Knex,
@@ -35,6 +36,7 @@ export async function createTask(
     description?: string;
     order_position?: number;
     ordering_mode?: OrderingMode | null;
+    model?: string | null;
   }
 ): Promise<Task> {
   let orderPosition = data.order_position;
@@ -64,6 +66,7 @@ export async function createTask(
       description: data.description ?? "",
       order_position: orderPosition,
       ordering_mode: data.ordering_mode ?? null,
+      model: data.model ?? null,
     })
     .returning("*");
 
@@ -85,6 +88,7 @@ export async function updateTask(
       | "ordering_mode"
       | "log_path"
       | "requires_approval"
+      | "model"
     >
   >
 ): Promise<Task> {
@@ -323,3 +327,43 @@ export async function autoCompleteParentTasks(
 
   return totalUpdated;
 }
+
+// Phase 11: resolve the effective Claude model for a task.
+//
+// Resolution rule (the chosen, documented contract):
+//   1. The task's own `model` column, if non-null.
+//   2. Otherwise, walk the parent_id chain and return the first ancestor
+//      whose `model` is non-null. This means a parent's override applies to
+//      its entire subtree unless a descendant overrides it again.
+//   3. Otherwise, fall back to settings.default_model (the single-row
+//      app-wide default).
+//
+// Storing each task's model nullable (rather than denormalising the resolved
+// value at create time) keeps inheritance live: editing a parent's model
+// instantly re-routes every descendant that hasn't itself opted out, and
+// clearing a child's model snaps it back to whatever the ancestor/default
+// currently resolves to. The walk is bounded by the depth of the tree and
+// in practice issues at most O(depth) cheap point reads on tasks.
+export async function resolveTaskModel(
+  db: Knex,
+  taskId: number
+): Promise<string> {
+  const visited = new Set<number>();
+  let currentId: number | null = taskId;
+
+  while (currentId !== null && !visited.has(currentId)) {
+    visited.add(currentId);
+    const row: Pick<Task, "model" | "parent_id"> | undefined = await db<Task>(
+      "tasks"
+    )
+      .select("model", "parent_id")
+      .where({ id: currentId })
+      .first();
+    if (!row) break;
+    if (row.model != null && row.model !== "") return row.model;
+    currentId = row.parent_id;
+  }
+
+  return getDefaultModel(db);
+}
+

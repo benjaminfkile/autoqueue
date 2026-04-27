@@ -88,6 +88,10 @@ export interface Task {
   ordering_mode: OrderingMode | null;
   log_path: string | null;
   requires_approval: boolean;
+  // Phase 11: per-task Claude model override. NULL means "inherit"; the
+  // effective model is resolved by walking parent_id, then falling back to
+  // settings.default_model (see db/tasks.ts → resolveTaskModel).
+  model: string | null;
   created_at: Date;
 }
 

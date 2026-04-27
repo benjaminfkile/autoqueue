@@ -211,6 +211,7 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
       ordering_mode: null,
       log_path: null,
       requires_approval: false,
+      model: null,
       created_at: new Date(),
     };
     const claimMock = jest
@@ -897,6 +898,7 @@ describe("Phase 7 — webhook retry logic (AC #876)", () => {
       ordering_mode: null,
       log_path: null,
       requires_approval: false,
+      model: null,
       created_at: new Date(),
     };
     const subscribed: RepoWebhook = {

@@ -49,6 +49,7 @@ const baseTask: Task = {
   ordering_mode: null,
   log_path: null,
   requires_approval: false,
+  model: null,
   created_at: new Date(),
 };
 

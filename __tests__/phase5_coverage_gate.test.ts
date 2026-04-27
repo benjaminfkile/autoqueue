@@ -158,6 +158,7 @@ const taskFixture: Task = {
   ordering_mode: null,
   log_path: null,
   requires_approval: false,
+  model: null,
   created_at: new Date("2026-04-20T00:00:00Z"),
 };
 

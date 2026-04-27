@@ -80,6 +80,7 @@ export interface TaskUpdateInput {
   status?: TaskStatus;
   ordering_mode?: OrderingMode | null;
   requires_approval?: boolean;
+  model?: string | null;
 }
 
 export interface AcceptanceCriterion {
@@ -119,6 +120,9 @@ export interface TaskDetail {
   ordering_mode: OrderingMode | null;
   log_path: string | null;
   requires_approval: boolean;
+  // Phase 11: per-task Claude model override. NULL → inherit from the nearest
+  // ancestor with a model set, else fall back to the app-wide default_model.
+  model: string | null;
   created_at: string;
   acceptanceCriteria: AcceptanceCriterion[];
   children: TaskChildSummary[];
