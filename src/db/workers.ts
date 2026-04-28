@@ -9,18 +9,21 @@ export interface ActiveWorkerRow {
 }
 
 export async function getActiveWorkers(db: Knex): Promise<ActiveWorkerRow[]> {
-  const result = await db.raw<{ rows: ActiveWorkerRow[] }>(
-    `SELECT t.worker_id AS worker_id,
-            t.id AS task_id,
-            t.title AS task_title,
-            t.repo_id AS repo_id,
-            t.leased_until AS leased_until
-     FROM tasks t
-     WHERE t.status = 'active'
-       AND t.worker_id IS NOT NULL
-       AND t.leased_until IS NOT NULL
-       AND t.leased_until > NOW()
-     ORDER BY t.worker_id ASC, t.id ASC`
-  );
-  return result.rows;
+  const now = new Date().toISOString();
+  return db("tasks")
+    .select<ActiveWorkerRow[]>(
+      "worker_id",
+      { task_id: "id" },
+      { task_title: "title" },
+      "repo_id",
+      "leased_until"
+    )
+    .where("status", "active")
+    .whereNotNull("worker_id")
+    .whereNotNull("leased_until")
+    .where("leased_until", ">", now)
+    .orderBy([
+      { column: "worker_id", order: "asc" },
+      { column: "id", order: "asc" },
+    ]);
 }

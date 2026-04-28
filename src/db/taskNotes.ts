@@ -85,7 +85,7 @@ export async function getNotesForTask(
        OR (
          n.visibility = 'siblings'
          AND n.task_id != target.id
-         AND nt.parent_id IS NOT DISTINCT FROM target.parent_id
+         AND nt.parent_id IS target.parent_id
          AND nt.repo_id = target.repo_id
        )
        OR (
