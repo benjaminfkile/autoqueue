@@ -73,6 +73,17 @@ export interface TaskSummary {
   created_at: string;
 }
 
+export interface TaskCreateInput {
+  repo_id: number;
+  parent_id?: number | null;
+  title: string;
+  description?: string;
+  order_position?: number;
+  ordering_mode?: OrderingMode;
+  model?: string | null;
+  acceptanceCriteria?: string[];
+}
+
 export interface TaskUpdateInput {
   title?: string;
   description?: string;
@@ -90,6 +101,11 @@ export interface AcceptanceCriterion {
   order_position: number;
   met: boolean;
   created_at: string;
+}
+
+export interface AcceptanceCriterionCreateInput {
+  description: string;
+  order_position?: number;
 }
 
 export interface AcceptanceCriterionUpdateInput {
@@ -332,6 +348,21 @@ export interface MaterializedTaskNode {
 
 export interface MaterializedTaskTree {
   parents: MaterializedTaskNode[];
+}
+
+export interface TaskTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  tree: ProposedTaskNode[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskTemplateSaveInput {
+  name: string;
+  description?: string | null;
+  tree: ProposedTaskNode[];
 }
 
 export type ChatRole = "user" | "assistant";
