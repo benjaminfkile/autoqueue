@@ -25,7 +25,7 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
 import Button from "@mui/material/Button";
 import { notesApi, tasksApi, templatesApi } from "../../api/client";
-import type { TaskStatus, TaskSummary } from "../../api/types";
+import type { TaskEffectiveModel, TaskStatus, TaskSummary } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
 
@@ -63,6 +63,7 @@ export interface TaskTreeViewProps {
   onAddTask?: () => void;
   onAddPhase?: () => void;
   onEdit?: (task: TaskSummary) => void;
+  onEditFocusModel?: (task: TaskSummary) => void;
   refreshTrigger?: number;
 }
 
@@ -74,6 +75,7 @@ export default function TaskTreeView({
   onAddTask,
   onAddPhase,
   onEdit,
+  onEditFocusModel,
   refreshTrigger,
 }: TaskTreeViewProps) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -84,6 +86,12 @@ export default function TaskTreeView({
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
   const [noteCountByTaskId, setNoteCountByTaskId] = useState<Record<number, number>>({});
+  const [criteriaSummaryByTaskId, setCriteriaSummaryByTaskId] = useState<
+    Record<number, { met: number; total: number }>
+  >({});
+  const [effectiveModelByTaskId, setEffectiveModelByTaskId] = useState<
+    Record<number, TaskEffectiveModel>
+  >({});
 
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -108,9 +116,49 @@ export default function TaskTreeView({
     setNoteCountByTaskId(counts);
   }, []);
 
+  const fetchCriteriaSummaries = useCallback(async (taskList: TaskSummary[]) => {
+    if (taskList.length === 0) return;
+    const summaries: Record<number, { met: number; total: number }> = {};
+    await Promise.allSettled(
+      taskList.map(async (t) => {
+        try {
+          const criteria = await tasksApi.criteria.list(t.id);
+          if (criteria.length > 0) {
+            summaries[t.id] = {
+              total: criteria.length,
+              met: criteria.filter((c) => c.met).length,
+            };
+          }
+        } catch {
+          // silently ignored — chip simply won't show for this task
+        }
+      })
+    );
+    setCriteriaSummaryByTaskId(summaries);
+  }, []);
+
+  const fetchEffectiveModels = useCallback(async (taskList: TaskSummary[]) => {
+    if (taskList.length === 0) return;
+    const models: Record<number, TaskEffectiveModel> = {};
+    await Promise.allSettled(
+      taskList.map(async (t) => {
+        try {
+          const em = await tasksApi.effectiveModel(t.id);
+          if (em && em.source !== "default") {
+            models[t.id] = em;
+          }
+        } catch {
+          // silently ignored
+        }
+      })
+    );
+    setEffectiveModelByTaskId(models);
+  }, []);
+
   const load = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; refreshExtras?: boolean }) => {
       const silent = opts?.silent ?? false;
+      const refreshExtras = opts?.refreshExtras ?? false;
       if (!silent) {
         setLoading(true);
         setLoadError(null);
@@ -119,6 +167,13 @@ export default function TaskTreeView({
         const list = await tasksApi.listByRepo(repoId);
         setTasks(list);
         void fetchNoteCounts(list);
+        // Criteria and effective-model data are only fetched on initial/explicit
+        // loads — not on every silent poll tick — to avoid N×2 requests per
+        // second per open repo panel.
+        if (!silent || refreshExtras) {
+          void fetchCriteriaSummaries(list);
+          void fetchEffectiveModels(list);
+        }
         if (!silent) {
           // Auto-expand root tasks on the initial (visible) load. Polling
           // refreshes intentionally skip this so a user-driven collapse is
@@ -146,17 +201,18 @@ export default function TaskTreeView({
         }
       }
     },
-    [repoId, fetchNoteCounts]
+    [repoId, fetchNoteCounts, fetchCriteriaSummaries, fetchEffectiveModels]
   );
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Re-fetch when a task is created externally (e.g. from NewTaskDialog)
+  // Re-fetch when a task is created externally (e.g. from NewTaskDialog).
+  // Also refresh criteria/model data since the new/updated task may have them.
   useEffect(() => {
     if (refreshTrigger === undefined || refreshTrigger === 0) return;
-    void load({ silent: true });
+    void load({ silent: true, refreshExtras: true });
   }, [refreshTrigger, load]);
 
   const pollFetcher = useCallback(() => load({ silent: true }), [load]);
@@ -431,6 +487,7 @@ export default function TaskTreeView({
             onViewDetail={onViewDetail}
             onAddChild={onAddChild}
             onEdit={onEdit}
+            onEditFocusModel={onEditFocusModel}
             draggingId={draggingId}
             dropTargetId={dropTargetId}
             setDraggingId={setDraggingId}
@@ -438,6 +495,8 @@ export default function TaskTreeView({
             onReorder={handleReorder}
             selectedTaskId={selectedTaskId}
             noteCountByTaskId={noteCountByTaskId}
+            criteriaSummaryByTaskId={criteriaSummaryByTaskId}
+            effectiveModelByTaskId={effectiveModelByTaskId}
           />
         ))}
       </Stack>
@@ -522,6 +581,7 @@ interface TaskTreeNodeProps {
   onViewDetail?: (task: TaskSummary) => void;
   onAddChild?: (task: TaskSummary) => void;
   onEdit?: (task: TaskSummary) => void;
+  onEditFocusModel?: (task: TaskSummary) => void;
   draggingId: number | null;
   dropTargetId: number | null;
   setDraggingId: (id: number | null) => void;
@@ -529,6 +589,12 @@ interface TaskTreeNodeProps {
   onReorder: (sourceId: number, targetId: number) => void;
   selectedTaskId: number | null;
   noteCountByTaskId: Record<number, number>;
+  criteriaSummaryByTaskId: Record<number, { met: number; total: number }>;
+  effectiveModelByTaskId: Record<number, TaskEffectiveModel>;
+}
+
+function abbreviateModel(model: string): string {
+  return model.replace(/^claude[-_]/i, "");
 }
 
 function TaskTreeNode({
@@ -542,6 +608,7 @@ function TaskTreeNode({
   onViewDetail,
   onAddChild,
   onEdit,
+  onEditFocusModel,
   draggingId,
   dropTargetId,
   setDraggingId,
@@ -549,9 +616,13 @@ function TaskTreeNode({
   onReorder,
   selectedTaskId,
   noteCountByTaskId,
+  criteriaSummaryByTaskId,
+  effectiveModelByTaskId,
 }: TaskTreeNodeProps) {
   const { task, children } = node;
   const noteCount = noteCountByTaskId[task.id] ?? 0;
+  const criteriaSummary = criteriaSummaryByTaskId[task.id];
+  const effectiveModel = effectiveModelByTaskId[task.id];
   const hasChildren = children.length > 0;
   const isExpanded = expanded.has(task.id);
   const isDragging = draggingId === task.id;
@@ -656,6 +727,63 @@ function TaskTreeNode({
             }}
           />
         )}
+        {criteriaSummary && criteriaSummary.total > 0 && (
+          <Tooltip
+            title={`${criteriaSummary.met} of ${criteriaSummary.total} acceptance criteria met`}
+          >
+            <Chip
+              size="small"
+              label={`${criteriaSummary.met}/${criteriaSummary.total}`}
+              color={criteriaSummary.met === criteriaSummary.total ? "success" : "default"}
+              variant="outlined"
+              aria-label={`${criteriaSummary.met} of ${criteriaSummary.total} criteria met`}
+              data-testid={`task-criteria-badge-${task.id}`}
+              sx={{
+                height: 18,
+                fontSize: "0.7rem",
+                "& .MuiChip-label": { px: 0.75, py: 0 },
+              }}
+            />
+          </Tooltip>
+        )}
+        {task.requires_approval && (
+          <Tooltip title="Requires approval before running">
+            <Chip
+              size="small"
+              label="approval"
+              color="warning"
+              variant="outlined"
+              aria-label="Requires approval before running"
+              data-testid={`task-approval-badge-${task.id}`}
+              sx={{
+                height: 18,
+                fontSize: "0.7rem",
+                "& .MuiChip-label": { px: 0.75, py: 0 },
+              }}
+            />
+          </Tooltip>
+        )}
+        {effectiveModel && (
+          <Tooltip
+            title={`Model: ${effectiveModel.model} (${effectiveModel.source})`}
+          >
+            <Chip
+              size="small"
+              label={abbreviateModel(effectiveModel.model)}
+              color={effectiveModel.source === "override" ? "primary" : "secondary"}
+              variant="outlined"
+              onClick={() => onEditFocusModel?.(task)}
+              aria-label={`Model: ${effectiveModel.model}`}
+              data-testid={`task-model-badge-${task.id}`}
+              sx={{
+                height: 18,
+                fontSize: "0.7rem",
+                cursor: onEditFocusModel ? "pointer" : "default",
+                "& .MuiChip-label": { px: 0.75, py: 0 },
+              }}
+            />
+          </Tooltip>
+        )}
         <Chip
           size="small"
           label={task.status}
@@ -751,6 +879,7 @@ function TaskTreeNode({
               onViewDetail={onViewDetail}
               onAddChild={onAddChild}
               onEdit={onEdit}
+              onEditFocusModel={onEditFocusModel}
               draggingId={draggingId}
               dropTargetId={dropTargetId}
               setDraggingId={setDraggingId}
@@ -758,6 +887,8 @@ function TaskTreeNode({
               onReorder={onReorder}
               selectedTaskId={selectedTaskId}
               noteCountByTaskId={noteCountByTaskId}
+              criteriaSummaryByTaskId={criteriaSummaryByTaskId}
+              effectiveModelByTaskId={effectiveModelByTaskId}
             />
           ))}
         </Box>

@@ -7,6 +7,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -92,6 +93,7 @@ function buildPatch(original: TaskDetail, form: FormState): TaskUpdateInput {
 export interface EditTaskDialogProps {
   open: boolean;
   taskId: number | null;
+  focusOnModel?: boolean;
   onClose: () => void;
   onUpdated: () => void;
   onDeleted: (taskId: number) => void;
@@ -100,6 +102,7 @@ export interface EditTaskDialogProps {
 export default function EditTaskDialog({
   open,
   taskId,
+  focusOnModel = false,
   onClose,
   onUpdated,
   onDeleted,
@@ -114,9 +117,11 @@ export default function EditTaskDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // Track the taskId we last loaded so we can avoid redundant fetches
   const loadedForId = useRef<number | null>(null);
+  const modelSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || taskId == null) {
@@ -126,6 +131,7 @@ export default function EditTaskDialog({
       setLoadError(null);
       setServerError(null);
       setConfirmDelete(false);
+      setConfirmDiscard(false);
       loadedForId.current = null;
       return;
     }
@@ -162,6 +168,25 @@ export default function EditTaskDialog({
       cancelled = true;
     };
   }, [open, taskId]);
+
+  // Scroll the model section into view when focusOnModel is requested and the
+  // form has loaded — gives a clear visual cue when the model chip was clicked.
+  useEffect(() => {
+    if (focusOnModel && form && modelSectionRef.current) {
+      const el = modelSectionRef.current;
+      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+    }
+  }, [focusOnModel, form]);
+
+  const isDirty = task && form ? Object.keys(buildPatch(task, form)).length > 0 : false;
+
+  function requestClose() {
+    if (isDirty) {
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+    }
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -221,9 +246,20 @@ export default function EditTaskDialog({
   const busy = submitting || deleting;
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={busy ? undefined : onClose}
+      onClose={busy ? undefined : (_, reason) => {
+        if (reason === "escapeKeyDown" || reason === "backdropClick") {
+          requestClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          void handleSubmit();
+        }
+      }}
       fullWidth
       maxWidth="sm"
       aria-labelledby="edit-task-dialog-title"
@@ -307,7 +343,7 @@ export default function EditTaskDialog({
               </TextField>
             </Stack>
 
-            <Box>
+            <Box ref={modelSectionRef}>
               <ModelSelect
                 value={form.model}
                 onChange={(v) => update("model", v)}
@@ -393,7 +429,7 @@ export default function EditTaskDialog({
         </Box>
         {/* Right side: cancel / save */}
         <Stack direction="row" spacing={1}>
-          <Button onClick={onClose} disabled={busy}>
+          <Button onClick={requestClose} disabled={busy}>
             Cancel
           </Button>
           <Button
@@ -406,5 +442,31 @@ export default function EditTaskDialog({
         </Stack>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={confirmDiscard}
+      onClose={() => setConfirmDiscard(false)}
+      maxWidth="xs"
+      aria-labelledby="edit-task-discard-title"
+    >
+      <DialogTitle id="edit-task-discard-title">Discard changes?</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          You have unsaved changes. Discard them and close?
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+        <Button
+          color="error"
+          onClick={() => {
+            setConfirmDiscard(false);
+            onClose();
+          }}
+        >
+          Discard
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }

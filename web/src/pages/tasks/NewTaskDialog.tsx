@@ -3,6 +3,7 @@ import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
+import DialogContentText from "@mui/material/DialogContentText";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -80,6 +81,15 @@ export default function NewTaskDialog({
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const isDirty =
+    form.title !== "" ||
+    form.description !== "" ||
+    form.criteria.length > 0 ||
+    form.requiresApproval !== false ||
+    form.model !== null ||
+    form.parentId !== null;
 
   // Reset state each time the dialog opens
   useEffect(() => {
@@ -89,6 +99,7 @@ export default function NewTaskDialog({
       setParentTasks([]);
       setServerError(null);
       setSubmitting(false);
+      setConfirmDiscard(false);
     }
   }, [open, repoId, parentId]);
 
@@ -115,6 +126,14 @@ export default function NewTaskDialog({
       cancelled = true;
     };
   }, [open, effectiveRepoId]);
+
+  function requestClose() {
+    if (isDirty) {
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+    }
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -169,9 +188,20 @@ export default function NewTaskDialog({
   const showRepoSelector = repoId == null;
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={submitting ? undefined : onClose}
+      onClose={submitting ? undefined : (_, reason) => {
+        if (reason === "escapeKeyDown" || reason === "backdropClick") {
+          requestClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          void handleSubmit();
+        }
+      }}
       fullWidth
       maxWidth="sm"
       aria-labelledby="new-task-dialog-title"
@@ -306,7 +336,7 @@ export default function NewTaskDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={submitting}>
+        <Button onClick={requestClose} disabled={submitting}>
           Cancel
         </Button>
         <Button
@@ -318,5 +348,31 @@ export default function NewTaskDialog({
         </Button>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={confirmDiscard}
+      onClose={() => setConfirmDiscard(false)}
+      maxWidth="xs"
+      aria-labelledby="new-task-discard-title"
+    >
+      <DialogTitle id="new-task-discard-title">Discard changes?</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          You have unsaved changes. Discard them and close?
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+        <Button
+          color="error"
+          onClick={() => {
+            setConfirmDiscard(false);
+            onClose();
+          }}
+        >
+          Discard
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
