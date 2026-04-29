@@ -37,6 +37,7 @@ export async function createTask(
     order_position?: number;
     ordering_mode?: OrderingMode | null;
     model?: string | null;
+    requires_approval?: boolean;
   }
 ): Promise<Task> {
   let orderPosition = data.order_position;
@@ -67,6 +68,7 @@ export async function createTask(
       order_position: orderPosition,
       ordering_mode: data.ordering_mode ?? null,
       model: data.model ?? null,
+      requires_approval: data.requires_approval ?? false,
     })
     .returning("*");
 

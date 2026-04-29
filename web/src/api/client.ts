@@ -17,6 +17,8 @@ import type {
   RunnerImageState,
   SetupInput,
   SetupStatus,
+  TaskCreateInput,
+  TaskCreateResponse,
   TaskDetail,
   TaskEffectiveModel,
   TaskEvent,
@@ -121,6 +123,11 @@ export const reposApi = {
 export const tasksApi = {
   listByRepo: (repoId: number) =>
     apiFetch<TaskSummary[]>(`/api/tasks?repo_id=${repoId}`),
+  create: (input: TaskCreateInput) =>
+    apiFetch<TaskCreateResponse>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   get: (id: number) => apiFetch<TaskDetail>(`/api/tasks/${id}`),
   update: (id: number, input: TaskUpdateInput) =>
     apiFetch<TaskSummary>(`/api/tasks/${id}`, {

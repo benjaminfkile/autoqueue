@@ -19,11 +19,12 @@ import CircularProgress from "@mui/material/CircularProgress";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
+import AddTaskIcon from "@mui/icons-material/AddTask";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ReplayIcon from "@mui/icons-material/Replay";
 import { reposApi, tasksApi } from "../api/client";
-import type { Repo, RepoInput, TokenUsageTotals } from "../api/types";
+import type { Repo, RepoInput, TaskSummary, TokenUsageTotals } from "../api/types";
 import { useVisibilityAwarePolling } from "../hooks/useVisibilityAwarePolling";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
@@ -31,6 +32,7 @@ import RepoSettingsPanel from "./repos/RepoSettingsPanel";
 import TaskTreeView from "./repos/TaskTreeView";
 import TaskDetailPage from "./repos/TaskDetailPage";
 import UsagePanel from "./repos/UsagePanel";
+import NewTaskDialog from "./tasks/NewTaskDialog";
 import {
   countTasksByStatus,
   emptyCounts,
@@ -65,6 +67,8 @@ export default function ReposPage() {
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [settingsRepoId, setSettingsRepoId] = useState<number | null>(null);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskRepoId, setNewTaskRepoId] = useState<number | null>(null);
 
   const loadStatsForRepo = useCallback(
     async (repoId: number, opts?: { silent?: boolean }) => {
@@ -167,6 +171,15 @@ export default function ReposPage() {
       ),
     [repos]
   );
+
+  function openNewTask(repoId: number | null = null) {
+    setNewTaskRepoId(repoId);
+    setNewTaskOpen(true);
+  }
+
+  function handleTaskCreated(task: TaskSummary) {
+    void loadStatsForRepo(task.repo_id);
+  }
 
   function openCreate() {
     setFormMode("create");
@@ -273,13 +286,22 @@ export default function ReposPage() {
           </Typography>
         </Box>
         {repos.length > 0 && (
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openCreate}
-          >
-            Add repo
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              startIcon={<AddTaskIcon />}
+              onClick={() => openNewTask(null)}
+            >
+              Add task
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openCreate}
+            >
+              Add repo
+            </Button>
+          </Stack>
         )}
       </Stack>
 
@@ -451,6 +473,15 @@ export default function ReposPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
+                      <Tooltip title="Add task">
+                        <IconButton
+                          aria-label={`Add task to ${repoDisplayName(repo)}`}
+                          data-testid={`repo-add-task-${repo.id}`}
+                          onClick={() => openNewTask(repo.id)}
+                        >
+                          <AddTaskIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <IconButton
                         aria-label={`View tasks for ${repoDisplayName(repo)}`}
                         onClick={() =>
@@ -583,6 +614,14 @@ export default function ReposPage() {
         repo={deleteRepo}
         onClose={() => setDeleteRepo(null)}
         onConfirm={handleDeleteConfirm}
+      />
+      <NewTaskDialog
+        open={newTaskOpen}
+        repos={repos}
+        initialRepoId={newTaskRepoId}
+        initialParentId={null}
+        onClose={() => setNewTaskOpen(false)}
+        onCreated={handleTaskCreated}
       />
     </Box>
   );

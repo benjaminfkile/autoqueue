@@ -73,6 +73,32 @@ export interface TaskSummary {
   created_at: string;
 }
 
+export interface TaskCreateInput {
+  repo_id: number;
+  parent_id?: number | null;
+  title: string;
+  description?: string;
+  order_position?: number;
+  ordering_mode?: OrderingMode | null;
+  model?: string | null;
+  requires_approval?: boolean;
+  acceptanceCriteria?: string[];
+}
+
+export interface TaskCreateResponse {
+  id: number;
+  repo_id: number;
+  parent_id: number | null;
+  title: string;
+  status: TaskStatus;
+  order_position: number;
+  ordering_mode: OrderingMode | null;
+  model: string | null;
+  requires_approval: boolean;
+  created_at: string;
+  acceptanceCriteria: AcceptanceCriterion[];
+}
+
 export interface TaskUpdateInput {
   title?: string;
   description?: string;

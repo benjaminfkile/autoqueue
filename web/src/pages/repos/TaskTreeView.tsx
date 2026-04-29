@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
@@ -7,6 +8,7 @@ import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
+import AddIcon from "@mui/icons-material/Add";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ReplayIcon from "@mui/icons-material/Replay";
@@ -18,6 +20,7 @@ import { tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
+import NewTaskDialog from "../tasks/NewTaskDialog";
 
 export interface TaskNode {
   task: TaskSummary;
@@ -63,6 +66,8 @@ export default function TaskTreeView({
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskParentId, setNewTaskParentId] = useState<number | null>(null);
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -264,15 +269,39 @@ export default function TaskTreeView({
 
   if (tasks.length === 0) {
     return (
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ py: 3, textAlign: "center" }}
-        role="status"
-      >
-        No tasks yet.
-      </Typography>
+      <Box sx={{ py: 3, textAlign: "center" }}>
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          role="status"
+          sx={{ mb: 2 }}
+        >
+          No tasks yet.
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setNewTaskParentId(null);
+            setNewTaskOpen(true);
+          }}
+        >
+          Add task
+        </Button>
+        <NewTaskDialog
+          open={newTaskOpen}
+          initialRepoId={repoId}
+          initialParentId={newTaskParentId}
+          onClose={() => setNewTaskOpen(false)}
+          onCreated={() => void load()}
+        />
+      </Box>
     );
+  }
+
+  function openAddChild(task: TaskSummary) {
+    setNewTaskParentId(task.id);
+    setNewTaskOpen(true);
   }
 
   return (
@@ -298,6 +327,7 @@ export default function TaskTreeView({
             onAbandon={handleAbandon}
             onApprove={handleApprove}
             onViewDetail={onViewDetail}
+            onAddChild={openAddChild}
             draggingId={draggingId}
             dropTargetId={dropTargetId}
             setDraggingId={setDraggingId}
@@ -307,6 +337,13 @@ export default function TaskTreeView({
           />
         ))}
       </Stack>
+      <NewTaskDialog
+        open={newTaskOpen}
+        initialRepoId={repoId}
+        initialParentId={newTaskParentId}
+        onClose={() => setNewTaskOpen(false)}
+        onCreated={() => void load()}
+      />
     </Box>
   );
 }
@@ -320,6 +357,7 @@ interface TaskTreeNodeProps {
   onAbandon: (task: TaskSummary) => void;
   onApprove: (task: TaskSummary) => void;
   onViewDetail?: (task: TaskSummary) => void;
+  onAddChild?: (task: TaskSummary) => void;
   draggingId: number | null;
   dropTargetId: number | null;
   setDraggingId: (id: number | null) => void;
@@ -337,6 +375,7 @@ function TaskTreeNode({
   onAbandon,
   onApprove,
   onViewDetail,
+  onAddChild,
   draggingId,
   dropTargetId,
   setDraggingId,
@@ -478,6 +517,19 @@ function TaskTreeNode({
             </IconButton>
           </span>
         </Tooltip>
+        <Tooltip title="Add child task">
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => onAddChild?.(task)}
+              disabled={!onAddChild}
+              aria-label={`Add child to ${task.title}`}
+              data-testid={`task-add-child-${task.id}`}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="View detail">
           <span>
             <IconButton
@@ -504,6 +556,7 @@ function TaskTreeNode({
               onAbandon={onAbandon}
               onApprove={onApprove}
               onViewDetail={onViewDetail}
+              onAddChild={onAddChild}
               draggingId={draggingId}
               dropTargetId={dropTargetId}
               setDraggingId={setDraggingId}
