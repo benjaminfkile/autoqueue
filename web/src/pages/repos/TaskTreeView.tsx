@@ -8,6 +8,7 @@ import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import EditIcon from "@mui/icons-material/Edit";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ReplayIcon from "@mui/icons-material/Replay";
 import StopIcon from "@mui/icons-material/Stop";
@@ -53,6 +54,7 @@ export interface TaskTreeViewProps {
   selectedTaskId?: number | null;
   onAddChild?: (task: TaskSummary) => void;
   onAddTask?: () => void;
+  onEdit?: (task: TaskSummary) => void;
   refreshTrigger?: number;
 }
 
@@ -62,6 +64,7 @@ export default function TaskTreeView({
   selectedTaskId = null,
   onAddChild,
   onAddTask,
+  onEdit,
   refreshTrigger,
 }: TaskTreeViewProps) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -319,6 +322,7 @@ export default function TaskTreeView({
             onApprove={handleApprove}
             onViewDetail={onViewDetail}
             onAddChild={onAddChild}
+            onEdit={onEdit}
             draggingId={draggingId}
             dropTargetId={dropTargetId}
             setDraggingId={setDraggingId}
@@ -342,6 +346,7 @@ interface TaskTreeNodeProps {
   onApprove: (task: TaskSummary) => void;
   onViewDetail?: (task: TaskSummary) => void;
   onAddChild?: (task: TaskSummary) => void;
+  onEdit?: (task: TaskSummary) => void;
   draggingId: number | null;
   dropTargetId: number | null;
   setDraggingId: (id: number | null) => void;
@@ -360,6 +365,7 @@ function TaskTreeNode({
   onApprove,
   onViewDetail,
   onAddChild,
+  onEdit,
   draggingId,
   dropTargetId,
   setDraggingId,
@@ -525,6 +531,17 @@ function TaskTreeNode({
             </IconButton>
           </Tooltip>
         )}
+        <Tooltip title="Edit task">
+          <IconButton
+            size="small"
+            onClick={() => onEdit?.(task)}
+            disabled={!onEdit}
+            aria-label={`Edit ${task.title}`}
+            data-testid={`task-edit-${task.id}`}
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Stack>
       {hasChildren && isExpanded && (
         <Box role="group">
@@ -540,6 +557,7 @@ function TaskTreeNode({
               onApprove={onApprove}
               onViewDetail={onViewDetail}
               onAddChild={onAddChild}
+              onEdit={onEdit}
               draggingId={draggingId}
               dropTargetId={dropTargetId}
               setDraggingId={setDraggingId}

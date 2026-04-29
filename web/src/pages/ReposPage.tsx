@@ -32,6 +32,7 @@ import RepoSettingsPanel from "./repos/RepoSettingsPanel";
 import TaskTreeView from "./repos/TaskTreeView";
 import TaskDetailPage from "./repos/TaskDetailPage";
 import UsagePanel from "./repos/UsagePanel";
+import EditTaskDialog from "./tasks/EditTaskDialog";
 import NewTaskDialog from "./tasks/NewTaskDialog";
 import {
   countTasksByStatus,
@@ -70,6 +71,7 @@ export default function ReposPage() {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskRepoId, setNewTaskRepoId] = useState<number | null>(null);
   const [newTaskParentId, setNewTaskParentId] = useState<number | null>(null);
+  const [editTaskId, setEditTaskId] = useState<number | null>(null);
   const [taskTreeRefreshTrigger, setTaskTreeRefreshTrigger] = useState(0);
 
   const loadStatsForRepo = useCallback(
@@ -181,6 +183,17 @@ export default function ReposPage() {
   }
 
   function handleTaskCreated(_task: TaskDetail) {
+    setTaskTreeRefreshTrigger((n) => n + 1);
+    void loadRepos({ silent: true });
+  }
+
+  function handleTaskUpdated() {
+    setTaskTreeRefreshTrigger((n) => n + 1);
+    void loadRepos({ silent: true });
+  }
+
+  function handleTaskDeleted(deletedId: number) {
+    if (selectedTaskId === deletedId) setSelectedTaskId(null);
     setTaskTreeRefreshTrigger((n) => n + 1);
     void loadRepos({ silent: true });
   }
@@ -595,6 +608,7 @@ export default function ReposPage() {
                   openNewTask(selectedRepoId, task.id)
                 }
                 onAddTask={() => openNewTask(selectedRepoId)}
+                onEdit={(task: TaskSummary) => setEditTaskId(task.id)}
                 refreshTrigger={taskTreeRefreshTrigger}
               />
             </Paper>
@@ -631,6 +645,13 @@ export default function ReposPage() {
         parentId={newTaskParentId}
         onClose={() => setNewTaskOpen(false)}
         onCreated={handleTaskCreated}
+      />
+      <EditTaskDialog
+        open={editTaskId !== null}
+        taskId={editTaskId}
+        onClose={() => setEditTaskId(null)}
+        onUpdated={handleTaskUpdated}
+        onDeleted={handleTaskDeleted}
       />
     </Box>
   );
