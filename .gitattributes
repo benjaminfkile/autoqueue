@@ -1,0 +1,9 @@
+# Force LF on all shell scripts and Dockerfiles regardless of host platform.
+# Without this, git on Windows (core.autocrlf=true) checks them out as CRLF,
+# which breaks Linux containers: the kernel reads `#!/bin/sh\r` from the
+# shebang and fails the exec with a misleading "no such file or directory"
+# pointing at the script rather than the interpreter.
+*.sh           text eol=lf
+Dockerfile     text eol=lf
+*.Dockerfile   text eol=lf
+entrypoint.*   text eol=lf
