@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
 import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -84,6 +85,12 @@ export default function NewPhaseDialog({
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
   const [saveTemplateSuccess, setSaveTemplateSuccess] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const isDirty =
+    proposal.parents.length > 1 ||
+    (proposal.parents.length === 1 && proposal.parents[0].title !== "") ||
+    (activeTab === "json" && jsonText.trim() !== "");
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +105,7 @@ export default function NewPhaseDialog({
     setTemplateDesc("");
     setSaveTemplateError(null);
     setSaveTemplateSuccess(false);
+    setConfirmDiscard(false);
   }, [open]);
 
   useEffect(() => {
@@ -131,6 +139,14 @@ export default function NewPhaseDialog({
       cancelled = true;
     };
   }, [open, repoId, repos]);
+
+  function requestClose() {
+    if (isDirty) {
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+    }
+  }
 
   function handleTabChange(_: React.SyntheticEvent, newTab: "visual" | "json") {
     if (newTab === "json") {
@@ -275,9 +291,20 @@ export default function NewPhaseDialog({
       : jsonText.trim().length > 0);
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={submitting ? undefined : onClose}
+      onClose={submitting ? undefined : (_, reason) => {
+        if (reason === "escapeKeyDown" || reason === "backdropClick") {
+          requestClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !saveTemplateOpen) {
+          e.preventDefault();
+          void handleSubmit();
+        }
+      }}
       fullWidth
       maxWidth="md"
       aria-labelledby="new-phase-dialog-title"
@@ -401,7 +428,7 @@ export default function NewPhaseDialog({
           )}
         </Box>
         <Box>
-          <Button onClick={onClose} disabled={submitting} sx={{ mr: 1 }}>
+          <Button onClick={requestClose} disabled={submitting} sx={{ mr: 1 }}>
             Cancel
           </Button>
           <Button
@@ -483,6 +510,32 @@ export default function NewPhaseDialog({
         </DialogActions>
       </Dialog>
     </Dialog>
+    <Dialog
+      open={confirmDiscard}
+      onClose={() => setConfirmDiscard(false)}
+      maxWidth="xs"
+      aria-labelledby="new-phase-discard-title"
+    >
+      <DialogTitle id="new-phase-discard-title">Discard changes?</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          You have unsaved changes. Discard them and close?
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+        <Button
+          color="error"
+          onClick={() => {
+            setConfirmDiscard(false);
+            onClose();
+          }}
+        >
+          Discard
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
 

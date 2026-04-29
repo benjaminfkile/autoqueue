@@ -26,6 +26,7 @@ import AssignmentIcon from "@mui/icons-material/Assignment";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput, TaskDetail, TaskSummary, TokenUsageTotals } from "../api/types";
+import { useGlobalSnackbar } from "../hooks/useGlobalSnackbar";
 import { useVisibilityAwarePolling } from "../hooks/useVisibilityAwarePolling";
 import RepoFormDialog from "./repos/RepoFormDialog";
 import DeleteRepoDialog from "./repos/DeleteRepoDialog";
@@ -56,6 +57,7 @@ interface RepoRowState {
 }
 
 export default function ReposPage() {
+  const showSnackbar = useGlobalSnackbar();
   const [repos, setRepos] = useState<Repo[]>([]);
   const [repoStats, setRepoStats] = useState<Record<number, RepoRowState>>({});
   const [loading, setLoading] = useState(true);
@@ -74,6 +76,7 @@ export default function ReposPage() {
   const [newTaskRepoId, setNewTaskRepoId] = useState<number | null>(null);
   const [newTaskParentId, setNewTaskParentId] = useState<number | null>(null);
   const [editTaskId, setEditTaskId] = useState<number | null>(null);
+  const [editTaskFocusModel, setEditTaskFocusModel] = useState(false);
   const [newPhaseOpen, setNewPhaseOpen] = useState(false);
   const [newPhaseRepoId, setNewPhaseRepoId] = useState<number | null>(null);
   const [taskTreeRefreshTrigger, setTaskTreeRefreshTrigger] = useState(0);
@@ -186,6 +189,11 @@ export default function ReposPage() {
     setNewTaskOpen(true);
   }
 
+  function handleEditFocusModel(task: TaskSummary) {
+    setEditTaskId(task.id);
+    setEditTaskFocusModel(true);
+  }
+
   function openNewPhase(repoId: number) {
     setNewPhaseRepoId(repoId);
     setNewPhaseOpen(true);
@@ -194,22 +202,26 @@ export default function ReposPage() {
   function handlePhaseCreated() {
     setTaskTreeRefreshTrigger((n) => n + 1);
     void loadRepos({ silent: true });
+    showSnackbar({ message: "Phase created", severity: "success" });
   }
 
   function handleTaskCreated(_task: TaskDetail) {
     setTaskTreeRefreshTrigger((n) => n + 1);
     void loadRepos({ silent: true });
+    showSnackbar({ message: "Task created", severity: "success" });
   }
 
   function handleTaskUpdated() {
     setTaskTreeRefreshTrigger((n) => n + 1);
     void loadRepos({ silent: true });
+    showSnackbar({ message: "Task updated", severity: "success" });
   }
 
   function handleTaskDeleted(deletedId: number) {
     if (selectedTaskId === deletedId) setSelectedTaskId(null);
     setTaskTreeRefreshTrigger((n) => n + 1);
     void loadRepos({ silent: true });
+    showSnackbar({ message: "Task deleted", severity: "success" });
   }
 
   function openCreate() {
@@ -382,7 +394,8 @@ export default function ReposPage() {
             No repos yet
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Connect a GitHub repo or a local folder to start scheduling tasks.
+            Connect a repo, then add a task or paste a phase tree to start
+            scheduling work.
           </Typography>
           <Button
             variant="contained"
@@ -633,6 +646,7 @@ export default function ReposPage() {
                 onAddTask={() => openNewTask(selectedRepoId)}
                 onAddPhase={() => openNewPhase(selectedRepoId)}
                 onEdit={(task: TaskSummary) => setEditTaskId(task.id)}
+                onEditFocusModel={handleEditFocusModel}
                 refreshTrigger={taskTreeRefreshTrigger}
               />
             </Paper>
@@ -673,7 +687,8 @@ export default function ReposPage() {
       <EditTaskDialog
         open={editTaskId !== null}
         taskId={editTaskId}
-        onClose={() => setEditTaskId(null)}
+        focusOnModel={editTaskFocusModel}
+        onClose={() => { setEditTaskId(null); setEditTaskFocusModel(false); }}
         onUpdated={handleTaskUpdated}
         onDeleted={handleTaskDeleted}
       />
