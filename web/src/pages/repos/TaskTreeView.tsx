@@ -16,6 +16,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AddIcon from "@mui/icons-material/Add";
+import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import Button from "@mui/material/Button";
 import { notesApi, tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
@@ -54,6 +55,7 @@ export interface TaskTreeViewProps {
   selectedTaskId?: number | null;
   onAddChild?: (task: TaskSummary) => void;
   onAddTask?: () => void;
+  onAddPhase?: () => void;
   onEdit?: (task: TaskSummary) => void;
   refreshTrigger?: number;
 }
@@ -64,6 +66,7 @@ export default function TaskTreeView({
   selectedTaskId = null,
   onAddChild,
   onAddTask,
+  onAddPhase,
   onEdit,
   refreshTrigger,
 }: TaskTreeViewProps) {
@@ -303,21 +306,46 @@ export default function TaskTreeView({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           No tasks yet.
         </Typography>
-        {onAddTask && (
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={onAddTask}
-          >
-            Add task
-          </Button>
-        )}
+        <Stack direction="row" spacing={1} justifyContent="center">
+          {onAddPhase && (
+            <Button
+              variant="outlined"
+              startIcon={<PlaylistAddIcon />}
+              onClick={onAddPhase}
+              data-testid="tasktree-add-phase"
+            >
+              Add phase
+            </Button>
+          )}
+          {onAddTask && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={onAddTask}
+            >
+              Add task
+            </Button>
+          )}
+        </Stack>
       </Box>
     );
   }
 
   return (
     <Box aria-label="Task tree" role="tree">
+      {onAddPhase && (
+        <Box sx={{ mb: 1, display: "flex", justifyContent: "flex-end" }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<PlaylistAddIcon />}
+            onClick={onAddPhase}
+            data-testid="tasktree-add-phase"
+          >
+            Add phase
+          </Button>
+        </Box>
+      )}
       {actionError && (
         <Alert
           severity="error"

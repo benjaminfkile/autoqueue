@@ -23,6 +23,7 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ReplayIcon from "@mui/icons-material/Replay";
 import AssignmentIcon from "@mui/icons-material/Assignment";
+import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput, TaskDetail, TaskSummary, TokenUsageTotals } from "../api/types";
 import { useVisibilityAwarePolling } from "../hooks/useVisibilityAwarePolling";
@@ -34,6 +35,7 @@ import TaskDetailPage from "./repos/TaskDetailPage";
 import UsagePanel from "./repos/UsagePanel";
 import EditTaskDialog from "./tasks/EditTaskDialog";
 import NewTaskDialog from "./tasks/NewTaskDialog";
+import NewPhaseDialog from "./tasks/NewPhaseDialog";
 import {
   countTasksByStatus,
   emptyCounts,
@@ -72,6 +74,8 @@ export default function ReposPage() {
   const [newTaskRepoId, setNewTaskRepoId] = useState<number | null>(null);
   const [newTaskParentId, setNewTaskParentId] = useState<number | null>(null);
   const [editTaskId, setEditTaskId] = useState<number | null>(null);
+  const [newPhaseOpen, setNewPhaseOpen] = useState(false);
+  const [newPhaseRepoId, setNewPhaseRepoId] = useState<number | null>(null);
   const [taskTreeRefreshTrigger, setTaskTreeRefreshTrigger] = useState(0);
 
   const loadStatsForRepo = useCallback(
@@ -180,6 +184,16 @@ export default function ReposPage() {
     setNewTaskRepoId(repoId);
     setNewTaskParentId(parentId);
     setNewTaskOpen(true);
+  }
+
+  function openNewPhase(repoId: number) {
+    setNewPhaseRepoId(repoId);
+    setNewPhaseOpen(true);
+  }
+
+  function handlePhaseCreated() {
+    setTaskTreeRefreshTrigger((n) => n + 1);
+    void loadRepos({ silent: true });
   }
 
   function handleTaskCreated(_task: TaskDetail) {
@@ -490,6 +504,15 @@ export default function ReposPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
+                      <Tooltip title="Add phase">
+                        <IconButton
+                          aria-label={`Add phase for ${repoDisplayName(repo)}`}
+                          onClick={() => openNewPhase(repo.id)}
+                          data-testid={`repo-add-phase-${repo.id}`}
+                        >
+                          <PlaylistAddIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Add task">
                         <IconButton
                           aria-label={`Add task for ${repoDisplayName(repo)}`}
@@ -608,6 +631,7 @@ export default function ReposPage() {
                   openNewTask(selectedRepoId, task.id)
                 }
                 onAddTask={() => openNewTask(selectedRepoId)}
+                onAddPhase={() => openNewPhase(selectedRepoId)}
                 onEdit={(task: TaskSummary) => setEditTaskId(task.id)}
                 refreshTrigger={taskTreeRefreshTrigger}
               />
@@ -652,6 +676,13 @@ export default function ReposPage() {
         onClose={() => setEditTaskId(null)}
         onUpdated={handleTaskUpdated}
         onDeleted={handleTaskDeleted}
+      />
+      <NewPhaseDialog
+        open={newPhaseOpen}
+        repos={repos}
+        repoId={newPhaseRepoId}
+        onClose={() => setNewPhaseOpen(false)}
+        onCreated={handlePhaseCreated}
       />
     </Box>
   );
