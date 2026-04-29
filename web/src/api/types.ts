@@ -98,6 +98,38 @@ export interface AcceptanceCriterionUpdateInput {
   met?: boolean;
 }
 
+export interface AcceptanceCriterionCreateInput {
+  description: string;
+  order_position?: number;
+}
+
+export interface TaskCreateInput {
+  repo_id: number;
+  parent_id?: number | null;
+  title: string;
+  description?: string;
+  order_position?: number;
+  ordering_mode?: OrderingMode | null;
+  model?: string | null;
+  acceptanceCriteria?: string[];
+}
+
+export interface TaskTemplate {
+  id: number;
+  name: string;
+  description: string;
+  tree: TaskTreeProposal;
+  created_at: string;
+}
+
+export interface TaskTemplateSaveInput {
+  name: string;
+  description?: string;
+  tree?: TaskTreeProposal;
+  repo_id?: number;
+  root_task_ids?: number[];
+}
+
 export interface TaskChildSummary {
   id: number;
   title: string;
