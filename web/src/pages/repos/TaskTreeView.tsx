@@ -14,6 +14,8 @@ import StopIcon from "@mui/icons-material/Stop";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AddIcon from "@mui/icons-material/Add";
+import Button from "@mui/material/Button";
 import { tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
@@ -49,12 +51,18 @@ export interface TaskTreeViewProps {
   repoId: number;
   onViewDetail?: (task: TaskSummary) => void;
   selectedTaskId?: number | null;
+  onAddChild?: (task: TaskSummary) => void;
+  onAddTask?: () => void;
+  refreshTrigger?: number;
 }
 
 export default function TaskTreeView({
   repoId,
   onViewDetail,
   selectedTaskId = null,
+  onAddChild,
+  onAddTask,
+  refreshTrigger,
 }: TaskTreeViewProps) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +115,12 @@ export default function TaskTreeView({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Re-fetch when a task is created externally (e.g. from NewTaskDialog)
+  useEffect(() => {
+    if (refreshTrigger === undefined || refreshTrigger === 0) return;
+    void load({ silent: true });
+  }, [refreshTrigger, load]);
 
   const pollFetcher = useCallback(() => load({ silent: true }), [load]);
   useVisibilityAwarePolling(pollFetcher);
@@ -264,14 +278,20 @@ export default function TaskTreeView({
 
   if (tasks.length === 0) {
     return (
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ py: 3, textAlign: "center" }}
-        role="status"
-      >
-        No tasks yet.
-      </Typography>
+      <Box sx={{ py: 3, textAlign: "center" }} role="status">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          No tasks yet.
+        </Typography>
+        {onAddTask && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={onAddTask}
+          >
+            Add task
+          </Button>
+        )}
+      </Box>
     );
   }
 
@@ -298,6 +318,7 @@ export default function TaskTreeView({
             onAbandon={handleAbandon}
             onApprove={handleApprove}
             onViewDetail={onViewDetail}
+            onAddChild={onAddChild}
             draggingId={draggingId}
             dropTargetId={dropTargetId}
             setDraggingId={setDraggingId}
@@ -320,6 +341,7 @@ interface TaskTreeNodeProps {
   onAbandon: (task: TaskSummary) => void;
   onApprove: (task: TaskSummary) => void;
   onViewDetail?: (task: TaskSummary) => void;
+  onAddChild?: (task: TaskSummary) => void;
   draggingId: number | null;
   dropTargetId: number | null;
   setDraggingId: (id: number | null) => void;
@@ -337,6 +359,7 @@ function TaskTreeNode({
   onAbandon,
   onApprove,
   onViewDetail,
+  onAddChild,
   draggingId,
   dropTargetId,
   setDraggingId,
@@ -490,6 +513,18 @@ function TaskTreeNode({
             </IconButton>
           </span>
         </Tooltip>
+        {onAddChild && (
+          <Tooltip title="Add child task">
+            <IconButton
+              size="small"
+              onClick={() => onAddChild(task)}
+              aria-label={`Add child task to ${task.title}`}
+              data-testid={`task-add-child-${task.id}`}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
       {hasChildren && isExpanded && (
         <Box role="group">
@@ -504,6 +539,7 @@ function TaskTreeNode({
               onAbandon={onAbandon}
               onApprove={onApprove}
               onViewDetail={onViewDetail}
+              onAddChild={onAddChild}
               draggingId={draggingId}
               dropTargetId={dropTargetId}
               setDraggingId={setDraggingId}
