@@ -111,6 +111,7 @@ export interface TaskCreateInput {
   order_position?: number;
   ordering_mode?: OrderingMode | null;
   model?: string | null;
+  requires_approval?: boolean;
   acceptanceCriteria?: string[];
 }
 
