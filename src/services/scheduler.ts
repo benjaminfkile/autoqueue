@@ -113,7 +113,20 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
       const workQueue = await buildWorkQueue(db, WORKER_ID, LEASE_SECONDS);
 
       for (const { repoId, taskId } of workQueue) {
-        const result = await runTask(db, secrets, repoId, taskId);
+        // Wrap each runTask so a single task's runtime rejection (e.g. a git
+        // error) doesn't propagate through setInterval and trip the
+        // process-wide uncaughtException handler. The DB lease + retry
+        // accounting are owned by runTask itself; logging here is enough.
+        let result: Awaited<ReturnType<typeof runTask>>;
+        try {
+          result = await runTask(db, secrets, repoId, taskId);
+        } catch (err) {
+          console.error(
+            `[scheduler] Task ${taskId} (repo ${repoId}) crashed:`,
+            (err as Error).message
+          );
+          continue;
+        }
         if (result === "halted") {
           console.log(
             `[scheduler] Task halted for repo ${repoId}, task ${taskId}. Stopping cycle.`

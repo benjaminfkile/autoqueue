@@ -38,14 +38,17 @@ function repoClonePath(reposPath: string, repo: Repo): string | null {
   return path.join(reposPath, repo.owner, repo.repo_name);
 }
 
-// Keep a single repo's clone fresh: `git fetch` then `git pull`. Returns true
-// if the clone was successfully updated (or required no work), false if the
-// pull failed.
+// Keep a single repo's remote refs fresh with `git fetch`. Fetch-only on
+// purpose:
 //
-// Why fetch + pull rather than just pull: pull alone doesn't surface a fetch
-// failure cleanly (e.g. an unreachable remote), so splitting them gives a
-// clearer error message in the logs and lets us flag fetch-only outages as
-// pull failures too.
+// - `git pull` updates the working tree, but the working tree is owned by the
+//   task runner (it checks out the per-task branch via `checkoutBaseBranch +
+//   createTaskBranch`). If a task has run recently, HEAD is sitting on a
+//   leftover `grunt-task-N` branch with no upstream, so `git pull` errors
+//   with "no tracking information". Fetch alone updates `refs/remotes/origin/*`
+//   without touching the working tree.
+// - The taskRunner re-fetches at task start anyway, so any commits this worker
+//   missed get picked up before they matter.
 export async function pullRepo(
   reposPath: string,
   repo: Repo
@@ -63,11 +66,23 @@ export async function pullRepo(
   try {
     const git = simpleGit(dir);
     await git.fetch();
-    await git.pull();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
+}
+
+// Returns true if any task on this repo is currently pending or active. The
+// pull worker uses this to skip repos with in-flight work, since the task
+// runner is also doing git operations against the same .git directory and
+// concurrent fetches race on `refs/remotes/origin/*` ("incorrect old value
+// provided" errors from git's atomic ref update).
+async function repoHasInFlightTask(db: Knex, repoId: number): Promise<boolean> {
+  const row = await db("tasks")
+    .where({ repo_id: repoId })
+    .whereIn("status", ["pending", "active"])
+    .first("id");
+  return row !== undefined;
 }
 
 export async function runPullCycle(
@@ -87,6 +102,13 @@ export async function runPullCycle(
     // worker — there's no working tree to pull into. The user has to
     // re-create them through the normal flow.
     if (repo.clone_status !== "ready") continue;
+    // Skip while a task is in flight on this repo. The taskRunner is doing
+    // its own git operations against the same .git dir; concurrent fetches
+    // race on refs/remotes/origin/* and surface as
+    // "incorrect old value provided" errors from git.
+    if (await repoHasInFlightTask(db, repo.id)) {
+      continue;
+    }
 
     const result = await pullRepo(reposPath, repo);
     if (result.ok) {
