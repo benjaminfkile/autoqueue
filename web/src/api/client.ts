@@ -1,5 +1,6 @@
 import type {
   AcceptanceCriterion,
+  AcceptanceCriterionCreateInput,
   AcceptanceCriterionUpdateInput,
   AppSettings,
   AppSettingsUpdateInput,
@@ -17,12 +18,15 @@ import type {
   RunnerImageState,
   SetupInput,
   SetupStatus,
+  TaskCreateInput,
   TaskDetail,
   TaskEffectiveModel,
   TaskEvent,
   TaskNote,
   TaskNoteInput,
   TaskSummary,
+  TaskTemplate,
+  TaskTemplateSaveInput,
   TaskTreeProposal,
   TaskUpdateInput,
   TaskUsageResponse,
@@ -116,17 +120,34 @@ export const reposApi = {
     apiFetch<void>(`/api/repos/${id}/links/${linkId}`, {
       method: "DELETE",
     }),
+  materializeTree: (id: number, proposal: TaskTreeProposal) =>
+    apiFetch<MaterializedTaskTree>(`/api/repos/${id}/materialize-tree`, {
+      method: "POST",
+      body: JSON.stringify(proposal),
+    }),
+  instantiateTemplate: (id: number, templateId: number) =>
+    apiFetch<MaterializedTaskTree>(
+      `/api/repos/${id}/instantiate-template/${templateId}`,
+      { method: "POST" }
+    ),
 };
 
 export const tasksApi = {
   listByRepo: (repoId: number) =>
     apiFetch<TaskSummary[]>(`/api/tasks?repo_id=${repoId}`),
   get: (id: number) => apiFetch<TaskDetail>(`/api/tasks/${id}`),
+  create: (input: TaskCreateInput) =>
+    apiFetch<TaskDetail>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   update: (id: number, input: TaskUpdateInput) =>
     apiFetch<TaskSummary>(`/api/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  delete: (id: number) =>
+    apiFetch<void>(`/api/tasks/${id}`, { method: "DELETE" }),
   events: (id: number) => apiFetch<TaskEvent[]>(`/api/tasks/${id}/events`),
   effectiveModel: (id: number) =>
     apiFetch<TaskEffectiveModel>(`/api/tasks/${id}/effective-model`),
@@ -144,6 +165,41 @@ export const tasksApi = {
     return res.text();
   },
   logStreamUrl: (id: number) => `/api/tasks/${id}/log/stream`,
+  criteria: {
+    list: (taskId: number) =>
+      apiFetch<AcceptanceCriterion[]>(`/api/tasks/${taskId}/criteria`),
+    create: (taskId: number, input: AcceptanceCriterionCreateInput) =>
+      apiFetch<AcceptanceCriterion>(`/api/tasks/${taskId}/criteria`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (
+      taskId: number,
+      criterionId: number,
+      input: AcceptanceCriterionUpdateInput
+    ) =>
+      apiFetch<AcceptanceCriterion>(
+        `/api/tasks/${taskId}/criteria/${criterionId}`,
+        { method: "PATCH", body: JSON.stringify(input) }
+      ),
+    delete: (taskId: number, criterionId: number) =>
+      apiFetch<void>(`/api/tasks/${taskId}/criteria/${criterionId}`, {
+        method: "DELETE",
+      }),
+  },
+  notes: {
+    list: (taskId: number) =>
+      apiFetch<TaskNote[]>(`/api/tasks/${taskId}/notes`),
+    create: (taskId: number, input: TaskNoteInput) =>
+      apiFetch<TaskNote>(`/api/tasks/${taskId}/notes`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    delete: (taskId: number, noteId: number) =>
+      apiFetch<void>(`/api/tasks/${taskId}/notes/${noteId}`, {
+        method: "DELETE",
+      }),
+  },
 };
 
 export const notesApi = {
@@ -341,4 +397,16 @@ export const criteriaApi = {
         body: JSON.stringify(input),
       }
     ),
+};
+
+export const templatesApi = {
+  list: () => apiFetch<TaskTemplate[]>("/api/templates"),
+  get: (id: number) => apiFetch<TaskTemplate>(`/api/templates/${id}`),
+  save: (input: TaskTemplateSaveInput) =>
+    apiFetch<TaskTemplate>("/api/templates", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  delete: (id: number) =>
+    apiFetch<void>(`/api/templates/${id}`, { method: "DELETE" }),
 };
