@@ -21,9 +21,11 @@ import CircularProgress from "@mui/material/CircularProgress";
 // import ChatIcon from "@mui/icons-material/Chat";
 import SettingsIcon from "@mui/icons-material/Settings";
 import InsightsIcon from "@mui/icons-material/Insights";
+import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import ReposPage from "./pages/ReposPage";
 // import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
+import TemplatesDrawer from "./pages/tasks/TemplatesDrawer";
 import SettingsPanel from "./pages/SettingsPanel";
 import UsageDashboard from "./pages/UsageDashboard";
 import RunnerImageBanner from "./pages/RunnerImageBanner";
@@ -50,6 +52,7 @@ export default function App() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const refreshSetup = useCallback(async () => {
@@ -137,6 +140,16 @@ export default function App() {
           <WorkerModeChip status={status} error={error} />
           <ThemeToggle />
           {/* Planning chat disabled — see chat-related comments at top of file. */}
+          <Tooltip title="Templates">
+            <IconButton
+              aria-label="Open templates"
+              onClick={() => setTemplatesOpen(true)}
+              sx={{ ml: 1 }}
+              data-testid="templates-button"
+            >
+              <LibraryBooksIcon />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Usage">
             <IconButton
               aria-label="Open usage dashboard"
@@ -200,6 +213,10 @@ export default function App() {
         <ReposPage />
       </Container>
       {/* <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} /> */}
+      <TemplatesDrawer
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+      />
       <UsageDashboard open={usageOpen} onClose={() => setUsageOpen(false)} />
       {setupStatus && (
         <SettingsPanel

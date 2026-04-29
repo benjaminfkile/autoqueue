@@ -7,6 +7,11 @@ import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import TextField from "@mui/material/TextField";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EditIcon from "@mui/icons-material/Edit";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -17,8 +22,9 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AddIcon from "@mui/icons-material/Add";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
+import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
 import Button from "@mui/material/Button";
-import { notesApi, tasksApi } from "../../api/client";
+import { notesApi, tasksApi, templatesApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
@@ -78,6 +84,13 @@ export default function TaskTreeView({
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
   const [noteCountByTaskId, setNoteCountByTaskId] = useState<Record<number, number>>({});
+
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDesc, setTemplateDesc] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
+  const [saveTemplateSuccess, setSaveTemplateSuccess] = useState(false);
 
   const fetchNoteCounts = useCallback(async (taskList: TaskSummary[]) => {
     if (taskList.length === 0) return;
@@ -281,6 +294,34 @@ export default function TaskTreeView({
     [tasks]
   );
 
+  async function handleSaveAsTemplate() {
+    const name = templateName.trim();
+    if (!name) {
+      setSaveTemplateError("Template name is required.");
+      return;
+    }
+    setSavingTemplate(true);
+    setSaveTemplateError(null);
+    try {
+      await templatesApi.save({
+        name,
+        description: templateDesc.trim() || undefined,
+        repo_id: repoId,
+      });
+      setSaveTemplateOpen(false);
+      setTemplateName("");
+      setTemplateDesc("");
+      setSaveTemplateSuccess(true);
+      setTimeout(() => setSaveTemplateSuccess(false), 3000);
+    } catch (err) {
+      setSaveTemplateError(
+        err instanceof Error ? err.message : "Failed to save template"
+      );
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
   if (loading) {
     return (
       <Box
@@ -333,17 +374,38 @@ export default function TaskTreeView({
 
   return (
     <Box aria-label="Task tree" role="tree">
-      {onAddPhase && (
-        <Box sx={{ mb: 1, display: "flex", justifyContent: "flex-end" }}>
+      {(onAddPhase || tasks.length > 0) && (
+        <Box sx={{ mb: 1, display: "flex", justifyContent: "flex-end", gap: 1 }}>
+          {saveTemplateSuccess && (
+            <Alert severity="success" sx={{ py: 0, flex: 1 }}>
+              Template saved!
+            </Alert>
+          )}
           <Button
             size="small"
             variant="outlined"
-            startIcon={<PlaylistAddIcon />}
-            onClick={onAddPhase}
-            data-testid="tasktree-add-phase"
+            startIcon={<BookmarkAddIcon />}
+            onClick={() => {
+              setTemplateName("");
+              setTemplateDesc("");
+              setSaveTemplateError(null);
+              setSaveTemplateOpen(true);
+            }}
+            data-testid="tasktree-save-template"
           >
-            Add phase
+            Save as template
           </Button>
+          {onAddPhase && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PlaylistAddIcon />}
+              onClick={onAddPhase}
+              data-testid="tasktree-add-phase"
+            >
+              Add phase
+            </Button>
+          )}
         </Box>
       )}
       {actionError && (
@@ -379,6 +441,72 @@ export default function TaskTreeView({
           />
         ))}
       </Stack>
+
+      <Dialog
+        open={saveTemplateOpen}
+        onClose={() => !savingTemplate && setSaveTemplateOpen(false)}
+        aria-labelledby="save-template-dialog-title"
+        data-testid="save-template-dialog"
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle id="save-template-dialog-title">
+          Save as template
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {saveTemplateError && (
+              <Alert severity="error" onClose={() => setSaveTemplateError(null)}>
+                {saveTemplateError}
+              </Alert>
+            )}
+            <TextField
+              label="Template name"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              disabled={savingTemplate}
+              size="small"
+              fullWidth
+              required
+              inputProps={{ "aria-label": "Template name" }}
+              data-testid="save-template-name"
+            />
+            <TextField
+              label="Description"
+              value={templateDesc}
+              onChange={(e) => setTemplateDesc(e.target.value)}
+              disabled={savingTemplate}
+              size="small"
+              fullWidth
+              multiline
+              minRows={2}
+              inputProps={{ "aria-label": "Template description" }}
+              data-testid="save-template-description"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setSaveTemplateOpen(false)}
+            disabled={savingTemplate}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveAsTemplate()}
+            disabled={savingTemplate || templateName.trim() === ""}
+            startIcon={
+              savingTemplate ? (
+                <CircularProgress color="inherit" size={16} />
+              ) : null
+            }
+            data-testid="save-template-confirm"
+          >
+            {savingTemplate ? "Saving…" : "Save template"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
