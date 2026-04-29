@@ -17,7 +17,7 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AddIcon from "@mui/icons-material/Add";
 import Button from "@mui/material/Button";
-import { tasksApi } from "../../api/client";
+import { notesApi, tasksApi } from "../../api/client";
 import type { TaskStatus, TaskSummary } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
@@ -74,6 +74,23 @@ export default function TaskTreeView({
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
+  const [noteCountByTaskId, setNoteCountByTaskId] = useState<Record<number, number>>({});
+
+  const fetchNoteCounts = useCallback(async (taskList: TaskSummary[]) => {
+    if (taskList.length === 0) return;
+    const counts: Record<number, number> = {};
+    await Promise.allSettled(
+      taskList.map(async (t) => {
+        try {
+          const noteList = await notesApi.list(t.id);
+          counts[t.id] = noteList.length;
+        } catch {
+          // silently ignored — badge simply won't show for this task
+        }
+      })
+    );
+    setNoteCountByTaskId(counts);
+  }, []);
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -85,6 +102,7 @@ export default function TaskTreeView({
       try {
         const list = await tasksApi.listByRepo(repoId);
         setTasks(list);
+        void fetchNoteCounts(list);
         if (!silent) {
           // Auto-expand root tasks on the initial (visible) load. Polling
           // refreshes intentionally skip this so a user-driven collapse is
@@ -112,7 +130,7 @@ export default function TaskTreeView({
         }
       }
     },
-    [repoId]
+    [repoId, fetchNoteCounts]
   );
 
   useEffect(() => {
@@ -329,6 +347,7 @@ export default function TaskTreeView({
             setDropTargetId={setDropTargetId}
             onReorder={handleReorder}
             selectedTaskId={selectedTaskId}
+            noteCountByTaskId={noteCountByTaskId}
           />
         ))}
       </Stack>
@@ -353,6 +372,7 @@ interface TaskTreeNodeProps {
   setDropTargetId: (id: number | null) => void;
   onReorder: (sourceId: number, targetId: number) => void;
   selectedTaskId: number | null;
+  noteCountByTaskId: Record<number, number>;
 }
 
 function TaskTreeNode({
@@ -372,8 +392,10 @@ function TaskTreeNode({
   setDropTargetId,
   onReorder,
   selectedTaskId,
+  noteCountByTaskId,
 }: TaskTreeNodeProps) {
   const { task, children } = node;
+  const noteCount = noteCountByTaskId[task.id] ?? 0;
   const hasChildren = children.length > 0;
   const isExpanded = expanded.has(task.id);
   const isDragging = draggingId === task.id;
@@ -463,6 +485,21 @@ function TaskTreeNode({
         >
           {task.title}
         </Typography>
+        {noteCount > 0 && (
+          <Chip
+            size="small"
+            label={noteCount}
+            color="info"
+            variant="outlined"
+            aria-label={`${noteCount} visible note${noteCount !== 1 ? "s" : ""}`}
+            data-testid={`task-notes-badge-${task.id}`}
+            sx={{
+              height: 18,
+              fontSize: "0.7rem",
+              "& .MuiChip-label": { px: 0.75, py: 0 },
+            }}
+          />
+        )}
         <Chip
           size="small"
           label={task.status}
@@ -564,6 +601,7 @@ function TaskTreeNode({
               setDropTargetId={setDropTargetId}
               onReorder={onReorder}
               selectedTaskId={selectedTaskId}
+              noteCountByTaskId={noteCountByTaskId}
             />
           ))}
         </Box>
