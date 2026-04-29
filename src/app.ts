@@ -11,7 +11,10 @@ import healthRouter from "./routers/healthRouter";
 import reposRouter from "./routers/reposRouter";
 import tasksRouter from "./routers/tasksRouter";
 import systemRouter from "./routers/systemRouter";
-import chatRouter from "./routers/chatRouter";
+// Chat is disabled while task execution moves to the host's Claude Code
+// subscription auth (no ANTHROPIC_API_KEY available). Re-enable both this
+// import and the app.use("/api/chat", ...) line below to bring it back.
+// import chatRouter from "./routers/chatRouter";
 import templatesRouter from "./routers/templatesRouter";
 import setupRouter from "./routers/setupRouter";
 import settingsRouter from "./routers/settingsRouter";
@@ -30,7 +33,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/repos", reposRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/system", systemRouter);
-app.use("/api/chat", chatRouter);
+// app.use("/api/chat", chatRouter); // disabled — see chatRouter import above
 app.use("/api/templates", templatesRouter);
 app.use("/api/usage", usageRouter);
 

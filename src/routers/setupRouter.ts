@@ -5,7 +5,11 @@ const setupRouter = express.Router();
 
 // Required first-run secrets. The SPA blocks the main UI until each of these
 // has a non-empty value in the encrypted secrets store.
-export const REQUIRED_SETUP_KEYS = ["ANTHROPIC_API_KEY", "GH_PAT"] as const;
+//
+// ANTHROPIC_API_KEY used to be required here, but tasks now authenticate via
+// the host's Claude Code subscription (see prepareHostClaudeMount in
+// claudeRunner.ts), so the only first-run secret left is the GitHub PAT.
+export const REQUIRED_SETUP_KEYS = ["GH_PAT"] as const;
 export type RequiredSetupKey = (typeof REQUIRED_SETUP_KEYS)[number];
 
 interface SetupStatus {
@@ -33,9 +37,8 @@ setupRouter.get("/", (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/setup — accepts ANTHROPIC_API_KEY and GH_PAT and persists each
-// via secrets.set(). Both must be present and non-empty; partial submissions
-// are rejected so the store never ends up half-populated.
+// POST /api/setup — accepts GH_PAT and persists it via secrets.set(). The
+// payload must contain a non-empty value for every REQUIRED_SETUP_KEY.
 setupRouter.post("/", (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const provided: Record<RequiredSetupKey, string> = {} as Record<

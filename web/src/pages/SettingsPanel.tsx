@@ -25,11 +25,6 @@ interface SecretRowConfig {
 
 const SECRET_ROWS: SecretRowConfig[] = [
   {
-    key: "ANTHROPIC_API_KEY",
-    label: "Anthropic API key",
-    testIdPrefix: "settings-anthropic-key",
-  },
-  {
     key: "GH_PAT",
     label: "GitHub personal access token",
     testIdPrefix: "settings-gh-pat",
@@ -52,7 +47,6 @@ export default function SettingsPanel({
   onStatusChange,
 }: SettingsPanelProps) {
   const [drafts, setDrafts] = useState<Record<SecretKey, string>>({
-    ANTHROPIC_API_KEY: "",
     GH_PAT: "",
   });
   const [busyKey, setBusyKey] = useState<SecretKey | null>(null);
@@ -107,7 +101,7 @@ export default function SettingsPanel({
   }, [open]);
 
   function resetState() {
-    setDrafts({ ANTHROPIC_API_KEY: "", GH_PAT: "" });
+    setDrafts({ GH_PAT: "" });
     setBusyKey(null);
     setBusyAction(null);
     setError(null);

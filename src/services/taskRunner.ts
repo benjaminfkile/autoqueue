@@ -210,7 +210,6 @@ async function runTaskBody(
     } = await runClaudeOnTask({
       workDir,
       taskPayload,
-      anthropicApiKey: secrets.get("ANTHROPIC_API_KEY"),
       ghPat: repo.github_token ?? secrets.get("GH_PAT"),
       logFilePath,
       contextMounts: mountManifest.context,

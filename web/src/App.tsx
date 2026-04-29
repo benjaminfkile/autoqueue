@@ -16,11 +16,13 @@ import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
-import ChatIcon from "@mui/icons-material/Chat";
+// Chat is disabled while task execution moves to host Claude Code auth.
+// Re-enable the icon import, button, and ChatDrawer mount below to bring it back.
+// import ChatIcon from "@mui/icons-material/Chat";
 import SettingsIcon from "@mui/icons-material/Settings";
 import InsightsIcon from "@mui/icons-material/Insights";
 import ReposPage from "./pages/ReposPage";
-import ChatDrawer from "./pages/chat/ChatDrawer";
+// import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
 import SettingsPanel from "./pages/SettingsPanel";
 import UsageDashboard from "./pages/UsageDashboard";
@@ -38,7 +40,7 @@ import {
 
 export default function App() {
   const { status, error } = useWorkerStatus();
-  const [chatOpen, setChatOpen] = useState(false);
+  // const [chatOpen, setChatOpen] = useState(false); // chat disabled
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupLoaded, setSetupLoaded] = useState(false);
@@ -134,15 +136,7 @@ export default function App() {
           </Typography>
           <WorkerModeChip status={status} error={error} />
           <ThemeToggle />
-          <Tooltip title="Open planning chat">
-            <IconButton
-              aria-label="Open planning chat"
-              onClick={() => setChatOpen(true)}
-              sx={{ ml: 1 }}
-            >
-              <ChatIcon />
-            </IconButton>
-          </Tooltip>
+          {/* Planning chat disabled — see chat-related comments at top of file. */}
           <Tooltip title="Usage">
             <IconButton
               aria-label="Open usage dashboard"
@@ -205,7 +199,7 @@ export default function App() {
         <ActiveWorkersPanel status={status} />
         <ReposPage />
       </Container>
-      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      {/* <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} /> */}
       <UsageDashboard open={usageOpen} onClose={() => setUsageOpen(false)} />
       {setupStatus && (
         <SettingsPanel
@@ -224,8 +218,8 @@ export default function App() {
         <DialogTitle id="reset-secrets-title">Reset secrets?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This clears the stored Anthropic API key and GitHub token. You'll be
-            prompted to enter new values before grunt can run tasks again.
+            This clears the stored GitHub personal access token. You'll be
+            prompted to enter a new value before grunt can run tasks again.
           </DialogContentText>
           {resetError && (
             <Alert severity="error" sx={{ mt: 2 }} data-testid="reset-secrets-error">

@@ -2,7 +2,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 // Default Express dev port from .env.example is 8000.
-var API_TARGET = process.env.GRUNT_API_URL || "http://localhost:8000";
+var API_TARGET = process.env.GRUNT_API_URL || "http://localhost:3006";
 export default defineConfig({
     plugins: [react()],
     server: {

@@ -12,7 +12,8 @@
     "install:web": "npm --prefix web install",
     "build:web": "npm --prefix web run build",
     "dev:web": "npm --prefix web run dev",
-    "test:web": "npm --prefix web test"
+    "test:web": "npm --prefix web test",
+    "reset": "node scripts/reset.js"
   },
   "keywords": [],
   "author": "",

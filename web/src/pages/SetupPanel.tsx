@@ -15,7 +15,6 @@ interface SetupPanelProps {
 }
 
 export default function SetupPanel({ onComplete }: SetupPanelProps) {
-  const [anthropicKey, setAnthropicKey] = useState("");
   const [ghPat, setGhPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,14 +23,13 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
     event.preventDefault();
     if (submitting) return;
     setError(null);
-    if (anthropicKey.trim().length === 0 || ghPat.trim().length === 0) {
-      setError("Both fields are required.");
+    if (ghPat.trim().length === 0) {
+      setError("GitHub personal access token is required.");
       return;
     }
     setSubmitting(true);
     try {
       const status = await setupApi.save({
-        ANTHROPIC_API_KEY: anthropicKey.trim(),
         GH_PAT: ghPat.trim(),
       });
       onComplete(status);
@@ -56,9 +54,11 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
             Welcome to grunt
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Before you can use grunt, paste your Anthropic API key and a GitHub
-            personal access token. They are stored encrypted in the local
-            secrets file and never leave this machine.
+            Before you can use grunt, paste a GitHub personal access token. It
+            is stored encrypted in the local secrets file and never leaves this
+            machine. Tasks authenticate with Claude using the Claude Code
+            installation already on your machine — make sure you've run{" "}
+            <code>claude /login</code> at least once.
           </Typography>
           <Box
             component="form"
@@ -67,16 +67,6 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
             data-testid="setup-form"
           >
             <Stack spacing={2}>
-              <TextField
-                label="Anthropic API key"
-                type="password"
-                autoComplete="off"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                inputProps={{ "data-testid": "setup-anthropic-key" }}
-                required
-                fullWidth
-              />
               <TextField
                 label="GitHub personal access token"
                 type="password"
