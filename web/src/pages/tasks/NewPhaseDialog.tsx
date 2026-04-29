@@ -17,7 +17,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
-import { reposApi } from "../../api/client";
+import { reposApi, templatesApi } from "../../api/client";
 import type { ProposedTaskNode, Repo, RepoLink, TaskTreeProposal } from "../../api/types";
 import AcceptanceCriteriaEditor from "./AcceptanceCriteriaEditor";
 import { updateAtPath, removeAtPath } from "../chat/ProposalCard";
@@ -78,6 +78,12 @@ export default function NewPhaseDialog({
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDesc, setTemplateDesc] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
+  const [saveTemplateSuccess, setSaveTemplateSuccess] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +93,11 @@ export default function NewPhaseDialog({
     setJsonParseError(null);
     setSubmitError(null);
     setSubmitting(false);
+    setSaveTemplateOpen(false);
+    setTemplateName("");
+    setTemplateDesc("");
+    setSaveTemplateError(null);
+    setSaveTemplateSuccess(false);
   }, [open]);
 
   useEffect(() => {
@@ -166,6 +177,54 @@ export default function NewPhaseDialog({
     setProposal((prev) => ({
       parents: [...prev.parents, makeEmptyNode()],
     }));
+  }
+
+  function getCurrentProposal(): TaskTreeProposal | null {
+    if (activeTab === "json") {
+      try {
+        const parsed = JSON.parse(jsonText) as TaskTreeProposal;
+        if (!parsed || !Array.isArray(parsed.parents)) {
+          return null;
+        }
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
+    return proposal;
+  }
+
+  async function handleSaveAsTemplate() {
+    const name = templateName.trim();
+    if (!name) {
+      setSaveTemplateError("Template name is required.");
+      return;
+    }
+    const current = getCurrentProposal();
+    if (!current) {
+      setSaveTemplateError("Invalid JSON — fix the syntax before saving.");
+      return;
+    }
+    setSavingTemplate(true);
+    setSaveTemplateError(null);
+    try {
+      await templatesApi.save({
+        name,
+        description: templateDesc.trim() || undefined,
+        tree: current,
+      });
+      setSaveTemplateOpen(false);
+      setTemplateName("");
+      setTemplateDesc("");
+      setSaveTemplateSuccess(true);
+      setTimeout(() => setSaveTemplateSuccess(false), 3000);
+    } catch (err) {
+      setSaveTemplateError(
+        err instanceof Error ? err.message : "Failed to save template"
+      );
+    } finally {
+      setSavingTemplate(false);
+    }
   }
 
   async function handleSubmit() {
@@ -319,21 +378,110 @@ export default function NewPhaseDialog({
           </Box>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={submitting}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          startIcon={
-            submitting ? <CircularProgress color="inherit" size={16} /> : null
-          }
-        >
-          {submitting ? "Creating…" : "Create phase"}
-        </Button>
+      <DialogActions sx={{ justifyContent: "space-between" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              setTemplateName("");
+              setTemplateDesc("");
+              setSaveTemplateError(null);
+              setSaveTemplateOpen(true);
+            }}
+            disabled={submitting || savingTemplate}
+            data-testid="new-phase-save-template"
+          >
+            Save as template
+          </Button>
+          {saveTemplateSuccess && (
+            <Typography variant="caption" color="success.main">
+              Template saved!
+            </Typography>
+          )}
+        </Box>
+        <Box>
+          <Button onClick={onClose} disabled={submitting} sx={{ mr: 1 }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            startIcon={
+              submitting ? <CircularProgress color="inherit" size={16} /> : null
+            }
+          >
+            {submitting ? "Creating…" : "Create phase"}
+          </Button>
+        </Box>
       </DialogActions>
+
+      <Dialog
+        open={saveTemplateOpen}
+        onClose={() => !savingTemplate && setSaveTemplateOpen(false)}
+        aria-labelledby="phase-save-template-title"
+        data-testid="phase-save-template-dialog"
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle id="phase-save-template-title">
+          Save as template
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {saveTemplateError && (
+              <Alert severity="error" onClose={() => setSaveTemplateError(null)}>
+                {saveTemplateError}
+              </Alert>
+            )}
+            <TextField
+              label="Template name"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              disabled={savingTemplate}
+              size="small"
+              fullWidth
+              required
+              inputProps={{ "aria-label": "Template name" }}
+              data-testid="phase-template-name"
+            />
+            <TextField
+              label="Description"
+              value={templateDesc}
+              onChange={(e) => setTemplateDesc(e.target.value)}
+              disabled={savingTemplate}
+              size="small"
+              fullWidth
+              multiline
+              minRows={2}
+              inputProps={{ "aria-label": "Template description" }}
+              data-testid="phase-template-description"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setSaveTemplateOpen(false)}
+            disabled={savingTemplate}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveAsTemplate()}
+            disabled={savingTemplate || templateName.trim() === ""}
+            startIcon={
+              savingTemplate ? (
+                <CircularProgress color="inherit" size={16} />
+              ) : null
+            }
+            data-testid="phase-template-confirm"
+          >
+            {savingTemplate ? "Saving…" : "Save template"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }
