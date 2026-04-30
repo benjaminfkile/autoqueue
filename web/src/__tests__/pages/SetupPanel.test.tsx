@@ -43,7 +43,7 @@ function installFetchMock(scenario: FetchScenario) {
           }
           currentStatus = {
             ready: true,
-            configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+            configured: { GH_PAT: true },
           };
           return jsonResponse(currentStatus);
         }
@@ -53,7 +53,7 @@ function installFetchMock(scenario: FetchScenario) {
           }
           currentStatus = {
             ready: false,
-            configured: { ANTHROPIC_API_KEY: false, GH_PAT: false },
+            configured: { GH_PAT: false },
           };
           return jsonResponse(currentStatus);
         }
@@ -85,11 +85,11 @@ afterEach(() => {
 });
 
 describe("First-run setup flow", () => {
-  it("shows the setup panel when secrets are missing", async () => {
+  it("shows the setup panel when GH_PAT is missing", async () => {
     installFetchMock({
       setupStatus: {
         ready: false,
-        configured: { ANTHROPIC_API_KEY: false, GH_PAT: false },
+        configured: { GH_PAT: false },
       },
     });
 
@@ -104,11 +104,11 @@ describe("First-run setup flow", () => {
     expect(screen.queryByText(/no repos yet/i)).not.toBeInTheDocument();
   });
 
-  it("submits both secrets and switches to the main UI without a reload", async () => {
+  it("submits GH_PAT and switches to the main UI without a reload", async () => {
     const fetchMock = installFetchMock({
       setupStatus: {
         ready: false,
-        configured: { ANTHROPIC_API_KEY: false, GH_PAT: false },
+        configured: { GH_PAT: false },
       },
     });
 
@@ -119,7 +119,6 @@ describe("First-run setup flow", () => {
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
     );
 
-    await user.type(screen.getByTestId("setup-anthropic-key"), "sk-test");
     await user.type(screen.getByTestId("setup-gh-pat"), "ghp_test");
     await user.click(screen.getByTestId("setup-submit"));
 
@@ -142,17 +141,14 @@ describe("First-run setup flow", () => {
     const postedBody = JSON.parse(
       (postCall?.[1] as RequestInit).body as string
     );
-    expect(postedBody).toEqual({
-      ANTHROPIC_API_KEY: "sk-test",
-      GH_PAT: "ghp_test",
-    });
+    expect(postedBody).toEqual({ GH_PAT: "ghp_test" });
   });
 
   it("renders an inline error when /api/setup POST fails", async () => {
     installFetchMock({
       setupStatus: {
         ready: false,
-        configured: { ANTHROPIC_API_KEY: false, GH_PAT: false },
+        configured: { GH_PAT: false },
       },
       postOverride: () =>
         jsonResponse({ error: "GH_PAT is required" }, 400),
@@ -165,7 +161,6 @@ describe("First-run setup flow", () => {
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
     );
 
-    await user.type(screen.getByTestId("setup-anthropic-key"), "sk-test");
     await user.type(screen.getByTestId("setup-gh-pat"), "ghp_test");
     await user.click(screen.getByTestId("setup-submit"));
 
@@ -180,7 +175,7 @@ describe("First-run setup flow", () => {
     installFetchMock({
       setupStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
 
@@ -201,7 +196,6 @@ describe("First-run setup flow", () => {
     await waitFor(() =>
       expect(screen.getByTestId("setup-panel")).toBeInTheDocument()
     );
-    expect(screen.getByTestId("setup-anthropic-key")).toBeInTheDocument();
     expect(screen.getByTestId("setup-gh-pat")).toBeInTheDocument();
   });
 });
