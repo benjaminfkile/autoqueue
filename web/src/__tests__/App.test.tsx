@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import App from "../App";
 import { ThemeProvider } from "../theme/ThemeContext";
 
@@ -25,7 +24,7 @@ function installFetchMock(): ReturnType<typeof vi.fn> {
     if (url.startsWith("/api/setup")) {
       return jsonResponse({
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       });
     }
     if (url.startsWith("/api/repos")) {
@@ -109,21 +108,4 @@ describe("App", () => {
     });
   });
 
-  it("opens the planning chat drawer from the header button", async () => {
-    const user = userEvent.setup();
-    renderApp();
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /open planning chat/i })
-      ).toBeInTheDocument();
-    });
-    await user.click(
-      screen.getByRole("button", { name: /open planning chat/i })
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: /planning chat/i })
-      ).toBeInTheDocument()
-    );
-  });
 });

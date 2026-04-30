@@ -1,7 +1,6 @@
 jest.mock("../src/secrets", () => {
   const store: Record<string, string | undefined> = {
     GH_PAT: "tok",
-    ANTHROPIC_API_KEY: "x",
   };
   return {
     get: jest.fn((key: string) => store[key]),
@@ -207,7 +206,7 @@ describe("runTask Docker availability", () => {
       lastCheckedAt: new Date().toISOString(),
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     try {
       const result = await runTask({} as any, secrets, 1, 42);
@@ -262,7 +261,7 @@ describe("runTask", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(task);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("success");
@@ -320,7 +319,7 @@ describe("runTask", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(leaf);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     // The pending ancestor should have been activated.
@@ -387,7 +386,7 @@ describe("runTask lease renewal heartbeat", () => {
         );
       });
 
-      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const secrets: any = { REPOS_PATH: "/tmp" };
       const runPromise = runTask({} as any, secrets, 1, 42);
 
       // Wait for runClaudeOnTask to actually be invoked — this guarantees
@@ -437,7 +436,7 @@ describe("runTask lease renewal heartbeat", () => {
       const boom = new Error("claude exploded");
       runClaudeMock.mockRejectedValue(boom);
 
-      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const secrets: any = { REPOS_PATH: "/tmp" };
       const runPromise = runTask({} as any, secrets, 1, 42);
 
       await expect(runPromise).rejects.toThrow("claude exploded");
@@ -456,7 +455,7 @@ describe("runTask lease renewal heartbeat", () => {
       getTaskByIdMock.mockResolvedValue(undefined);
       getRepoByIdMock.mockResolvedValue(baseRepo);
 
-      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const secrets: any = { REPOS_PATH: "/tmp" };
       const result = await runTask({} as any, secrets, 1, 42);
       expect(result).toBe("failed");
 
@@ -536,7 +535,7 @@ describe("runTask event emission", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const events = recordedEvents();
@@ -561,7 +560,7 @@ describe("runTask event emission", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(leaf);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(eventForTask(10, "status_change")).toBeDefined();
@@ -581,7 +580,6 @@ describe("runTask event emission", () => {
 
     const secrets: any = {
       REPOS_PATH: "/tmp",
-      ANTHROPIC_API_KEY: "x",
       GH_PAT: "tok",
     };
     await runTask({} as any, secrets, 2, 42);
@@ -606,7 +604,6 @@ describe("runTask event emission", () => {
 
     const secrets: any = {
       REPOS_PATH: "/tmp",
-      ANTHROPIC_API_KEY: "x",
       GH_PAT: "tok",
     };
     await runTask({} as any, secrets, 2, 42);
@@ -629,7 +626,6 @@ describe("runTask event emission", () => {
 
     const secrets: any = {
       REPOS_PATH: "/tmp",
-      ANTHROPIC_API_KEY: "x",
       GH_PAT: "tok",
     };
     await runTask({} as any, secrets, 2, 42);
@@ -646,7 +642,7 @@ describe("runTask event emission", () => {
     runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("failed");
@@ -662,7 +658,7 @@ describe("runTask event emission", () => {
     runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("halted");
@@ -685,7 +681,7 @@ describe("runTask event emission", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const statusChangeToDone = recordEventMock.mock.calls.find(
@@ -738,7 +734,7 @@ describe("runTask log capture", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     const call = runClaudeMock.mock.calls[0]?.[0];
@@ -761,7 +757,7 @@ describe("runTask log capture", () => {
     });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     // Allow the deferred update from onFirstByte to settle.
@@ -818,7 +814,7 @@ describe("runTask mount manifest wiring", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(buildMountManifestMock).toHaveBeenCalledTimes(1);
@@ -841,7 +837,7 @@ describe("runTask mount manifest wiring", () => {
       context: [],
     });
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(runClaudeMock.mock.calls[0][0].workDir).toBe("/custom/path");
@@ -863,7 +859,7 @@ describe("runTask mount manifest wiring", () => {
       context: contextMounts,
     });
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(runClaudeMock.mock.calls[0][0].contextMounts).toEqual(contextMounts);
@@ -881,7 +877,7 @@ describe("runTask mount manifest wiring", () => {
       context: [],
     });
 
-    const secrets: any = { REPOS_PATH: "/repos", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/repos" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(runClaudeMock.mock.calls[0][0].contextMounts).toEqual([]);
@@ -934,7 +930,7 @@ describe("runTask notes inclusion", () => {
   it("calls getNotesForTask with the running task's id (so visibility is resolved against the correct task)", async () => {
     setupHappyPathMocks();
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(getNotesForTaskMock).toHaveBeenCalledTimes(1);
@@ -965,7 +961,7 @@ describe("runTask notes inclusion", () => {
     ]);
     setupHappyPathMocks();
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
@@ -1005,7 +1001,7 @@ describe("runTask notes inclusion", () => {
     ]);
     setupHappyPathMocks();
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
@@ -1026,7 +1022,7 @@ describe("runTask notes inclusion", () => {
     ]);
     setupHappyPathMocks();
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
@@ -1037,7 +1033,7 @@ describe("runTask notes inclusion", () => {
     getNotesForTaskMock.mockResolvedValue([]);
     setupHappyPathMocks();
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const payload = runClaudeMock.mock.calls[0]?.[0]?.taskPayload;
@@ -1098,7 +1094,7 @@ describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
       ],
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(createNoteMock).toHaveBeenCalledTimes(2);
@@ -1132,7 +1128,7 @@ describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
       notes: [{ visibility: "all", content: "should not persist" }],
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
     expect(result).toBe("halted");
     expect(createNoteMock).not.toHaveBeenCalled();
@@ -1142,7 +1138,7 @@ describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
     setupHappyPathMocks();
     runClaudeMock.mockResolvedValue({ success: true, output: "ok", notes: [] });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(createNoteMock).not.toHaveBeenCalled();
@@ -1166,7 +1162,7 @@ describe("runTask persists agent notes (NOTES_TO_SAVE protocol)", () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const secrets: any = { REPOS_PATH: "/tmp" };
       const result = await runTask({} as any, secrets, 1, 42);
 
       expect(result).toBe("success");
@@ -1244,7 +1240,7 @@ describe("runTask records token usage after each agent run", () => {
       usage: sampleUsage,
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(recordTaskUsageMock).toHaveBeenCalledTimes(1);
@@ -1264,7 +1260,7 @@ describe("runTask records token usage after each agent run", () => {
       usage: null,
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(recordTaskUsageMock).not.toHaveBeenCalled();
@@ -1284,7 +1280,7 @@ describe("runTask records token usage after each agent run", () => {
       usage: sampleUsage,
     });
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("halted");
@@ -1307,7 +1303,7 @@ describe("runTask records token usage after each agent run", () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+      const secrets: any = { REPOS_PATH: "/tmp" };
       const result = await runTask({} as any, secrets, 1, 42);
 
       expect(result).toBe("success");
@@ -1382,7 +1378,7 @@ describe("runTask webhook firing", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("success");
@@ -1411,7 +1407,6 @@ describe("runTask webhook firing", () => {
 
     const secrets: any = {
       REPOS_PATH: "/tmp",
-      ANTHROPIC_API_KEY: "x",
       GH_PAT: "tok",
     };
     await runTask({} as any, secrets, 2, 42);
@@ -1438,7 +1433,6 @@ describe("runTask webhook firing", () => {
 
     const secrets: any = {
       REPOS_PATH: "/tmp",
-      ANTHROPIC_API_KEY: "x",
       GH_PAT: "tok",
     };
     await runTask({} as any, secrets, 2, 42);
@@ -1460,7 +1454,7 @@ describe("runTask webhook firing", () => {
     runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("failed");
@@ -1479,7 +1473,7 @@ describe("runTask webhook firing", () => {
     runClaudeMock.mockResolvedValue({ success: false, output: "boom" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     const result = await runTask({} as any, secrets, 1, 42);
 
     expect(result).toBe("halted");
@@ -1498,7 +1492,7 @@ describe("runTask webhook firing", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     // No spurious 'failed' or 'halted' calls on the success path.
@@ -1549,7 +1543,7 @@ describe("runTask resolves and forwards the effective model", () => {
     runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
     updateTaskMock.mockResolvedValue(baseTask);
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(resolveTaskModelMock).toHaveBeenCalledWith(expect.anything(), 42);
@@ -1563,7 +1557,7 @@ describe("runTask resolves and forwards the effective model", () => {
     updateTaskMock.mockResolvedValue(baseTask);
     resolveTaskModelMock.mockResolvedValueOnce("claude-sonnet-4-6");
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     expect(runClaudeMock.mock.calls[0][0].model).toBe("claude-sonnet-4-6");
@@ -1577,7 +1571,7 @@ describe("runTask resolves and forwards the effective model", () => {
     updateTaskMock.mockResolvedValue(baseTask);
     resolveTaskModelMock.mockResolvedValueOnce("claude-haiku-4-5");
 
-    const secrets: any = { REPOS_PATH: "/tmp", ANTHROPIC_API_KEY: "x" };
+    const secrets: any = { REPOS_PATH: "/tmp" };
     await runTask({} as any, secrets, 1, 42);
 
     const claudeStarted = recordEventMock.mock.calls.find(
