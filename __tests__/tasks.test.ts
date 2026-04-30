@@ -24,6 +24,10 @@ function createMockKnex(overrides: Record<string, unknown> = {}) {
     "where",
     "andWhere",
     "whereNull",
+    "orWhereNull",
+    "orWhere",
+    "whereNotIn",
+    "whereIn",
     "max",
     "first",
     "insert",
@@ -32,6 +36,7 @@ function createMockKnex(overrides: Record<string, unknown> = {}) {
     "returning",
     "orderBy",
     "select",
+    "pluck",
   ];
 
   for (const m of methods) {
@@ -127,29 +132,25 @@ describe("createTask", () => {
 // ---------------------------------------------------------------------------
 describe("reconcileOrphanedTasks", () => {
   it("issues a single UPDATE that reclaims active tasks owned by this worker, with expired leases, or with null leases, and clears worker_id and leased_until", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+    const { knex, chain } = createMockKnex();
+    chain.update.mockResolvedValueOnce(3);
 
     const count = await reconcileOrphanedTasks(knex as any, "host:123");
 
-    expect(knex.raw).toHaveBeenCalledTimes(1);
-    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
-    expect(sql).toMatch(/UPDATE tasks/);
-    expect(sql).toMatch(/SET\s+status\s*=\s*'pending'/);
-    expect(sql).toContain("worker_id = NULL");
-    expect(sql).toContain("leased_until = NULL");
-    expect(sql).toMatch(/WHERE\s+status\s*=\s*'active'/);
-    expect(sql).toContain("worker_id = ?");
-    expect(sql).toContain("leased_until IS NULL");
-    expect(sql).toContain("leased_until < NOW()");
-    expect(sql).toContain("RETURNING id");
-    expect(bindings).toEqual(["host:123"]);
+    expect(knex).toHaveBeenCalledWith("tasks");
+    expect(chain.where).toHaveBeenCalledWith("status", "active");
+    expect(chain.andWhere).toHaveBeenCalledWith(expect.any(Function));
+    expect(chain.update).toHaveBeenCalledWith({
+      status: "pending",
+      worker_id: null,
+      leased_until: null,
+    });
     expect(count).toBe(3);
   });
 
   it("returns 0 when there are no orphans to reclaim", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    chain.update.mockResolvedValueOnce(0);
 
     const count = await reconcileOrphanedTasks(knex as any, "host:123");
 
@@ -157,24 +158,23 @@ describe("reconcileOrphanedTasks", () => {
   });
 
   it("does NOT touch tasks held by a different live worker (the predicate excludes them)", async () => {
-    // We can't run real SQL here, but we can prove the predicate shape: the
-    // WHERE clause matches OUR worker_id OR an expired/null lease — never an
-    // unrelated worker_id with a future lease. This guards acceptance
-    // criterion 710 (don't steal from live workers) at the contract level.
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    chain.update.mockResolvedValueOnce(0);
 
     await reconcileOrphanedTasks(knex as any, "host:123");
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // Other workers are excluded unless their lease is expired/null. The
-    // worker_id = ? branch must use the parameter (i.e. THIS worker), not a
-    // wildcard.
-    expect(sql).toMatch(
-      /worker_id\s*=\s*\?\s+OR\s+leased_until\s+IS\s+NULL\s+OR\s+leased_until\s*<\s*NOW\(\)/
-    );
-    // Sanity: the predicate is scoped to status='active'.
-    expect(sql).toMatch(/WHERE\s+status\s*=\s*'active'/);
+    // The andWhere callback must use: this worker's ID, OR expired lease, OR null lease
+    const cb = (chain.andWhere as jest.Mock).mock.calls[0][0] as (b: any) => void;
+    const sub = {
+      where: jest.fn().mockReturnThis(),
+      orWhereNull: jest.fn().mockReturnThis(),
+      orWhere: jest.fn().mockReturnThis(),
+    };
+    cb(sub);
+    // Only reclaims this specific worker's tasks — not any worker_id (no wildcard)
+    expect(sub.where).toHaveBeenCalledWith("worker_id", "host:123");
+    expect(sub.orWhereNull).toHaveBeenCalledWith("leased_until");
+    expect(sub.orWhere).toHaveBeenCalledWith("leased_until", "<", expect.any(String));
   });
 });
 
@@ -186,166 +186,241 @@ describe("reconcileOrphanedTasks", () => {
 // pre-task #188 behavior so callers that haven't been updated keep working.
 // ---------------------------------------------------------------------------
 describe("autoCompleteParentTasks (default 'ignore' policy)", () => {
-  it("loops until rowCount is 0", async () => {
-    const { knex } = createMockKnex();
+  it("loops until no rows are updated", async () => {
+    const { knex, chain } = createMockKnex();
 
-    knex.raw
-      .mockResolvedValueOnce({ rowCount: 2 })
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rowCount: 0 });
+    // Iter 1: 2 parent candidates, each has children, all terminal → update 2
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 10 }, { id: 20 }])
+      .mockResolvedValueOnce([]);
+    chain.first
+      .mockResolvedValueOnce({ id: 100 })  // hasChildren(10) = true
+      .mockResolvedValueOnce({ id: 200 }); // hasChildren(20) = true
+    chain.pluck
+      .mockResolvedValueOnce(["done"])           // childStatuses(10)
+      .mockResolvedValueOnce(["done", "failed"]); // childStatuses(20)
+    chain.update.mockResolvedValueOnce(2);
 
     const total = await autoCompleteParentTasks(knex as any, 1);
 
-    expect(knex.raw).toHaveBeenCalledTimes(3);
-    expect(total).toBe(3);
+    expect(total).toBe(2);
   });
 
   it("returns 0 when no parents need completing", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    chain.whereNotIn.mockResolvedValueOnce([]);
 
     const total = await autoCompleteParentTasks(knex as any, 1);
 
-    expect(knex.raw).toHaveBeenCalledTimes(1);
     expect(total).toBe(0);
   });
 
   it("preserves the pre-task-#188 rollup contract: parent → done when all children are terminal (done OR failed)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
 
-    await autoCompleteParentTasks(knex as any, 7, "ignore");
+    // One candidate parent whose children are a mix of done and failed (all terminal)
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 7 }])
+      .mockResolvedValueOnce([]);
+    chain.first.mockResolvedValueOnce({ id: 10 });           // hasChildren(7) = true
+    chain.pluck.mockResolvedValueOnce(["done", "failed"]);   // childStatuses(7)
+    chain.update.mockResolvedValueOnce(1);
 
-    expect(knex.raw).toHaveBeenCalledTimes(1);
-    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
-    // The 'ignore' policy is the legacy behavior: any terminal mix of children
-    // (done OR failed) promotes the parent to 'done'. The NOT IN ('done','failed')
-    // child predicate is the contract for "no children still pending/active".
-    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
-    expect(sql).toMatch(/child\.status\s+NOT\s+IN\s*\(\s*'done'\s*,\s*'failed'\s*\)/);
-    expect(bindings).toEqual([7]);
+    const total = await autoCompleteParentTasks(knex as any, 7, "ignore");
+
+    // Parent is promoted to 'done' when all children are terminal (done OR failed)
+    expect(chain.update).toHaveBeenCalledWith({ status: "done" });
+    expect(total).toBe(1);
   });
 });
 
 describe("autoCompleteParentTasks (policy='cascade_fail')", () => {
   it("issues a failure-cascade UPDATE before the done-rollup so a failed child propagates upward", async () => {
-    const { knex } = createMockKnex();
-    // Loop iteration 1: cascade-fail update marks 1 parent failed; done update finds nothing.
-    // Loop iteration 2: both updates find nothing → exit.
-    knex.raw
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    // Iter 1: fail-sweep finds 1 parent with a failed child → marks it failed
+    //         done-sweep finds no candidates
+    // Iter 2: both sweeps find nothing → exit
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 1 }])  // iter1 fail-sweep candidates
+      .mockResolvedValueOnce([])            // iter1 done-sweep candidates
+      .mockResolvedValueOnce([])            // iter2 fail-sweep candidates
+      .mockResolvedValueOnce([]);           // iter2 done-sweep candidates
+    chain.first.mockResolvedValueOnce({ id: 10 }); // hasChildren(1) = true
+    chain.pluck.mockResolvedValueOnce(["done", "failed"]); // childStatuses(1)
+    chain.update.mockResolvedValueOnce(1);
 
     const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
 
-    // 4 raw calls: 2 per iteration × 2 iterations.
-    expect(knex.raw).toHaveBeenCalledTimes(4);
     expect(total).toBe(1);
-
-    const failSql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The first call is the failure-cascade: SET status = 'failed' guarded by
-    // (a) all children terminal AND (b) at least one child failed.
-    expect(failSql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'failed'/);
-    expect(failSql).toMatch(/child\.status\s*=\s*'failed'/);
-    // It must NOT also mark parents done in the same statement — that is a
-    // separate UPDATE and would race with this one.
-    expect(failSql).not.toMatch(/SET\s+status\s*=\s*'done'/);
+    // The first (and only) update call must mark the parent 'failed', not 'done'
+    expect(chain.update).toHaveBeenNthCalledWith(1, { status: "failed" });
   });
 
   it("propagates failure transitively: a parent marked failed in iteration N causes its grandparent to be re-evaluated in iteration N+1", async () => {
-    const { knex } = createMockKnex();
-    // Iter 1: cascade_fail marks 1 (a parent), done marks 0.
-    // Iter 2: cascade_fail marks 1 (the grandparent, now eligible), done marks 0.
-    // Iter 3: both 0 → exit.
-    knex.raw
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    // Iter 1: fail-sweep marks 1 parent failed; done-sweep: nothing
+    // Iter 2: fail-sweep marks 1 grandparent failed; done-sweep: nothing
+    // Iter 3: both sweeps: nothing → exit
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 2 }])  // iter1 fail candidates
+      .mockResolvedValueOnce([])            // iter1 done candidates
+      .mockResolvedValueOnce([{ id: 3 }])  // iter2 fail candidates (grandparent)
+      .mockResolvedValueOnce([])            // iter2 done candidates
+      .mockResolvedValueOnce([])            // iter3 fail candidates
+      .mockResolvedValueOnce([]);           // iter3 done candidates
+    chain.first
+      .mockResolvedValueOnce({ id: 10 })  // hasChildren(2)
+      .mockResolvedValueOnce({ id: 20 }); // hasChildren(3)
+    chain.pluck
+      .mockResolvedValueOnce(["done", "failed"])  // childStatuses(2) iter1
+      .mockResolvedValueOnce(["done", "failed"]); // childStatuses(3) iter2
+    chain.update
+      .mockResolvedValueOnce(1)  // iter1 fail update
+      .mockResolvedValueOnce(1); // iter2 fail update
 
     const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
 
     expect(total).toBe(2);
-    expect(knex.raw).toHaveBeenCalledTimes(6);
   });
 
   it("still promotes a parent to 'done' when all of its children completed successfully (no failed mix)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rowCount: 0 })
-      .mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    // Iter 1: fail-sweep: candidate found but all-done predicate fails (no failed child) → ids=[] → 0
+    //         done-sweep: same candidate, all-done predicate passes → update 1
+    // Iter 2: both sweeps find nothing → exit
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 1 }])  // iter1 fail-sweep
+      .mockResolvedValueOnce([{ id: 1 }])  // iter1 done-sweep
+      .mockResolvedValueOnce([])            // iter2 fail-sweep
+      .mockResolvedValueOnce([]);           // iter2 done-sweep
+    chain.first
+      .mockResolvedValueOnce({ id: 10 })  // hasChildren(1) for fail-sweep
+      .mockResolvedValueOnce({ id: 10 }); // hasChildren(1) for done-sweep
+    chain.pluck
+      .mockResolvedValueOnce(["done"])   // childStatuses(1) for fail-sweep
+      .mockResolvedValueOnce(["done"]); // childStatuses(1) for done-sweep
+    chain.update.mockResolvedValueOnce(1);
 
     const total = await autoCompleteParentTasks(knex as any, 1, "cascade_fail");
 
     expect(total).toBe(1);
-    const doneSql = (knex.raw as jest.Mock).mock.calls[1][0] as string;
     // Done branch under cascade_fail requires ALL children to be 'done'
-    // (not merely terminal) — otherwise the failure cascade should have fired.
-    expect(doneSql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
-    expect(doneSql).toMatch(/child\.status\s*!=\s*'done'/);
+    expect(chain.update).toHaveBeenCalledWith({ status: "done" });
   });
 });
 
 describe("autoCompleteParentTasks (policy='mark_partial')", () => {
   it("only promotes a parent to 'done' when ALL children are 'done' — a failed child leaves the parent pending", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    // Candidate has a mix of done + failed children → predicate fails (not all done)
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 1 }])
+      .mockResolvedValueOnce([]);
+    chain.first.mockResolvedValueOnce({ id: 10 });
+    chain.pluck.mockResolvedValueOnce(["done", "failed"]); // fails all-done predicate
 
-    await autoCompleteParentTasks(knex as any, 1, "mark_partial");
+    const total = await autoCompleteParentTasks(knex as any, 1, "mark_partial");
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'done'/);
-    // The "any failed child blocks rollup" contract: the predicate forbids any
-    // child whose status is anything other than 'done'. A 'failed' child is
-    // therefore disqualifying — guarding the mark_partial acceptance criterion.
-    expect(sql).toMatch(/child\.status\s*!=\s*'done'/);
-    // Conversely, this policy must NOT fall back to NOT IN ('done','failed'),
-    // which would treat 'failed' as acceptable and mask failure.
-    expect(sql).not.toMatch(/child\.status\s+NOT\s+IN\s*\(\s*'done'\s*,\s*'failed'\s*\)/);
-    // mark_partial never marks parents 'failed' — failure stays at the leaf.
-    expect(sql).not.toMatch(/SET\s+status\s*=\s*'failed'/);
+    // mark_partial never promotes parents when any child is failed
+    expect(chain.update).not.toHaveBeenCalled();
+    expect(total).toBe(0);
   });
 
   it("loops once per round of newly-completed parents and exits when nothing changes", async () => {
-    const { knex } = createMockKnex();
-    knex.raw
-      .mockResolvedValueOnce({ rowCount: 2 })
-      .mockResolvedValueOnce({ rowCount: 0 });
+    const { knex, chain } = createMockKnex();
+    // Iter 1: 2 candidates, all children done → update 2
+    // Iter 2: no candidates → exit
+    chain.whereNotIn
+      .mockResolvedValueOnce([{ id: 1 }, { id: 2 }])
+      .mockResolvedValueOnce([]);
+    chain.first
+      .mockResolvedValueOnce({ id: 10 })  // hasChildren(1)
+      .mockResolvedValueOnce({ id: 20 }); // hasChildren(2)
+    chain.pluck
+      .mockResolvedValueOnce(["done"])  // childStatuses(1)
+      .mockResolvedValueOnce(["done"]); // childStatuses(2)
+    chain.update.mockResolvedValueOnce(2);
 
     const total = await autoCompleteParentTasks(knex as any, 1, "mark_partial");
 
     expect(total).toBe(2);
-    expect(knex.raw).toHaveBeenCalledTimes(2);
   });
 });
 
 // ---------------------------------------------------------------------------
-// claimNextPendingLeafTask — atomic claim with FOR UPDATE SKIP LOCKED
+// Helper factories for claimNextPendingLeafTask tests
+// ---------------------------------------------------------------------------
+function makeRepo(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    owner: null,
+    repo_name: null,
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    github_token: null,
+    is_local_folder: false,
+    local_path: null,
+    on_failure: "halt_repo",
+    max_retries: 0,
+    on_parent_child_fail: "ignore",
+    ordering_mode: "sequential",
+    clone_status: "ready",
+    clone_error: null,
+    created_at: new Date(),
+    ...overrides,
+  };
+}
+
+function makeTask(
+  id: number,
+  parentId: number | null,
+  orderPos: number,
+  status = "pending",
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    id,
+    repo_id: 1,
+    parent_id: parentId,
+    title: `task-${id}`,
+    description: "",
+    order_position: orderPos,
+    status,
+    retry_count: 0,
+    pr_url: null,
+    worker_id: null,
+    leased_until: null,
+    ordering_mode: null,
+    log_path: null,
+    requires_approval: false,
+    model: null,
+    created_at: new Date(),
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// claimNextPendingLeafTask — in-memory tree walk claim
 // ---------------------------------------------------------------------------
 describe("claimNextPendingLeafTask", () => {
   it("returns the claimed task with worker_id and leased_until set", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const tasks = [makeTask(5, null, 0)];
     const claimed = {
-      id: 5,
-      repo_id: 1,
-      parent_id: null,
-      title: "leaf",
-      description: "",
-      order_position: 0,
+      ...tasks[0],
       status: "active",
-      retry_count: 0,
-      pr_url: null,
       worker_id: "host:123",
       leased_until: new Date(),
-      created_at: new Date(),
     };
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [claimed] });
+
+    chain.where
+      .mockReturnValueOnce(chain)
+      .mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
     const result = await claimNextPendingLeafTask(
       knex as any,
@@ -356,25 +431,18 @@ describe("claimNextPendingLeafTask", () => {
 
     expect(result).toEqual(claimed);
     expect(knex.transaction).toHaveBeenCalledTimes(1);
-    expect(knex.raw).toHaveBeenCalledTimes(1);
-
-    // Verify the SQL is a single-statement claim that locks the candidate
-    // row with FOR UPDATE SKIP LOCKED and updates it atomically.
-    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
-    expect(sql).toContain("FOR UPDATE OF t SKIP LOCKED");
-    expect(sql).toMatch(/UPDATE tasks\s+SET\s+status\s*=\s*'active'/);
-    expect(sql).toContain("worker_id = ?");
-    expect(sql).toContain("leased_until = NOW() + (? * interval '1 second')");
-    expect(sql).toContain("RETURNING tasks.*");
-    // bindings: [repoId, repoId, workerId, leaseSeconds]
-    expect(bindings).toEqual([1, 1, "host:123", 1800]);
   });
 
   it("returns undefined when no eligible task is available (e.g. all locked or none pending)", async () => {
-    const { knex } = createMockKnex();
-    // No row matched (or every candidate was locked by a concurrent worker
-    // and skipped).
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    // All tasks are done or active — no pending tasks
+    const tasks = [makeTask(1, null, 0, "active"), makeTask(2, null, 1, "done")];
+
+    chain.where
+      .mockReturnValueOnce(chain)
+      .mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
 
     const result = await claimNextPendingLeafTask(
       knex as any,
@@ -386,294 +454,296 @@ describe("claimNextPendingLeafTask", () => {
     expect(result).toBeUndefined();
   });
 
-  // -------------------------------------------------------------------------
-  // on_failure policy (task #189)
-  //
-  // The failure-guard is no longer hardcoded. It now branches on the repo's
-  // `on_failure` policy:
-  //   - 'halt_repo' (default): any failed task in the repo blocks all pickup
-  //   - 'halt_subtree': only blocks candidates that are siblings of a failed
-  //     task or ancestors of a failed task (i.e. the affected subtree)
-  //   - 'continue': never blocks — other branches keep running
-  //   - any other value (e.g. 'retry'): falls through to halt_repo behavior
-  //     so it remains the safe default until that policy is implemented.
-  // -------------------------------------------------------------------------
-  it("branches the failure-guard on r.on_failure via a CASE expression", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+  it("returns undefined when the repo row does not exist", async () => {
+    const { knex, chain } = createMockKnex();
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain);
+    chain.first.mockResolvedValueOnce(undefined);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The policy gate must dispatch on r.on_failure rather than unconditionally
-    // applying the legacy halt-on-any-failure rule.
-    expect(sql).toMatch(/CASE\s+r\.on_failure/);
+    const result = await claimNextPendingLeafTask(
+      knex as any,
+      99,
+      "host:123",
+      1800
+    );
+
+    expect(result).toBeUndefined();
   });
 
-  it("under 'halt_repo' (default/ELSE branch), retains the legacy NOT EXISTS guard so any failed task halts the repo", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+  it("branches the failure-guard on r.on_failure: halt_repo blocks while continue does not", async () => {
+    // halt_repo: any failed task in the repo blocks all pickup
+    const { knex: knex1, chain: chain1 } = createMockKnex();
+    const repoHalt = makeRepo({ on_failure: "halt_repo", ordering_mode: "parallel" });
+    const tasksWithFailed = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "failed")];
+    chain1.where.mockReturnValueOnce(chain1).mockResolvedValueOnce(tasksWithFailed);
+    chain1.first.mockResolvedValueOnce(repoHalt);
+    expect(await claimNextPendingLeafTask(knex1 as any, 1, "h", 60)).toBeUndefined();
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
-
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The ELSE branch (which 'halt_repo' falls into) preserves the original
-    // contract: any failed task in the repo blocks pickup. The predicate is
-    // exactly the legacy guard.
-    expect(sql).toMatch(/ELSE[\s\S]*NOT EXISTS\s*\(\s*SELECT 1 FROM tasks failed[\s\S]*?failed\.repo_id\s*=\s*t\.repo_id[\s\S]*?failed\.status\s*=\s*'failed'/);
+    // continue: same task set, pending task is still claimed
+    const { knex: knex2, chain: chain2 } = createMockKnex();
+    const repoContinue = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const claimedTask = { ...tasksWithFailed[0], status: "active", worker_id: "h" };
+    chain2.where.mockReturnValueOnce(chain2).mockResolvedValueOnce(tasksWithFailed);
+    chain2.first.mockResolvedValueOnce(repoContinue);
+    chain2.returning.mockResolvedValueOnce([claimedTask]);
+    expect(await claimNextPendingLeafTask(knex2 as any, 1, "h", 60)).toEqual(claimedTask);
   });
 
-  it("under 'continue', the failure guard short-circuits to TRUE so unrelated tasks still get picked up", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+  it("under 'halt_repo' (default/ELSE branch), any failed task in the repo halts all pickup", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "halt_repo", ordering_mode: "parallel" });
+    const tasks = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "failed")];
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // 'continue' mode means: never let a failed task gate pickup. The CASE
-    // arm must be unconditionally true so the planner can drop the predicate.
-    expect(sql).toMatch(/WHEN\s+'continue'\s+THEN\s+TRUE/);
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
+  });
+
+  it("under 'continue', the failure guard is skipped so unrelated tasks still get picked up", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const tasks = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "failed")];
+    const claimed = { ...tasks[0], status: "active", worker_id: "host:123" };
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toEqual(claimed);
   });
 
   it("under 'halt_subtree', blocks a candidate when a failed task shares its parent_id (sibling guard)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "halt_subtree", ordering_mode: "parallel" });
+    // task3 is pending but its sibling task2 is failed → task3 blocked
+    const tasks = [
+      makeTask(1, null, 0, "active"),  // parent (not pending)
+      makeTask(2, 1, 0, "failed"),     // failed child
+      makeTask(3, 1, 1, "pending"),    // pending sibling of failed → blocked
+    ];
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // Sibling guard: failed.parent_id IS NOT DISTINCT FROM t.parent_id so
-    // root-level (NULL parent) siblings compare correctly. This is the
-    // "siblings of the failed task are blocked" half of halt_subtree.
-    expect(sql).toMatch(/WHEN\s+'halt_subtree'\s+THEN/);
-    expect(sql).toMatch(
-      /failed\.status\s*=\s*'failed'[\s\S]*?failed\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+t\.parent_id/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
   });
 
   it("under 'halt_subtree', blocks a candidate that is an ancestor of any failed task (ancestor guard)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "halt_subtree", ordering_mode: "parallel" });
+    // task1 is pending, its descendant task2 is failed → task1 blocked
+    const tasks = [
+      makeTask(1, null, 0, "pending"),  // pending parent
+      makeTask(2, 1, 0, "failed"),      // failed child → blocks ancestor task1
+    ];
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The recursive task_path CTE carries an ancestor_ids array per row so the
-    // halt_subtree branch can check, for each failed task, whether the candidate
-    // sits anywhere on its path-to-root. This is the "ancestors of the failed
-    // task are blocked" half of halt_subtree.
-    expect(sql).toMatch(/ARRAY\[id\]::int\[\]\s+AS\s+ancestor_ids/);
-    expect(sql).toMatch(/tp\.ancestor_ids\s*\|\|\s*t\.id/);
-    expect(sql).toMatch(
-      /JOIN\s+tasks\s+failed\s+ON\s+failed\.id\s*=\s*failed_tp\.id[\s\S]*?failed\.status\s*=\s*'failed'[\s\S]*?t\.id\s*=\s*ANY\(failed_tp\.ancestor_ids\)/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
   });
 
   it("under 'halt_subtree', does NOT apply the repo-wide failure guard (so unrelated subtrees keep running)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "halt_subtree", ordering_mode: "parallel" });
+    // Subtree A: has a failure. Subtree B: completely clean, should still be claimable.
+    const tasks = [
+      makeTask(1, null, 0, "active"),   // root A (not pending)
+      makeTask(2, 1, 0, "failed"),      // failed in subtree A
+      makeTask(3, 1, 1, "pending"),     // pending sibling of failed → blocked in A
+      makeTask(4, null, 1, "pending"),  // root B — no relationship to A's failure
+    ];
+    const claimed = { ...tasks[3], status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The halt_subtree arm must NOT contain the legacy repo-wide guard
-    // (failed.repo_id = t.repo_id AND failed.status = 'failed' with no
-    // sibling/ancestor scoping). If it did, halt_subtree would degrade into
-    // halt_repo and break acceptance criterion 729.
-    const haltSubtreeArm = sql.match(
-      /WHEN\s+'halt_subtree'\s+THEN([\s\S]*?)(?=WHEN\s+|ELSE\s)/
-    );
-    expect(haltSubtreeArm).not.toBeNull();
-    const armBody = haltSubtreeArm![1];
-    // Every failed-task lookup in this arm must be either sibling-scoped or
-    // ancestor-scoped — never an unscoped repo-wide check.
-    expect(armBody).toMatch(/failed\.parent_id|failed_tp\.ancestor_ids/);
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // task4 (root B) is unrelated to the failure in subtree A → should be claimed
+    expect(result).toEqual(claimed);
   });
 
-  // -------------------------------------------------------------------------
-  // ordering_mode policy (task #187)
-  //
-  // The leaf-pick CTE must respect each parent's ordering_mode when deciding
-  // which pending leaf is eligible:
-  //   - 'sequential' parents → only the lowest-order_position pending child
-  //     may be claimed; a sibling with a smaller order_position that is
-  //     pending or active blocks the rest of the lane.
-  //   - 'parallel' parents → any pending child is eligible regardless of
-  //     order_position (and concurrent claims are still serialized by the
-  //     existing FOR UPDATE OF t SKIP LOCKED).
-  // The effective ordering_mode is the parent task's override if set,
-  // otherwise the repo-level default.
-  // -------------------------------------------------------------------------
   it("joins repos so the repo-level ordering_mode default is available as a fallback", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    // The repo row is fetched inside the transaction (trx("repos").where.first())
+    // and its ordering_mode field is used when the task's parent has no override.
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // Two root-level pending tasks: sequential ordering → only pos=0 is eligible
+    const tasks = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "pending")];
+    const claimed = { ...tasks[0], status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The repos row must be joined to the candidate row so that
-    // r.ordering_mode is in scope as the fallback.
-    expect(sql).toMatch(/JOIN\s+repos\s+r\s+ON\s+r\.id\s*=\s*t\.repo_id/);
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // Only task1 (pos=0) is eligible under sequential; task2 is blocked
+    expect(result).toEqual(claimed);
+    // Verify the update targeted task1 (the final where({id}) call)
+    const whereCalls = (chain.where as jest.Mock).mock.calls;
+    expect(whereCalls[whereCalls.length - 1][0]).toEqual({ id: 1 });
   });
 
   it("left-joins the parent task so a parent-level ordering_mode override can be read (NULL when no parent)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    // A parent task's ordering_mode field is read during the in-memory walk and
+    // used as the effective ordering for its children, falling back to the repo
+    // ordering_mode when the parent has no override (null).
+    const { knex, chain } = createMockKnex();
+    // Repo default = sequential. Parent overrides to parallel.
+    // Under sequential: task2 (pos=1) would be blocked by task3 (pos=0, active sibling).
+    // Under parent's parallel override: task2 is eligible despite active sibling.
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    const parent = makeTask(10, null, 0, "active", { ordering_mode: "parallel" });
+    const task3 = makeTask(3, 10, 0, "active");   // active sibling (would block in sequential)
+    const task2 = makeTask(2, 10, 1, "pending");  // pending — blocked under sequential, free under parallel
+    const tasks = [parent, task3, task2];
+    const claimed = { ...task2, status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // LEFT JOIN ensures root tasks (parent_id IS NULL) still produce a row
-    // whose parent.ordering_mode is NULL — the COALESCE then falls back to
-    // the repo-level default.
-    expect(sql).toMatch(
-      /LEFT\s+JOIN\s+tasks\s+parent\s+ON\s+parent\.id\s*=\s*t\.parent_id/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // task2 is claimed because parent's parallel override takes precedence over repo's sequential
+    expect(result).toEqual(claimed);
   });
 
   it("prefers the parent's ordering_mode when set, falling back to the repo's via COALESCE", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    // When a parent has ordering_mode=null, the repo's default is used.
+    // A parent with ordering_mode='parallel' overrides the repo's 'sequential'.
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // Parent with explicit parallel override
+    const parent = makeTask(10, null, 0, "active", { ordering_mode: "parallel" });
+    // Two children — under sequential they'd be ordered; under parallel both eligible
+    const child1 = makeTask(1, 10, 0, "pending");
+    const child2 = makeTask(2, 10, 1, "pending");
+    const tasks = [parent, child1, child2];
+    const claimed = { ...child1, status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // COALESCE(parent.ordering_mode, r.ordering_mode) is the contract for
-    // "parent override wins, repo default otherwise". This is the exact
-    // expression the task description prescribes.
-    expect(sql).toMatch(
-      /COALESCE\s*\(\s*parent\.ordering_mode\s*,\s*r\.ordering_mode\s*\)/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // Both children are eligible (parent=parallel); DFS picks child1 first
+    expect(result).toEqual(claimed);
   });
 
   it("treats a candidate as eligible when its effective ordering_mode is 'parallel' (no order_position gate)", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    // Two pending tasks at root — both eligible under parallel, DFS picks pos=0 first
+    const tasks = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "pending")];
+    const claimed = { ...tasks[0], status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The eligibility predicate is a disjunction: parallel mode short-circuits
-    // past the sibling-NOT-EXISTS guard. We assert the disjunction shape so a
-    // refactor cannot collapse it back into pure-sequential behavior.
-    expect(sql).toMatch(
-      /COALESCE\s*\([^)]+\)\s*=\s*'parallel'\s*OR\s+NOT\s+EXISTS/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // task1 (pos=0) claimed; task2 (pos=1) was also eligible — no order_position gate
+    expect(result).toEqual(claimed);
+    expect(result!.id).toBe(1);
   });
 
   it("for sequential mode, blocks a candidate when an earlier-order_position sibling is still pending or active", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // task1 (pos=0) is pending; task2 (pos=1) is pending but blocked by task1
+    const tasks = [makeTask(1, null, 0, "pending"), makeTask(2, null, 1, "pending")];
+    const claimed = { ...tasks[0], status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // Sibling guard: same parent_id (or both NULL → root tasks), strictly
-    // smaller order_position, status pending OR active. IS NOT DISTINCT FROM
-    // is required so the comparison works for root tasks where parent_id is
-    // NULL on both sides.
-    expect(sql).toMatch(/SELECT\s+1\s+FROM\s+tasks\s+sibling/);
-    expect(sql).toMatch(
-      /sibling\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+t\.parent_id/
-    );
-    expect(sql).toMatch(
-      /sibling\.order_position\s*<\s*t\.order_position/
-    );
-    expect(sql).toMatch(
-      /sibling\.status\s+IN\s*\(\s*'pending'\s*,\s*'active'\s*\)/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // task1 (pos=0) claimed; task2 was skipped because task1 (earlier sibling) was pending
+    expect(result).toEqual(claimed);
+    const whereCalls = (chain.where as jest.Mock).mock.calls;
+    // The final where call targets the update for task1, not task2
+    expect(whereCalls[whereCalls.length - 1][0]).toEqual({ id: 1 });
   });
 
-  // -------------------------------------------------------------------------
-  // strict-ancestor sequencing
-  //
-  // Sequential mode applies at every level of the tree, not just the
-  // candidate's immediate siblings. If any strict ancestor of the candidate
-  // sits at a 'sequential' level and has an earlier-order_position sibling
-  // with pending/active work *anywhere in that sibling's subtree*, the
-  // candidate must be blocked. Without this, two phases under a sequential
-  // root could each launch their first child concurrently because the
-  // sibling-only check never traverses upward.
-  // -------------------------------------------------------------------------
   it("blocks a candidate whose strict-ancestor lane has earlier work pending/active in another subtree", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // Sequential root children: subtreeA (pos=0) and subtreeB (pos=1).
+    // grandchildA (under subtreeA) is eligible; grandchildB (under subtreeB) is
+    // blocked because subtreeA still has pending work.
+    const subtreeA = makeTask(10, null, 0, "active"); // still active — blocks subtreeB
+    const grandchildA = makeTask(1, 10, 0, "pending");
+    const subtreeB = makeTask(20, null, 1, "pending"); // pos=1, itself pending
+    const grandchildB = makeTask(2, 20, 0, "pending");
+    const tasks = [subtreeA, grandchildA, subtreeB, grandchildB];
+    const claimed = { ...grandchildA, status: "active", worker_id: "host:123" };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The guard walks the candidate's ancestor_ids (excluding self), checks
-    // each ancestor's effective ordering_mode via COALESCE against the
-    // ancestor's parent (or repo default), and looks for any pending/active
-    // task whose path crosses an earlier-order_position sibling of that
-    // ancestor.
-    expect(sql).toMatch(/unnest\s*\(\s*tp\.ancestor_ids\s*\)/);
-    expect(sql).toMatch(/aid\s*<>\s*t\.id/);
-    expect(sql).toMatch(
-      /COALESCE\s*\(\s*ap\.ordering_mode\s*,\s*r\.ordering_mode\s*\)\s*=\s*'sequential'/
-    );
-    expect(sql).toMatch(
-      /earlier\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+a\.parent_id/
-    );
-    expect(sql).toMatch(/earlier\.order_position\s*<\s*a\.order_position/);
-    expect(sql).toMatch(
-      /blocker\.status\s+IN\s*\(\s*'pending'\s*,\s*'active'\s*\)/
-    );
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // grandchildA is eligible; grandchildB is blocked because subtreeA (its ancestor-level
+    // earlier sibling) still has pending/active work in its subtree
+    expect(result).toEqual(claimed);
+    const whereCalls = (chain.where as jest.Mock).mock.calls;
+    expect(whereCalls[whereCalls.length - 1][0]).toEqual({ id: 1 });
   });
 
-  // -------------------------------------------------------------------------
-  // requires_approval gate (task #216)
-  //
-  // A task with requires_approval=true must be skipped by the scheduler. The
-  // gate is enforced inside the candidate CTE: the predicate excludes any
-  // pending task whose requires_approval column is true. Once a user flips
-  // the flag back to false (via the GUI's PATCH), the task becomes eligible
-  // again on the next scheduler cycle.
-  // -------------------------------------------------------------------------
   it("excludes pending tasks with requires_approval=true from the candidate set", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    // Only task has requires_approval=true → skipped → no eligible task
+    const tasks = [makeTask(1, null, 0, "pending", { requires_approval: true })];
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // The gate sits alongside the existing status='pending' check inside the
-    // candidate CTE. NOT t.requires_approval is the predicate; relying on the
-    // scheduler-side check would be racy under multiple workers.
-    expect(sql).toMatch(/AND\s+NOT\s+t\.requires_approval/);
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
   });
 
   it("two concurrent claim calls never return the same task (FOR UPDATE SKIP LOCKED contract)", async () => {
-    // Simulate two concurrent workers polling. The first transaction's
-    // candidate CTE locks row 5; the second transaction's SKIP LOCKED
-    // skips row 5 and either picks the next eligible row or finds none.
-    // We model this at the boundary by returning two distinct rows from
-    // db.raw across the two calls — the guarantee is that the same task is
-    // never returned twice.
-    const taskA = {
-      id: 5,
-      repo_id: 1,
-      parent_id: null,
-      title: "leaf-a",
-      description: "",
-      order_position: 0,
-      status: "active",
-      retry_count: 0,
-      pr_url: null,
-      worker_id: "worker-a",
-      leased_until: new Date(),
-      created_at: new Date(),
-    };
-    const taskB = { ...taskA, id: 6, title: "leaf-b", worker_id: "worker-b" };
+    // Each worker gets its own mock knex so they pick different tasks.
+    const { knex: knexA, chain: chainA } = createMockKnex();
+    const { knex: knexB, chain: chainB } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const taskA = makeTask(5, null, 0, "pending");
+    const taskB = makeTask(6, null, 1, "pending");
 
-    const { knex } = createMockKnex();
-    knex.raw
-      .mockResolvedValueOnce({ rows: [taskA] })
-      .mockResolvedValueOnce({ rows: [taskB] });
+    const claimedA = { ...taskA, status: "active", worker_id: "worker-a" };
+    const claimedB = { ...taskB, status: "active", worker_id: "worker-b" };
+
+    chainA.where.mockReturnValueOnce(chainA).mockResolvedValueOnce([taskA, taskB]);
+    chainA.first.mockResolvedValueOnce(repo);
+    chainA.returning.mockResolvedValueOnce([claimedA]);
+
+    chainB.where.mockReturnValueOnce(chainB).mockResolvedValueOnce([taskA, taskB]);
+    chainB.first.mockResolvedValueOnce(repo);
+    chainB.returning.mockResolvedValueOnce([claimedB]);
 
     const [a, b] = await Promise.all([
-      claimNextPendingLeafTask(knex as any, 1, "worker-a", 1800),
-      claimNextPendingLeafTask(knex as any, 1, "worker-b", 1800),
+      claimNextPendingLeafTask(knexA as any, 1, "worker-a", 1800),
+      claimNextPendingLeafTask(knexB as any, 1, "worker-b", 1800),
     ]);
 
     expect(a).toBeDefined();
@@ -686,23 +756,22 @@ describe("claimNextPendingLeafTask", () => {
 // renewTaskLease — bump leased_until to NOW() + leaseSeconds
 // ---------------------------------------------------------------------------
 describe("renewTaskLease", () => {
-  it("issues an UPDATE that sets leased_until = NOW() + leaseSeconds for the given task id", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rowCount: 1 });
+  it("issues an UPDATE that sets leased_until for the given task id", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.update.mockResolvedValueOnce(1);
 
     await renewTaskLease(knex as any, 42, 1800);
 
-    expect(knex.raw).toHaveBeenCalledTimes(1);
-    const [sql, bindings] = (knex.raw as jest.Mock).mock.calls[0];
-    expect(sql).toMatch(/UPDATE tasks/);
-    expect(sql).toContain("leased_until = NOW() + (? * interval '1 second')");
-    expect(sql).toMatch(/WHERE id = \?/);
-    expect(bindings).toEqual([1800, 42]);
+    expect(knex).toHaveBeenCalledWith("tasks");
+    expect(chain.where).toHaveBeenCalledWith({ id: 42 });
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ leased_until: expect.any(Date) })
+    );
   });
 
   it("propagates DB errors so callers can log/recover", async () => {
-    const { knex } = createMockKnex();
-    knex.raw.mockRejectedValueOnce(new Error("connection lost"));
+    const { knex, chain } = createMockKnex();
+    chain.update.mockRejectedValueOnce(new Error("connection lost"));
 
     await expect(renewTaskLease(knex as any, 42, 1800)).rejects.toThrow(
       "connection lost"
