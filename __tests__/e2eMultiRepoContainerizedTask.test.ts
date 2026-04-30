@@ -257,7 +257,8 @@ function dockerVSpecs(): string[] {
   const args = spawnMock.mock.calls[0][1] as string[];
   return args
     .map((a, i) => (a === "-v" ? args[i + 1] : null))
-    .filter((v): v is string => v !== null);
+    .filter((v): v is string => v !== null)
+    .filter((v) => !v.includes(":/home/node/.claude:"));
 }
 
 beforeEach(() => {
