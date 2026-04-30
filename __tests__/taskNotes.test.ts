@@ -264,11 +264,11 @@ describe("getNotesForTask", () => {
     await getNotesForTask(knex as any, 1);
 
     const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    // IS NOT DISTINCT FROM is required so that root-level tasks (parent_id
-    // IS NULL on both sides) compare correctly — a plain "=" returns NULL for
+    // SQLite uses "IS" for NULL-safe equality (handles root-level tasks where
+    // parent_id IS NULL on both sides) — a plain "=" returns NULL for
     // NULL=NULL and excludes them.
     expect(sql).toMatch(
-      /n\.visibility\s*=\s*'siblings'[\s\S]*?n\.task_id\s*!=\s*target\.id[\s\S]*?nt\.parent_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+target\.parent_id[\s\S]*?nt\.repo_id\s*=\s*target\.repo_id/
+      /n\.visibility\s*=\s*'siblings'[\s\S]*?n\.task_id\s*!=\s*target\.id[\s\S]*?nt\.parent_id\s+IS\s+target\.parent_id[\s\S]*?nt\.repo_id\s*=\s*target\.repo_id/
     );
   });
 
