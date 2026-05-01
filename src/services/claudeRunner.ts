@@ -494,9 +494,17 @@ ${NOTES_PROTOCOL_DOC}`;
     // result envelope). `--verbose` is required for stream-json to include the
     // result envelope. Without these, usage is unavailable from the CLI and
     // task_usage rows can never be written.
+    const cpuLimit = process.env.GRUNT_CONTAINER_CPUS ?? "4";
+    const memLimit = process.env.GRUNT_CONTAINER_MEMORY ?? "6g";
     const dockerArgs: string[] = [
       "run",
       "--rm",
+      "--cpus",
+      cpuLimit,
+      "--memory",
+      memLimit,
+      "--memory-swap",
+      memLimit,
       "-v",
       `${workDir}:${CONTAINER_WORKSPACE}:rw`,
       "-v",
