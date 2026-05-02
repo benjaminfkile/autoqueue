@@ -51,7 +51,7 @@ export function getRepoCloneRoot(repo: Repo, reposPath: string): string {
   if (!repo.owner || !repo.repo_name) {
     throw new Error(`repo #${repo.id} is missing owner/repo_name`);
   }
-  return path.join(reposPath, repo.owner, repo.repo_name);
+  return path.posix.join(reposPath, repo.owner, repo.repo_name);
 }
 
 // Lower-level helper: validate `requestedPath` against an already-known

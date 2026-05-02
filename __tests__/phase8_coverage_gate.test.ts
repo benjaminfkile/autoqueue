@@ -40,6 +40,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+const itUnix = process.platform === "win32" ? it.skip : it;
+
 import {
   AnthropicLike,
   AnthropicStreamEvent,
@@ -276,7 +278,7 @@ describe("Phase 8 — path traversal is blocked through the full tool-dispatch c
     expect(toolResult.content).toMatch(/relative|escape|absolute/);
   });
 
-  it("symlink escapes (file inside the repo points outside) are rejected by read_file", async () => {
+  itUnix("symlink escapes (file inside the repo points outside) are rejected by read_file", async () => {
     // The literal path looks safe — `leak` is a name inside the repo. The
     // resolver must follow the symlink and notice the target is outside the
     // realpath'd root. This is a defense-in-depth check that proves the
