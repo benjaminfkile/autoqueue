@@ -21,23 +21,22 @@ import SaveIcon from "@mui/icons-material/Save";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import { criteriaApi, notesApi, tasksApi } from "../../api/client";
+import { criteriaApi, tasksApi } from "../../api/client";
 import { CLAUDE_MODELS } from "../../api/claudeModels";
 import type {
   AcceptanceCriterion,
-  NoteVisibility,
   OrderingMode,
   TaskDetail,
   TaskEffectiveModel,
   TaskEvent,
   TaskModelSource,
-  TaskNote,
   TaskSummary,
   TaskUsageResponse,
 } from "../../api/types";
 import { useVisibilityAwarePolling } from "../../hooks/useVisibilityAwarePolling";
 import { TASK_STATUS_CHIP_COLOR } from "./repoDisplay";
 import UsagePanel from "./UsagePanel";
+import NotesPanel from "../tasks/NotesPanel";
 
 const ACTIVE_POLL_INTERVAL_MS = 2000;
 const IDLE_POLL_INTERVAL_MS = 5000;
@@ -74,14 +73,6 @@ export function parseNoteTags(input: string): string[] {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 }
-
-const NOTE_VISIBILITY_OPTIONS: NoteVisibility[] = [
-  "self",
-  "siblings",
-  "descendants",
-  "ancestors",
-  "all",
-];
 
 // Sentinel value used by the model picker to mean "no per-task override —
 // inherit". Selecting it sends `model: null` to PATCH /api/tasks/:id, which
@@ -135,26 +126,6 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
 
-  const [notes, setNotes] = useState<TaskNote[]>([]);
-  const [notesError, setNotesError] = useState<string | null>(null);
-  const [noteDraftContent, setNoteDraftContent] = useState("");
-  const [noteDraftVisibility, setNoteDraftVisibility] =
-    useState<NoteVisibility>("all");
-  const [noteDraftTags, setNoteDraftTags] = useState("");
-  const [submittingNote, setSubmittingNote] = useState(false);
-
-  const loadNotes = useCallback(async () => {
-    setNotesError(null);
-    try {
-      const list = await notesApi.list(taskId);
-      setNotes(list);
-    } catch (err) {
-      setNotesError(
-        err instanceof Error ? err.message : "Failed to load notes"
-      );
-    }
-  }, [taskId]);
-
   const loadEffectiveModel = useCallback(async () => {
     try {
       const data = await tasksApi.effectiveModel(taskId);
@@ -185,19 +156,12 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
     setLoading(true);
     setLoadError(null);
     try {
-      const [detail, evs, noteList] = await Promise.all([
+      const [detail, evs] = await Promise.all([
         tasksApi.get(taskId),
         tasksApi.events(taskId),
-        notesApi.list(taskId).catch((err) => {
-          setNotesError(
-            err instanceof Error ? err.message : "Failed to load notes"
-          );
-          return [] as TaskNote[];
-        }),
       ]);
       setTask(detail);
       setEvents(evs);
-      setNotes(noteList);
       void loadUsage();
       void loadEffectiveModel();
       const repoTasks = await tasksApi.listByRepo(detail.repo_id);
@@ -226,14 +190,12 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
 
   const pollFetcher = useCallback(async () => {
     try {
-      const [detail, evs, noteList] = await Promise.all([
+      const [detail, evs] = await Promise.all([
         tasksApi.get(taskId),
         tasksApi.events(taskId),
-        notesApi.list(taskId).catch(() => null),
       ]);
       setTask(detail);
       setEvents(evs);
-      if (noteList !== null) setNotes(noteList);
     } catch {
       // Silent: a transient polling failure is intentionally swallowed so it
       // doesn't replace stable on-screen data with an error banner. The next
@@ -314,43 +276,6 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
       if (source) source.close();
     };
   }, [task?.id, task?.status]);
-
-  const sortedNotes = useMemo(
-    () =>
-      [...notes].sort((a, b) => {
-        const ta = Date.parse(a.created_at);
-        const tb = Date.parse(b.created_at);
-        if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb)
-          return ta - tb;
-        return a.id - b.id;
-      }),
-    [notes]
-  );
-
-  const submitNote = useCallback(async () => {
-    const content = noteDraftContent.trim();
-    if (content === "") return;
-    setSubmittingNote(true);
-    setNotesError(null);
-    try {
-      const tags = parseNoteTags(noteDraftTags);
-      const created = await notesApi.create(taskId, {
-        author: "user",
-        visibility: noteDraftVisibility,
-        content,
-        tags: tags.length > 0 ? tags : undefined,
-      });
-      setNotes((prev) => [...prev, created]);
-      setNoteDraftContent("");
-      setNoteDraftTags("");
-    } catch (err) {
-      setNotesError(
-        err instanceof Error ? err.message : "Failed to save note"
-      );
-    } finally {
-      setSubmittingNote(false);
-    }
-  }, [noteDraftContent, noteDraftTags, noteDraftVisibility, taskId]);
 
   const sortedEvents = useMemo(
     () =>
@@ -1104,171 +1029,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
 
           <Divider />
 
-          <Box>
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1 }}
-            >
-              <Typography variant="subtitle1" component="h3">
-                Notes
-              </Typography>
-              <Tooltip title="Refresh notes">
-                <IconButton
-                  size="small"
-                  aria-label="Refresh notes"
-                  onClick={() => void loadNotes()}
-                >
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-            {notesError && (
-              <Alert
-                severity="error"
-                sx={{ mb: 1 }}
-                onClose={() => setNotesError(null)}
-              >
-                {notesError}
-              </Alert>
-            )}
-            {sortedNotes.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No notes yet.
-              </Typography>
-            ) : (
-              <List
-                dense
-                disablePadding
-                aria-label="Notes thread"
-                data-testid="task-detail-notes"
-              >
-                {sortedNotes.map((n) => (
-                  <ListItem
-                    key={n.id}
-                    disablePadding
-                    data-testid={`note-${n.id}`}
-                    sx={{ alignItems: "flex-start", py: 0.5 }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          alignItems="center"
-                          sx={{ flexWrap: "wrap" }}
-                        >
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ minWidth: 160 }}
-                          >
-                            {formatEventTimestamp(n.created_at)}
-                          </Typography>
-                          <Chip
-                            size="small"
-                            label={n.author}
-                            color={n.author === "user" ? "primary" : "default"}
-                            data-testid={`note-${n.id}-author`}
-                          />
-                          <Chip
-                            size="small"
-                            label={n.visibility}
-                            variant="outlined"
-                            data-testid={`note-${n.id}-visibility`}
-                          />
-                          {n.tags.map((tag) => (
-                            <Chip
-                              key={tag}
-                              size="small"
-                              label={`#${tag}`}
-                              variant="outlined"
-                              data-testid={`note-${n.id}-tag-${tag}`}
-                            />
-                          ))}
-                        </Stack>
-                      }
-                      secondary={
-                        <Typography
-                          variant="body2"
-                          color="text.primary"
-                          sx={{ whiteSpace: "pre-wrap", mt: 0.5 }}
-                          data-testid={`note-${n.id}-content`}
-                        >
-                          {n.content}
-                        </Typography>
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-            <Stack
-              spacing={1}
-              sx={{ mt: 2 }}
-              data-testid="task-detail-note-form"
-            >
-              <TextField
-                size="small"
-                multiline
-                minRows={2}
-                fullWidth
-                label="Add a note"
-                value={noteDraftContent}
-                onChange={(e) => setNoteDraftContent(e.target.value)}
-                inputProps={{ "aria-label": "Note content" }}
-                disabled={submittingNote}
-              />
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ flexWrap: "wrap" }}
-                alignItems="center"
-              >
-                <TextField
-                  select
-                  size="small"
-                  label="Visibility"
-                  value={noteDraftVisibility}
-                  onChange={(e) =>
-                    setNoteDraftVisibility(e.target.value as NoteVisibility)
-                  }
-                  disabled={submittingNote}
-                  sx={{ minWidth: 160 }}
-                  SelectProps={{
-                    inputProps: { "aria-label": "Note visibility" },
-                  }}
-                >
-                  {NOTE_VISIBILITY_OPTIONS.map((v) => (
-                    <MenuItem key={v} value={v}>
-                      {v}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  size="small"
-                  label="Tags (comma-separated)"
-                  value={noteDraftTags}
-                  onChange={(e) => setNoteDraftTags(e.target.value)}
-                  inputProps={{ "aria-label": "Note tags" }}
-                  disabled={submittingNote}
-                  sx={{ minWidth: 220, flexGrow: 1 }}
-                />
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<SaveIcon />}
-                  disabled={
-                    submittingNote || noteDraftContent.trim().length === 0
-                  }
-                  onClick={() => void submitNote()}
-                >
-                  Add note
-                </Button>
-              </Stack>
-            </Stack>
-          </Box>
+          <NotesPanel taskId={taskId} />
 
           <Divider />
 

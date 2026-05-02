@@ -15,15 +15,18 @@ import DialogContentText from "@mui/material/DialogContentText";
 import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
+import Snackbar from "@mui/material/Snackbar";
 import CircularProgress from "@mui/material/CircularProgress";
 // Chat is disabled while task execution moves to host Claude Code auth.
 // Re-enable the icon import, button, and ChatDrawer mount below to bring it back.
 // import ChatIcon from "@mui/icons-material/Chat";
 import SettingsIcon from "@mui/icons-material/Settings";
 import InsightsIcon from "@mui/icons-material/Insights";
+import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import ReposPage from "./pages/ReposPage";
 // import ChatDrawer from "./pages/chat/ChatDrawer";
 import SetupPanel from "./pages/SetupPanel";
+import TemplatesDrawer from "./pages/tasks/TemplatesDrawer";
 import SettingsPanel from "./pages/SettingsPanel";
 import UsageDashboard from "./pages/UsageDashboard";
 import RunnerImageBanner from "./pages/RunnerImageBanner";
@@ -37,6 +40,10 @@ import {
   WorkerModeChip,
   useWorkerStatus,
 } from "./pages/WorkerStatusBar";
+import {
+  GlobalSnackbarContext,
+  type SnackbarMessage,
+} from "./hooks/useGlobalSnackbar";
 
 export default function App() {
   const { status, error } = useWorkerStatus();
@@ -50,7 +57,10 @@ export default function App() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [snackbar, setSnackbar] = useState<SnackbarMessage | null>(null);
+  const showSnackbar = useCallback((msg: SnackbarMessage) => setSnackbar(msg), []);
 
   const refreshSetup = useCallback(async () => {
     try {
@@ -128,6 +138,7 @@ export default function App() {
   }
 
   return (
+    <GlobalSnackbarContext.Provider value={showSnackbar}>
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar>
@@ -137,6 +148,16 @@ export default function App() {
           <WorkerModeChip status={status} error={error} />
           <ThemeToggle />
           {/* Planning chat disabled — see chat-related comments at top of file. */}
+          <Tooltip title="Templates">
+            <IconButton
+              aria-label="Open templates"
+              onClick={() => setTemplatesOpen(true)}
+              sx={{ ml: 1 }}
+              data-testid="templates-button"
+            >
+              <LibraryBooksIcon />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Usage">
             <IconButton
               aria-label="Open usage dashboard"
@@ -200,6 +221,10 @@ export default function App() {
         <ReposPage />
       </Container>
       {/* <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} /> */}
+      <TemplatesDrawer
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+      />
       <UsageDashboard open={usageOpen} onClose={() => setUsageOpen(false)} />
       {setupStatus && (
         <SettingsPanel
@@ -245,6 +270,23 @@ export default function App() {
           </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar
+        open={snackbar !== null}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        data-testid="global-snackbar"
+      >
+        <Alert
+          severity={snackbar?.severity ?? "success"}
+          onClose={() => setSnackbar(null)}
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          {snackbar?.message}
+        </Alert>
+      </Snackbar>
     </Box>
+    </GlobalSnackbarContext.Provider>
   );
 }

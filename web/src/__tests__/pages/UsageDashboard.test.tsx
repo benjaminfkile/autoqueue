@@ -69,7 +69,7 @@ function installFetchMock(opts: MockOptions = {}) {
     if (url.startsWith("/api/setup")) {
       return jsonResponse({
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       });
     }
     if (url.startsWith("/api/system/worker-status")) {

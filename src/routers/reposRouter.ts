@@ -369,7 +369,7 @@ reposRouter.post("/:id/clone", async (req: Request, res: Response) => {
     // "refusing to clone, target exists" guard doesn't trip on retry. This
     // covers both a half-clone left behind by a previous failure and a
     // healthy clone that the pull worker has flagged as errored.
-    const targetDir = path.join(reposPath, repo.owner, repo.repo_name);
+    const targetDir = path.posix.join(reposPath, repo.owner, repo.repo_name);
     if (fs.existsSync(targetDir)) {
       try {
         fs.rmSync(targetDir, { recursive: true, force: true });

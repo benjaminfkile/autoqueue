@@ -104,6 +104,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       order_position,
       ordering_mode,
       model,
+      requires_approval,
       acceptanceCriteria,
     } = req.body as {
       repo_id: number;
@@ -113,6 +114,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       order_position?: number;
       ordering_mode?: OrderingMode | null;
       model?: string | null;
+      requires_approval?: boolean;
       acceptanceCriteria?: string[];
     };
 
@@ -141,6 +143,7 @@ tasksRouter.post("/", async (req: Request, res: Response) => {
       order_position,
       ordering_mode,
       model,
+      requires_approval,
     });
 
     let criteria: Awaited<ReturnType<typeof createCriterion>>[] = [];

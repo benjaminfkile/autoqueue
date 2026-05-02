@@ -60,7 +60,7 @@ function installFetchMock(scenario: FetchScenario) {
         if (method === "POST") {
           currentStatus = {
             ready: true,
-            configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+            configured: { GH_PAT: true },
           };
           return jsonResponse(currentStatus);
         }
@@ -72,25 +72,17 @@ function installFetchMock(scenario: FetchScenario) {
             ...currentStatus,
             configured: { ...currentStatus.configured },
           };
-          if (
-            body &&
-            typeof body === "object" &&
-            "ANTHROPIC_API_KEY" in body
-          ) {
-            next.configured.ANTHROPIC_API_KEY = true;
-          }
           if (body && typeof body === "object" && "GH_PAT" in body) {
             next.configured.GH_PAT = true;
           }
-          next.ready =
-            next.configured.ANTHROPIC_API_KEY && next.configured.GH_PAT;
+          next.ready = next.configured.GH_PAT;
           currentStatus = next;
           return jsonResponse(currentStatus);
         }
         if (method === "DELETE") {
           currentStatus = {
             ready: false,
-            configured: { ANTHROPIC_API_KEY: false, GH_PAT: false },
+            configured: { GH_PAT: false },
           };
           return jsonResponse(currentStatus);
         }
@@ -103,10 +95,8 @@ function installFetchMock(scenario: FetchScenario) {
           ...currentStatus,
           configured: { ...currentStatus.configured },
         };
-        if (key === "ANTHROPIC_API_KEY") next.configured.ANTHROPIC_API_KEY = false;
         if (key === "GH_PAT") next.configured.GH_PAT = false;
-        next.ready =
-          next.configured.ANTHROPIC_API_KEY && next.configured.GH_PAT;
+        next.ready = next.configured.GH_PAT;
         currentStatus = next;
         return jsonResponse(currentStatus);
       }
@@ -184,61 +174,51 @@ afterEach(() => {
 });
 
 describe("SettingsPanel", () => {
-  it("renders existing secrets as masked when configured", async () => {
+  it("renders GH_PAT as masked when configured", async () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
     renderApp();
     await openSettingsPanel(user);
 
-    expect(
-      screen.getByTestId("settings-anthropic-key-status")
-    ).toHaveTextContent("•");
-    expect(screen.getByTestId("settings-gh-pat-status")).toHaveTextContent(
-      "•"
-    );
-    // No plaintext anywhere on the panel
-    expect(screen.queryByText(/sk-/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("settings-gh-pat-status")).toHaveTextContent("•");
     expect(screen.queryByText(/ghp_/)).not.toBeInTheDocument();
   });
 
-  it("PATCHes /api/setup when the user updates one secret", async () => {
+  it("PATCHes /api/setup when the user updates GH_PAT", async () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
     renderApp();
     await openSettingsPanel(user);
 
-    await user.type(
-      screen.getByTestId("settings-anthropic-key-input"),
-      "sk-rotated"
-    );
-    await user.click(screen.getByTestId("settings-anthropic-key-save"));
+    await user.type(screen.getByTestId("settings-gh-pat-input"), "ghp_rotated");
+    await user.click(screen.getByTestId("settings-gh-pat-save"));
 
     await waitFor(() => {
       const patchCall = calls.find(
         (c) => c.url === "/api/setup" && c.method === "PATCH"
       );
       expect(patchCall).toBeDefined();
-      expect(patchCall?.body).toEqual({ ANTHROPIC_API_KEY: "sk-rotated" });
+      expect(patchCall?.body).toEqual({ GH_PAT: "ghp_rotated" });
     });
     // Input cleared after successful save
-    expect(screen.getByTestId("settings-anthropic-key-input")).toHaveValue("");
+    expect(screen.getByTestId("settings-gh-pat-input")).toHaveValue("");
   });
 
-  it("DELETEs /api/setup/:key when the user clears a secret", async () => {
+  it("DELETEs /api/setup/GH_PAT when the user clears the secret", async () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
@@ -264,25 +244,20 @@ describe("SettingsPanel", () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       patchOverride: () =>
-        jsonResponse({ error: "ANTHROPIC_API_KEY must be a non-empty string" }, 400),
+        jsonResponse({ error: "GH_PAT must be a non-empty string" }, 400),
     });
     const user = userEvent.setup();
     renderApp();
     await openSettingsPanel(user);
 
-    await user.type(
-      screen.getByTestId("settings-anthropic-key-input"),
-      "x"
-    );
-    await user.click(screen.getByTestId("settings-anthropic-key-save"));
+    await user.type(screen.getByTestId("settings-gh-pat-input"), "x");
+    await user.click(screen.getByTestId("settings-gh-pat-save"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("settings-error")).toHaveTextContent(
-        /ANTHROPIC_API_KEY/
-      )
+      expect(screen.getByTestId("settings-error")).toHaveTextContent(/GH_PAT/)
     );
     // Panel still open
     expect(screen.getByTestId("settings-panel")).toBeInTheDocument();
@@ -292,26 +267,23 @@ describe("SettingsPanel", () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
     renderApp();
     await openSettingsPanel(user);
 
-    expect(screen.getByTestId("settings-anthropic-key-save")).toBeDisabled();
-    await user.type(
-      screen.getByTestId("settings-anthropic-key-input"),
-      "sk-x"
-    );
-    expect(screen.getByTestId("settings-anthropic-key-save")).toBeEnabled();
+    expect(screen.getByTestId("settings-gh-pat-save")).toBeDisabled();
+    await user.type(screen.getByTestId("settings-gh-pat-input"), "ghp_x");
+    expect(screen.getByTestId("settings-gh-pat-save")).toBeEnabled();
   });
 
   it("renders the default Claude model dropdown with the loaded value", async () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,
@@ -336,7 +308,7 @@ describe("SettingsPanel", () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,
@@ -356,8 +328,6 @@ describe("SettingsPanel", () => {
       ).toHaveValue("claude-sonnet-4-6")
     );
 
-    // MUI's TextField select uses an underlying combobox; we click the
-    // labelled trigger to open the listbox and pick the option by its label.
     await user.click(screen.getByLabelText("Default Claude model"));
     const listbox = await screen.findByRole("listbox");
     await user.click(within(listbox).getByText("Haiku 4.5"));
@@ -381,7 +351,7 @@ describe("SettingsPanel", () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,
@@ -418,7 +388,7 @@ describe("SettingsPanel", () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
@@ -453,7 +423,7 @@ describe("SettingsPanel", () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,
@@ -495,7 +465,7 @@ describe("SettingsPanel", () => {
     const { calls } = installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
     });
     const user = userEvent.setup();
@@ -528,7 +498,7 @@ describe("SettingsPanel", () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,
@@ -556,7 +526,7 @@ describe("SettingsPanel", () => {
     installFetchMock({
       initialStatus: {
         ready: true,
-        configured: { ANTHROPIC_API_KEY: true, GH_PAT: true },
+        configured: { GH_PAT: true },
       },
       initialSettings: {
         id: 1,

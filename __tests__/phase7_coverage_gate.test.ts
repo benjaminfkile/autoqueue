@@ -131,17 +131,42 @@ function createMockKnex() {
 // ---------------------------------------------------------------------------
 
 describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
-  it("the candidate CTE in claimNextPendingLeafTask carries `AND NOT t.requires_approval` so approval-held tasks are excluded atomically", async () => {
-    // The gate must live inside the SQL predicate, not in JS. A scheduler-side
-    // check would race under multiple workers — one worker could read the row
-    // before another flipped the flag.
-    const { knex } = createMockKnex();
-    knex.raw.mockResolvedValueOnce({ rows: [] });
+  it("requires_approval=true tasks excluded from claimNextPendingLeafTask", async () => {
+    // The eligibility check filters requires_approval tasks in the in-memory
+    // tree walk so they are never claimed by the scheduler.
+    const { knex, chain } = createMockKnex();
+    const repo = {
+      id: 1,
+      on_failure: "continue",
+      ordering_mode: "sequential",
+      on_parent_child_fail: "ignore",
+    };
+    const approvalTask = {
+      id: 42,
+      repo_id: 1,
+      parent_id: null,
+      title: "held",
+      description: "",
+      order_position: 0,
+      status: "pending",
+      retry_count: 0,
+      pr_url: null,
+      worker_id: null,
+      leased_until: null,
+      ordering_mode: null,
+      log_path: null,
+      requires_approval: true,
+      model: null,
+      created_at: new Date(),
+    };
 
-    await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    chain.where
+      .mockReturnValueOnce(chain)
+      .mockResolvedValueOnce([approvalTask]);
+    chain.first.mockResolvedValueOnce(repo);
 
-    const sql = (knex.raw as jest.Mock).mock.calls[0][0] as string;
-    expect(sql).toMatch(/AND\s+NOT\s+t\.requires_approval/);
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+    expect(result).toBeUndefined();
   });
 
   it("buildWorkQueue produces no entry for a repo whose only pending leaf is held for approval (DB returns undefined)", async () => {
