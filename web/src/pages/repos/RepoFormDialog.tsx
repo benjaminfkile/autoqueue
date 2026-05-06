@@ -11,6 +11,7 @@ import Switch from "@mui/material/Switch";
 import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import type {
+  GitProvider,
   OrderingMode,
   Repo,
   RepoInput,
@@ -18,6 +19,10 @@ import type {
   RepoOnParentChildFail,
 } from "../../api/types";
 
+const GIT_PROVIDER_OPTIONS: { value: GitProvider; label: string }[] = [
+  { value: "github", label: "GitHub" },
+  { value: "azuredevops", label: "Azure DevOps" },
+];
 const ON_FAILURE_OPTIONS: RepoOnFailure[] = [
   "halt_repo",
   "halt_subtree",
@@ -32,14 +37,15 @@ const ON_PARENT_CHILD_FAIL_OPTIONS: RepoOnParentChildFail[] = [
 const ORDERING_MODE_OPTIONS: OrderingMode[] = ["sequential", "parallel"];
 
 interface FormState {
+  git_provider: GitProvider;
   owner: string;
   repo_name: string;
+  ado_project: string;
   base_branch: string;
   base_branch_parent: string;
   is_local_folder: boolean;
   local_path: string;
-  github_token: string;
-  require_pr: boolean;
+  git_pat: string;
   on_failure: RepoOnFailure;
   max_retries: string;
   on_parent_child_fail: RepoOnParentChildFail;
@@ -49,14 +55,15 @@ interface FormState {
 
 function buildInitialState(repo: Repo | null): FormState {
   return {
+    git_provider: repo?.git_provider ?? "github",
     owner: repo?.owner ?? "",
     repo_name: repo?.repo_name ?? "",
+    ado_project: repo?.ado_project ?? "",
     base_branch: repo?.base_branch ?? "main",
     base_branch_parent: repo?.base_branch_parent ?? "main",
     is_local_folder: repo?.is_local_folder ?? false,
     local_path: repo?.local_path ?? "",
-    github_token: repo?.github_token ?? "",
-    require_pr: repo?.require_pr ?? true,
+    git_pat: repo?.git_pat ?? "",
     on_failure: repo?.on_failure ?? "halt_subtree",
     max_retries: repo ? String(repo.max_retries) : "0",
     on_parent_child_fail: repo?.on_parent_child_fail ?? "cascade_fail",
@@ -101,6 +108,9 @@ export default function RepoFormDialog({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  const isAdo = form.git_provider === "azuredevops";
+  const ownerLabel = isAdo ? "Organization" : "Owner";
+
   function validate(): string | null {
     if (form.is_local_folder) {
       if (!form.local_path.trim()) {
@@ -108,7 +118,10 @@ export default function RepoFormDialog({
       }
     } else {
       if (!form.owner.trim() || !form.repo_name.trim()) {
-        return "Owner and repo name are required.";
+        return `${ownerLabel} and repo name are required.`;
+      }
+      if (isAdo && !form.ado_project.trim()) {
+        return "Project is required for Azure DevOps repos.";
       }
     }
     if (!form.base_branch.trim()) {
@@ -124,15 +137,17 @@ export default function RepoFormDialog({
   function buildPayload(): RepoInput {
     const retries = Number(form.max_retries);
     const payload: RepoInput = {
+      git_provider: form.git_provider,
       active: form.active,
       base_branch: form.base_branch.trim(),
       base_branch_parent: form.base_branch_parent.trim() || form.base_branch.trim(),
-      require_pr: form.require_pr,
+      require_pr: false,
       is_local_folder: form.is_local_folder,
       on_failure: form.on_failure,
       max_retries: retries,
       on_parent_child_fail: form.on_parent_child_fail,
       ordering_mode: form.ordering_mode,
+      ado_project: isAdo ? (form.ado_project.trim() || null) : null,
     };
     if (form.is_local_folder) {
       payload.local_path = form.local_path.trim();
@@ -143,9 +158,7 @@ export default function RepoFormDialog({
       payload.repo_name = form.repo_name.trim();
       payload.local_path = form.local_path.trim() || null;
     }
-    payload.github_token = form.github_token.trim()
-      ? form.github_token.trim()
-      : null;
+    payload.git_pat = form.git_pat.trim() ? form.git_pat.trim() : null;
     return payload;
   }
 
@@ -179,6 +192,19 @@ export default function RepoFormDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
+          <TextField
+            select
+            label="Git provider"
+            value={form.git_provider}
+            onChange={(e) => update("git_provider", e.target.value as GitProvider)}
+            fullWidth
+          >
+            {GIT_PROVIDER_OPTIONS.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </TextField>
           <FormControlLabel
             control={
               <Switch
@@ -191,7 +217,7 @@ export default function RepoFormDialog({
           />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField
-              label="Owner"
+              label={ownerLabel}
               value={form.owner}
               onChange={(e) => update("owner", e.target.value)}
               required={!form.is_local_folder}
@@ -205,6 +231,16 @@ export default function RepoFormDialog({
               fullWidth
             />
           </Stack>
+          {isAdo && !form.is_local_folder && (
+            <TextField
+              label="Project"
+              value={form.ado_project}
+              onChange={(e) => update("ado_project", e.target.value)}
+              required
+              fullWidth
+              helperText="Azure DevOps project name within the organization."
+            />
+          )}
           {form.is_local_folder && (
             <TextField
               label="Local path"
@@ -230,9 +266,9 @@ export default function RepoFormDialog({
             />
           </Stack>
           <TextField
-            label="GitHub token"
-            value={form.github_token}
-            onChange={(e) => update("github_token", e.target.value)}
+            label="Access token (PAT)"
+            value={form.git_pat}
+            onChange={(e) => update("git_pat", e.target.value)}
             type="password"
             fullWidth
             helperText="Optional. Overrides the server-wide token for this repo."
@@ -296,28 +332,16 @@ export default function RepoFormDialog({
               fullWidth
             />
           </Stack>
-          <Stack direction="row" spacing={3}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={form.require_pr}
-                  onChange={(e) => update("require_pr", e.target.checked)}
-                  inputProps={{ "aria-label": "Require PR" }}
-                />
-              }
-              label="Require PR"
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={form.active}
-                  onChange={(e) => update("active", e.target.checked)}
-                  inputProps={{ "aria-label": "Active" }}
-                />
-              }
-              label="Active"
-            />
-          </Stack>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.active}
+                onChange={(e) => update("active", e.target.checked)}
+                inputProps={{ "aria-label": "Active" }}
+              />
+            }
+            label="Active"
+          />
         </Stack>
       </DialogContent>
       <DialogActions>

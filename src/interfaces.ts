@@ -51,6 +51,9 @@ export type OrderingMode = "sequential" | "parallel";
 // validation) failed and clone_error carries a human-readable reason.
 export type RepoCloneStatus = "pending" | "cloning" | "ready" | "error";
 
+// ---- Git provider (per-repo) ----
+export type GitProvider = "github" | "azuredevops";
+
 // ---- Repos table row ----
 export interface Repo {
   id: number;
@@ -60,7 +63,9 @@ export interface Repo {
   base_branch: string;
   base_branch_parent: string;
   require_pr: boolean;
-  github_token: string | null;
+  git_pat: string | null;
+  git_provider: GitProvider;
+  ado_project: string | null;
   is_local_folder: boolean;
   local_path: string | null;
   on_failure: RepoOnFailure;

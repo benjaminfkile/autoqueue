@@ -942,7 +942,7 @@ describe("Phase 7 — webhook retry logic (AC #876)", () => {
       base_branch: "main",
       base_branch_parent: "main",
       require_pr: false,
-      github_token: null,
+      git_pat: null, git_provider: "github", ado_project: null,
       is_local_folder: false,
       local_path: null,
       on_failure: "halt_repo",

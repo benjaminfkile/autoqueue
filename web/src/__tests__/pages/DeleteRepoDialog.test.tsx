@@ -13,7 +13,7 @@ function makeRepo(): Repo {
     base_branch: "main",
     base_branch_parent: "main",
     require_pr: true,
-    github_token: null,
+    git_pat: null, git_provider: "github" as const, ado_project: null,
     is_local_folder: false,
     local_path: null,
     on_failure: "halt_subtree",

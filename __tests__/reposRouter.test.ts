@@ -91,7 +91,7 @@ const mockRepo = {
   base_branch: "main",
   base_branch_parent: "main",
   require_pr: false,
-  github_token: null,
+  git_pat: null, git_provider: "github", ado_project: null,
   is_local_folder: false,
   local_path: null,
   on_failure: "halt_repo",
@@ -324,7 +324,10 @@ describe("reposRouter", () => {
       expect(cloneRepoFresh).toHaveBeenCalledWith(
         "/tmp/grunt-test-repos",
         "octocat",
-        "hello"
+        "hello",
+        undefined,
+        undefined,
+        undefined,
       );
       // Clone must happen before the insert, otherwise we could leak DB rows
       // pointing at directories that don't exist.
@@ -665,7 +668,10 @@ describe("reposRouter", () => {
       expect(cloneRepoFresh).toHaveBeenCalledWith(
         "/tmp/grunt-test-repos",
         "octocat",
-        "hello"
+        "hello",
+        "github",
+        null,
+        null,
       );
       // The rm must happen before the clone, otherwise cloneRepoFresh's
       // "target directory already exists" guard would block the retry.

@@ -3,6 +3,7 @@ export type RepoOnParentChildFail = "cascade_fail" | "mark_partial" | "ignore";
 export type OrderingMode = "sequential" | "parallel";
 export type RepoCloneStatus = "pending" | "cloning" | "ready" | "error";
 export type RepoLinkPermission = "read" | "write";
+export type GitProvider = "github" | "azuredevops";
 
 export interface RepoLink {
   id: number;
@@ -33,7 +34,9 @@ export interface Repo {
   base_branch: string;
   base_branch_parent: string;
   require_pr: boolean;
-  github_token: string | null;
+  git_pat: string | null;
+  git_provider: GitProvider;
+  ado_project: string | null;
   is_local_folder: boolean;
   local_path: string | null;
   on_failure: RepoOnFailure;
@@ -52,7 +55,9 @@ export interface RepoInput {
   base_branch?: string;
   base_branch_parent?: string;
   require_pr?: boolean;
-  github_token?: string | null;
+  git_pat?: string | null;
+  git_provider?: GitProvider;
+  ado_project?: string | null;
   is_local_folder?: boolean;
   local_path?: string | null;
   on_failure?: RepoOnFailure;

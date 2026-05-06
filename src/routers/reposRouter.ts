@@ -11,6 +11,7 @@ import {
   updateRepo,
 } from "../db/repos";
 import {
+  GitProvider,
   OrderingMode,
   RepoLinkPermission,
   RepoOnFailure,
@@ -37,6 +38,7 @@ import {
   updateWebhook,
 } from "../db/repoWebhooks";
 
+const VALID_GIT_PROVIDERS: GitProvider[] = ["github", "azuredevops"];
 const VALID_ON_FAILURE: RepoOnFailure[] = [
   "halt_repo",
   "halt_subtree",
@@ -105,7 +107,9 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       base_branch,
       base_branch_parent,
       require_pr,
-      github_token,
+      git_pat,
+      git_provider,
+      ado_project,
       is_local_folder,
       local_path,
       on_failure,
@@ -119,7 +123,9 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       base_branch?: string;
       base_branch_parent?: string;
       require_pr?: boolean;
-      github_token?: string | null;
+      git_pat?: string | null;
+      git_provider?: GitProvider;
+      ado_project?: string | null;
       is_local_folder?: boolean;
       local_path?: string | null;
       on_failure?: RepoOnFailure;
@@ -147,6 +153,12 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    if (git_provider !== undefined && !VALID_GIT_PROVIDERS.includes(git_provider)) {
+      return res.status(400).json({ error: "Invalid git_provider" });
+    }
+    if (git_provider === "azuredevops" && !ado_project) {
+      return res.status(400).json({ error: "ado_project is required for Azure DevOps repos" });
+    }
     if (on_failure !== undefined && !VALID_ON_FAILURE.includes(on_failure)) {
       return res.status(400).json({ error: "Invalid on_failure" });
     }
@@ -197,7 +209,10 @@ reposRouter.post("/", async (req: Request, res: Response) => {
         clonedDir = await cloneRepoFresh(
           reposPath,
           owner as string,
-          repo_name as string
+          repo_name as string,
+          git_provider,
+          ado_project,
+          git_pat,
         );
         cloned = true;
       } catch (cloneErr) {
@@ -215,7 +230,9 @@ reposRouter.post("/", async (req: Request, res: Response) => {
         base_branch,
         base_branch_parent,
         require_pr,
-        github_token,
+        git_pat,
+        git_provider,
+        ado_project,
         is_local_folder,
         local_path,
         on_failure,
@@ -262,7 +279,9 @@ reposRouter.patch("/:id", async (req: Request, res: Response) => {
       base_branch: string;
       base_branch_parent: string;
       require_pr: boolean;
-      github_token: string | null;
+      git_pat: string | null;
+      git_provider: GitProvider;
+      ado_project: string | null;
       is_local_folder: boolean;
       local_path: string | null;
       on_failure: RepoOnFailure;
@@ -384,7 +403,7 @@ reposRouter.post("/:id/clone", async (req: Request, res: Response) => {
     }
 
     try {
-      await cloneRepoFresh(reposPath, repo.owner, repo.repo_name);
+      await cloneRepoFresh(reposPath, repo.owner, repo.repo_name, repo.git_provider, repo.ado_project, repo.git_pat);
     } catch (cloneErr) {
       const message = `Failed to clone ${repo.owner}/${repo.repo_name}: ${(cloneErr as Error).message}`;
       const errored = await updateRepo(db, id, {

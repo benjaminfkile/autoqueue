@@ -114,7 +114,7 @@ type RepoRow = {
   base_branch: string;
   base_branch_parent: string;
   require_pr: boolean;
-  github_token: string | null;
+  git_pat: string | null; git_provider: string; ado_project: string | null;
   is_local_folder: boolean;
   local_path: string | null;
   on_failure: string;
@@ -210,7 +210,7 @@ function makeRepo(overrides: Partial<RepoRow>): RepoRow {
     base_branch: "main",
     base_branch_parent: "main",
     require_pr: false,
-    github_token: null,
+    git_pat: null, git_provider: "github", ado_project: null,
     is_local_folder: false,
     local_path: null,
     on_failure: "halt_repo",
@@ -339,7 +339,10 @@ describe("Phase 10 e2e — write-linked task happy path", () => {
       "acme",
       "primary",
       "main",
-      42
+      42,
+      "github",
+      null,
+      null,
     );
 
     // -- Commit & push pipeline: claudeRunner exited 0 and
@@ -350,7 +353,10 @@ describe("Phase 10 e2e — write-linked task happy path", () => {
       "acme",
       "primary",
       "grunt-task-42",
-      expect.stringContaining("task #42")
+      expect.stringContaining("task #42"),
+      "github",
+      null,
+      null,
     );
 
     // -- PR opened against the primary's base branch. --

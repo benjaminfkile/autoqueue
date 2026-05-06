@@ -174,7 +174,7 @@ async function runTaskBody(
     // 8. Git setup (skipped for local folder repos)
     let branchName = "";
     if (!repo.is_local_folder) {
-      await cloneOrPull(config.REPOS_PATH, repo.owner!, repo.repo_name!);
+      await cloneOrPull(config.REPOS_PATH, repo.owner!, repo.repo_name!, repo.git_provider, repo.ado_project, repo.git_pat);
       await checkoutBaseBranch(
         config.REPOS_PATH,
         repo.owner!,
@@ -182,7 +182,7 @@ async function runTaskBody(
         repo.base_branch,
         repo.base_branch_parent ?? "main"
       );
-      branchName = await createTaskBranch(config.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id);
+      branchName = await createTaskBranch(config.REPOS_PATH, repo.owner!, repo.repo_name!, repo.base_branch, task.id, repo.git_provider, repo.ado_project, repo.git_pat);
       await recordEvent(db, task.id, "branch_created", { branch: branchName });
     }
 
@@ -210,7 +210,7 @@ async function runTaskBody(
     } = await runClaudeOnTask({
       workDir,
       taskPayload,
-      ghPat: repo.github_token ?? secrets.get("GH_PAT"),
+      ghPat: repo.git_pat ?? secrets.get("GH_PAT"),
       logFilePath,
       contextMounts: mountManifest.context,
       model: effectiveModel,
@@ -278,13 +278,16 @@ async function runTaskBody(
           repo.owner!,
           repo.repo_name!,
           branchName,
-          `feat: complete task #${task.id} - ${task.title}`
+          `feat: complete task #${task.id} - ${task.title}`,
+          repo.git_provider,
+          repo.ado_project,
+          repo.git_pat,
         );
         await recordEvent(db, task.id, "commit_pushed", { branch: branchName });
       }
 
       if (repo.require_pr) {
-        const token = repo.github_token ?? secrets.get("GH_PAT")!;
+        const token = repo.git_pat ?? secrets.get("GH_PAT")!;
         const criteriaList = criteria
           .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
           .join("\n");
@@ -318,7 +321,10 @@ async function runTaskBody(
           repo.owner!,
           repo.repo_name!,
           repo.base_branch,
-          branchName
+          branchName,
+          repo.git_provider,
+          repo.ado_project,
+          repo.git_pat,
         );
         await updateTask(db, task.id, { status: "done" });
         await recordEvent(db, task.id, "status_change", {

@@ -15,7 +15,7 @@ interface SetupPanelProps {
 }
 
 export default function SetupPanel({ onComplete }: SetupPanelProps) {
-  const [ghPat, setGhPat] = useState("");
+  const [pat, setPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,14 +23,14 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
     event.preventDefault();
     if (submitting) return;
     setError(null);
-    if (ghPat.trim().length === 0) {
-      setError("GitHub personal access token is required.");
+    if (pat.trim().length === 0) {
+      setError("A personal access token is required.");
       return;
     }
     setSubmitting(true);
     try {
       const status = await setupApi.save({
-        GH_PAT: ghPat.trim(),
+        GH_PAT: pat.trim(),
       });
       onComplete(status);
     } catch (err) {
@@ -54,10 +54,12 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
             Welcome to grunt
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Before you can use grunt, paste a GitHub personal access token. It
-            is stored encrypted in the local secrets file and never leaves this
-            machine. Tasks authenticate with Claude using the Claude Code
-            installation already on your machine — make sure you've run{" "}
+            Before you can use grunt, paste a personal access token (PAT) for
+            your Git provider — GitHub or Azure DevOps. It is stored encrypted
+            in the local secrets file and never leaves this machine. You can
+            also set per-repo tokens later when adding a repository. Tasks
+            authenticate with Claude using the Claude Code installation already
+            on your machine — make sure you've run{" "}
             <code>claude /login</code> at least once.
           </Typography>
           <Box
@@ -68,11 +70,11 @@ export default function SetupPanel({ onComplete }: SetupPanelProps) {
           >
             <Stack spacing={2}>
               <TextField
-                label="GitHub personal access token"
+                label="Personal access token (PAT)"
                 type="password"
                 autoComplete="off"
-                value={ghPat}
-                onChange={(e) => setGhPat(e.target.value)}
+                value={pat}
+                onChange={(e) => setPat(e.target.value)}
                 inputProps={{ "data-testid": "setup-gh-pat" }}
                 required
                 fullWidth

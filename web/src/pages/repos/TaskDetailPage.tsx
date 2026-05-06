@@ -517,7 +517,7 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
               data-testid="task-detail-branch"
               aria-label={`Current branch: ${taskBranchName(task.id)}`}
             />
-            {task.pr_url ? (
+            {task.pr_url && (
               <Chip
                 size="small"
                 component="a"
@@ -529,13 +529,6 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
                 label="Pull request"
                 data-testid="task-detail-pr"
                 aria-label={`Pull request: ${task.pr_url}`}
-              />
-            ) : (
-              <Chip
-                size="small"
-                label="no PR"
-                variant="outlined"
-                data-testid="task-detail-pr-none"
               />
             )}
           </Stack>

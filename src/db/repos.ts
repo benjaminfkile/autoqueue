@@ -1,5 +1,6 @@
 import { Knex } from "knex";
 import {
+  GitProvider,
   OrderingMode,
   Repo,
   RepoCloneStatus,
@@ -39,7 +40,9 @@ export async function createRepo(
     base_branch?: string;
     base_branch_parent?: string;
     require_pr?: boolean;
-    github_token?: string | null;
+    git_pat?: string | null;
+    git_provider?: GitProvider;
+    ado_project?: string | null;
     is_local_folder?: boolean;
     local_path?: string | null;
     on_failure?: RepoOnFailure;

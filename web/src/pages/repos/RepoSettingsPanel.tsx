@@ -84,9 +84,6 @@ export default function RepoSettingsPanel({
   const onOrderingModeChange = (value: OrderingMode) =>
     void persist("ordering_mode", { ordering_mode: value }).catch(() => {});
 
-  const onRequirePrChange = (checked: boolean) =>
-    void persist("require_pr", { require_pr: checked }).catch(() => {});
-
   async function saveBaseBranchParent() {
     const value = baseBranchParentDraft.trim();
     if (!value) {
@@ -255,18 +252,6 @@ export default function RepoSettingsPanel({
               )}
             </Button>
           </Stack>
-          <FormControlLabel
-            sx={{ mt: 1 }}
-            control={
-              <Switch
-                checked={repo.require_pr}
-                disabled={savingField === "require_pr"}
-                onChange={(e) => onRequirePrChange(e.target.checked)}
-                inputProps={{ "aria-label": "Require PR" }}
-              />
-            }
-            label="Require PR before merge"
-          />
         </Box>
 
         <LinkedReposSection repo={repo} allRepos={allRepos ?? []} />

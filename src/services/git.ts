@@ -2,30 +2,50 @@ import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
 import * as secrets from "../secrets";
+import { GitProvider } from "../interfaces";
 
 function repoPath(reposPath: string, owner: string, repoName: string): string {
   return path.join(reposPath, owner, repoName);
 }
 
-function requireGhPat(): string {
-  const pat = secrets.get("GH_PAT");
+function resolvePat(repoToken?: string | null): string {
+  const pat = repoToken || secrets.get("GH_PAT");
   if (!pat) {
     throw new Error(
-      "GH_PAT is not configured — store a GitHub PAT in the encrypted secrets file before running git operations."
+      "No git PAT configured — store a Personal Access Token in Setup or as a per-repo token."
     );
   }
   return pat;
 }
 
+function buildRemoteUrl(
+  pat: string,
+  provider: GitProvider,
+  owner: string,
+  repoName: string,
+  adoProject?: string | null
+): string {
+  if (provider === "azuredevops") {
+    if (!adoProject) {
+      throw new Error("ado_project is required for Azure DevOps repos");
+    }
+    return `https://${pat}@dev.azure.com/${owner}/${adoProject}/_git/${repoName}.git`;
+  }
+  return `https://${pat}@github.com/${owner}/${repoName}.git`;
+}
+
 export async function cloneOrPull(
   reposPath: string,
   owner: string,
-  repoName: string
+  repoName: string,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<void> {
   const dir = repoPath(reposPath, owner, repoName);
   if (!fs.existsSync(dir)) {
-    const pat = requireGhPat();
-    const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+    const pat = resolvePat(repoToken);
+    const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
     const parentDir = path.join(reposPath, owner);
     fs.mkdirSync(parentDir, { recursive: true });
     await simpleGit().clone(remoteUrl, dir);
@@ -47,7 +67,10 @@ export async function cloneOrPull(
 export async function cloneRepoFresh(
   reposPath: string,
   owner: string,
-  repoName: string
+  repoName: string,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<string> {
   const finalDir = repoPath(reposPath, owner, repoName);
   if (fs.existsSync(finalDir)) {
@@ -55,8 +78,8 @@ export async function cloneRepoFresh(
       `Refusing to clone: target directory already exists at ${finalDir}`
     );
   }
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   const parentDir = path.join(reposPath, owner);
   fs.mkdirSync(parentDir, { recursive: true });
   // Sibling temp dir keeps the eventual rename on the same filesystem
@@ -129,11 +152,14 @@ export async function commitAndPush(
   owner: string,
   repoName: string,
   issueNumber: number,
-  message: string
+  message: string,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<void> {
   const branchName = `issue/${issueNumber}`;
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   await git.add("-A");
@@ -147,11 +173,14 @@ export async function mergeIntoBase(
   owner: string,
   repoName: string,
   baseBranch: string,
-  issueNumber: number
+  issueNumber: number,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<void> {
   const branchName = `issue/${issueNumber}`;
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   await git.checkout(baseBranch);
@@ -166,7 +195,10 @@ export async function createTaskBranch(
   owner: string,
   repoName: string,
   baseBranch: string,
-  taskId: number
+  taskId: number,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<string> {
   // Single ref-namespace component (no '/') so the branch never collides
   // with a base branch named 'grunt' — refs/heads/grunt and
@@ -185,8 +217,8 @@ export async function createTaskBranch(
   // the stale remote in place causes the next push to fail non-fast-forward.
   // Failure here is non-fatal — the most common cause is the branch simply
   // not existing on the remote yet (first attempt).
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   try {
     await git.remote(["set-url", "origin", remoteUrl]);
     await git.push(["origin", "--delete", branchName]);
@@ -205,10 +237,13 @@ export async function commitAndPushTask(
   owner: string,
   repoName: string,
   branchName: string,
-  message: string
+  message: string,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<void> {
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   await git.add("-A");
@@ -222,10 +257,13 @@ export async function mergeTaskIntoBase(
   owner: string,
   repoName: string,
   baseBranch: string,
-  branchName: string
+  branchName: string,
+  provider: GitProvider = "github",
+  adoProject?: string | null,
+  repoToken?: string | null,
 ): Promise<void> {
-  const pat = requireGhPat();
-  const remoteUrl = `https://${pat}@github.com/${owner}/${repoName}.git`;
+  const pat = resolvePat(repoToken);
+  const remoteUrl = buildRemoteUrl(pat, provider, owner, repoName, adoProject);
   const git = simpleGit(repoPath(reposPath, owner, repoName));
 
   await git.checkout(baseBranch);
