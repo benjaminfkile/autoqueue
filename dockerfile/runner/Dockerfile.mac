@@ -55,19 +55,23 @@ RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz \
  && rm /tmp/go.tar.gz
 ENV PATH=/usr/local/go/bin:$PATH
 
-# Install the .NET 8 SDK so task agents can build and test .NET projects (e.g.
-# wisper-api, which pins .NET 8 via global.json). libicu provides the ICU
-# globalization libraries .NET needs at runtime. Fetch the SDK with Microsoft's
-# official install script into /usr/local/dotnet and expose it on PATH — the
-# script detects the container's arm64 architecture on its own. Installed as
-# root before `USER node` so the unprivileged runtime user can use it from a
-# system path.
+# Install the .NET 8 and .NET 10 SDKs so task agents can build and test .NET
+# projects (e.g. wisper-api, which pins .NET 8 via global.json). Both SDKs
+# live side by side in the same install dir — `dotnet` picks the right one
+# per-repo from global.json, defaulting to the newest. libicu provides the ICU
+# globalization libraries .NET needs at runtime. Fetch the SDKs with
+# Microsoft's official install script into /usr/local/dotnet and expose it on
+# PATH — the script detects the container's arm64 architecture on its own.
+# Installed as root before `USER node` so the unprivileged runtime user can
+# use it from a system path.
 ARG DOTNET_CHANNEL=8.0
+ARG DOTNET_CHANNEL_LATEST=10.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libicu-dev \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
  && bash /tmp/dotnet-install.sh --channel ${DOTNET_CHANNEL} --install-dir /usr/local/dotnet \
+ && bash /tmp/dotnet-install.sh --channel ${DOTNET_CHANNEL_LATEST} --install-dir /usr/local/dotnet \
  && rm /tmp/dotnet-install.sh
 ENV DOTNET_ROOT=/usr/local/dotnet
 ENV PATH=/usr/local/dotnet:$PATH
