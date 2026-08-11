@@ -13,87 +13,20 @@ import { MountSpec } from "./mountManifest";
 
 const TIMEOUT_MS = 1_800_000;
 const CONTAINER_WORKSPACE = "/workspace";
-const CONTAINER_CLAUDE_HOME = "/home/node/.claude";
 
-// Files we copy out of the host's ~/.claude into the per-run temp dir. Auth +
-// user prefs only — we deliberately skip projects/, todos/, statsig/, and the
-// other state subdirs that can grow large on heavy users.
-const HOST_CLAUDE_FILES_TO_COPY = [".credentials.json", "settings.json"];
+// The container's `claude` CLI authenticates with the long-lived OAuth token
+// produced by `claude setup-token`, supplied to the app via this environment
+// variable (set it in .env). The token rides the stdin-secrets channel into
+// the container — never `docker -e` — so it doesn't appear in `docker
+// inspect`.
+export const CLAUDE_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
 
-// Prepare an isolated copy of the host's Claude Code auth so the runner
-// container can run `claude` without an ANTHROPIC_API_KEY. The container
-// bind-mounts this temp dir at /home/node/.claude; any token refreshes the
-// container performs land in the copy and are discarded on cleanup, so the
-// host's ~/.claude is never touched concurrently.
-//
-// Trade-off: if Anthropic rotates the refresh token mid-run, the host's
-// refresh token becomes invalid and the user has to `claude /login` again on
-// the host. Short tasks (under the access-token TTL) won't trigger a refresh
-// at all, so this is rare in practice.
-export function prepareHostClaudeMount():
-  | { ok: true; mountPath: string; cleanup: () => void }
-  | { ok: false; error: string } {
-  const hostClaudeDir = path.join(os.homedir(), ".claude");
-  if (!fs.existsSync(hostClaudeDir)) {
-    return {
-      ok: false,
-      error: `Host Claude Code directory not found at ${hostClaudeDir}. Install Claude Code and run \`claude /login\` on this machine, then try again.`,
-    };
-  }
-  const credentialsPath = path.join(hostClaudeDir, ".credentials.json");
-  if (!fs.existsSync(credentialsPath)) {
-    return {
-      ok: false,
-      error: `Host Claude Code is not logged in (no .credentials.json at ${credentialsPath}). Run \`claude /login\` on this machine, then try again.`,
-    };
-  }
-
-  let tempRoot: string;
-  try {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "grunt-claude-"));
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Failed to create temp dir for Claude auth copy: ${(err as Error).message}`,
-    };
-  }
-
-  try {
-    for (const name of HOST_CLAUDE_FILES_TO_COPY) {
-      const src = path.join(hostClaudeDir, name);
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, path.join(tempRoot, name));
-      }
-    }
-    // Loosen perms so the container's `node` user (uid 1000) can read+write
-    // when host uid != 1000 (Linux native Docker). On Docker Desktop Win/Mac
-    // the FS shim already ignores host ownership, so this is a no-op there.
-    fs.chmodSync(tempRoot, 0o777);
-    for (const name of HOST_CLAUDE_FILES_TO_COPY) {
-      const dst = path.join(tempRoot, name);
-      if (fs.existsSync(dst)) fs.chmodSync(dst, 0o666);
-    }
-  } catch (err) {
-    try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    } catch {}
-    return {
-      ok: false,
-      error: `Failed to stage Claude auth into temp dir: ${(err as Error).message}`,
-    };
-  }
-
-  const cleanup = () => {
-    try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    } catch (err) {
-      console.error(
-        "[claudeRunner] Failed to remove Claude auth temp dir:",
-        (err as Error).message
-      );
-    }
-  };
-  return { ok: true, mountPath: tempRoot, cleanup };
+export function missingClaudeTokenError(): string {
+  return (
+    `${CLAUDE_TOKEN_ENV} is not set. Run \`claude setup-token\` on any ` +
+    `machine with a browser, put the resulting token in this app's .env as ` +
+    `${CLAUDE_TOKEN_ENV}=<token>, and restart grunt.`
+  );
 }
 
 const VALID_VISIBILITIES: ReadonlySet<NoteVisibility> = new Set([
@@ -394,10 +327,13 @@ export function runClaudeOnTask(options: {
   // (a RAM-only tmpfs), sources them into the env, and unlinks the file
   // before exec'ing the claude CLI.
   //
-  // ANTHROPIC_API_KEY is intentionally not forwarded — the container's
-  // `claude` CLI authenticates via the host's Claude Code subscription auth,
-  // bind-mounted at /home/node/.claude (see prepareHostClaudeMount).
+  // Auth: the container's `claude` CLI authenticates with the long-lived
+  // OAuth token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN), which
+  // is injected through the same stdin-secrets channel. ANTHROPIC_API_KEY is
+  // intentionally not forwarded.
+  const claudeToken = process.env[CLAUDE_TOKEN_ENV];
   const secretLines: string[] = [];
+  if (claudeToken) secretLines.push(`${CLAUDE_TOKEN_ENV}=${claudeToken}`);
   if (ghPat) secretLines.push(`GH_PAT=${ghPat}`);
   const hasSecrets = secretLines.length > 0;
 
@@ -436,15 +372,14 @@ ${NOTES_PROTOCOL_DOC}`;
     }
   };
 
-  // Stage the host's Claude Code auth into a per-run temp dir. Failure here
-  // means the user hasn't installed/logged into Claude Code on this machine —
-  // surface a clear error before doing any docker work.
-  const claudeMount = prepareHostClaudeMount();
-  if (!claudeMount.ok) {
+  // Fail fast with a clear setup message when the auth token is missing —
+  // without it the container's `claude` CLI cannot authenticate at all, so
+  // there's no point doing any docker work.
+  if (!claudeToken) {
     if (logStream) logStream.end();
     return Promise.resolve({
       success: false,
-      output: claudeMount.error,
+      output: missingClaudeTokenError(),
       notes: [],
       usage: null,
     });
@@ -462,7 +397,6 @@ ${NOTES_PROTOCOL_DOC}`;
     }) => {
       if (settled) return;
       settled = true;
-      claudeMount.cleanup();
       if (logStream) {
         const stream = logStream;
         stream.end(() => resolve(result));
@@ -475,11 +409,9 @@ ${NOTES_PROTOCOL_DOC}`;
     // started, so `:latest` reliably points at the current build. The repo is
     // bind-mounted at /workspace :rw and that's the container's cwd.
     //
-    // Host auth: a per-run copy of the host's ~/.claude (see
-    // prepareHostClaudeMount) is bind-mounted at /home/node/.claude so the
-    // container's `claude` CLI inherits the user's subscription login. The
-    // copy is discarded on cleanup so concurrent host claude usage isn't
-    // affected by token writes from inside the container.
+    // Auth: CLAUDE_CODE_OAUTH_TOKEN (the long-lived `claude setup-token`
+    // token) is delivered through the secrets path below, so the container's
+    // `claude` CLI authenticates without any host ~/.claude bind mount.
     //
     // Secrets path: when there are secrets to inject we mount a 1MB tmpfs at
     // /run/grunt-secrets (mode 01777 so the unprivileged `node` user can write
@@ -507,8 +439,6 @@ ${NOTES_PROTOCOL_DOC}`;
       memLimit,
       "-v",
       `${workDir}:${CONTAINER_WORKSPACE}:rw`,
-      "-v",
-      `${claudeMount.mountPath}:${CONTAINER_CLAUDE_HOME}:rw`,
     ];
     // Phase 10: append one -v per linked-repo mount. Inserted *before* -w and
     // the image positional so docker still parses them as flags. The manifest

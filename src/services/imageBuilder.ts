@@ -51,28 +51,43 @@ export function _resetRunnerImageStateForTest(): void {
   pendingBuild = null;
 }
 
-// Resolve the Dockerfile path. The runner Dockerfile lives at
-// `<repo>/dockerfile/runner/Dockerfile`. When the server runs compiled
-// (`<repo>/dist/src/services/imageBuilder.js`) the relative `..` chain differs
-// from the ts-node case, so we probe both.
+// Pick the runner Dockerfile variant for the host platform. Docker always
+// runs Linux containers, but the container's CPU architecture follows the
+// host: Windows machines run linux/amd64 images while Apple Silicon Macs run
+// linux/arm64 natively — and the two variants fetch arch-specific toolchain
+// binaries (the Go tarball). Exposed with injectable params for tests.
+export function runnerDockerfileName(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch
+): string {
+  if (platform === "darwin") return "Dockerfile.mac";
+  if (platform === "win32") return "Dockerfile.windows";
+  // Linux hosts: no dedicated variant, so choose by CPU architecture — the
+  // .mac file is the arm64 image and the .windows file is the amd64 image.
+  return arch === "arm64" ? "Dockerfile.mac" : "Dockerfile.windows";
+}
+
+// Resolve the Dockerfile path. The runner Dockerfile variants live at
+// `<repo>/dockerfile/runner/Dockerfile.{mac,windows}`. When the server runs
+// compiled (`<repo>/dist/src/services/imageBuilder.js`) the relative `..`
+// chain differs from the ts-node case, so we probe both.
 export function resolveRunnerDockerfile(): {
   dockerfile: string;
   context: string;
 } {
+  const name = runnerDockerfileName();
   const candidates = [
     path.resolve(__dirname, "..", "..", "dockerfile", "runner"),
     path.resolve(__dirname, "..", "..", "..", "dockerfile", "runner"),
     path.resolve(process.cwd(), "dockerfile", "runner"),
   ];
-  const context = candidates.find((p) =>
-    fs.existsSync(path.join(p, "Dockerfile"))
-  );
+  const context = candidates.find((p) => fs.existsSync(path.join(p, name)));
   if (!context) {
     throw new Error(
-      `Runner Dockerfile not found in any of: ${candidates.join(", ")}`
+      `Runner Dockerfile ${name} not found in any of: ${candidates.join(", ")}`
     );
   }
-  return { dockerfile: path.join(context, "Dockerfile"), context };
+  return { dockerfile: path.join(context, name), context };
 }
 
 export function computeDockerfileHash(dockerfilePath: string): string {
@@ -131,11 +146,14 @@ export async function imageExists(tag: string): Promise<boolean> {
 // `<name>:latest` (convenience for ad-hoc `docker run`).
 async function buildImage(
   hash: string,
+  dockerfile: string,
   context: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const tag = runnerImageTag(hash);
   const { code, output } = await runDocker([
     "build",
+    "-f",
+    dockerfile,
     "-t",
     tag,
     "-t",
@@ -187,10 +205,12 @@ export async function ensureRunnerImage(db: Knex): Promise<RunnerImageState> {
     }
 
     let hash: string;
+    let dockerfile: string;
     let context: string;
     try {
       const resolved = resolveRunnerDockerfile();
       hash = computeDockerfileHash(resolved.dockerfile);
+      dockerfile = resolved.dockerfile;
       context = resolved.context;
     } catch (err) {
       state = {
@@ -227,7 +247,7 @@ export async function ensureRunnerImage(db: Knex): Promise<RunnerImageState> {
     console.log(
       `[imageBuilder] Building runner image ${tag} (this may take a few minutes on first run).`
     );
-    const result = await buildImage(hash, context);
+    const result = await buildImage(hash, dockerfile, context);
     if (!result.ok) {
       state = {
         ...state,

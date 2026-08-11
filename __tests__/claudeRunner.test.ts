@@ -14,9 +14,10 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
+  CLAUDE_TOKEN_ENV,
+  missingClaudeTokenError,
   parseNotesFromOutput,
   parseUsageFromOutput,
-  prepareHostClaudeMount,
   runClaudeOnTask,
 } from "../src/services/claudeRunner";
 import { TaskPayload } from "../src/interfaces";
@@ -47,19 +48,16 @@ let tmpRoot: string;
 beforeEach(() => {
   jest.clearAllMocks();
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "grunt-runner-test-"));
-  // prepareHostClaudeMount() reads ~/.claude/.credentials.json. Point it at
-  // tmpRoot so the test is self-contained and doesn't touch the real host dir.
-  const fakeClaudeDir = path.join(tmpRoot, ".claude");
-  fs.mkdirSync(fakeClaudeDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(fakeClaudeDir, ".credentials.json"),
-    JSON.stringify({ sessionToken: "test-token" })
-  );
   (os.homedir as jest.Mock).mockReturnValue(tmpRoot);
+  // runClaudeOnTask requires the long-lived `claude setup-token` token in the
+  // app environment; set a fake one so the happy-path tests get past the
+  // fail-fast guard.
+  process.env[CLAUDE_TOKEN_ENV] = "sk-ant-oat01-test-token";
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
+  delete process.env[CLAUDE_TOKEN_ENV];
   try {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   } catch {
@@ -200,22 +198,18 @@ describe("runClaudeOnTask log capture", () => {
     expect(prompt).toMatch(/task\.notes/);
   });
 
-  it("closes stdin when there are no secrets so the CLI doesn't pause 3s waiting for piped input", async () => {
-    const child = new FakeChild();
-    spawnMock.mockReturnValue(child);
+  it("fails fast with a setup message (and no docker spawn) when the auth token is unset", async () => {
+    delete process.env[CLAUDE_TOKEN_ENV];
 
-    const promise = runClaudeOnTask({
+    const result = await runClaudeOnTask({
       workDir: tmpRoot,
       taskPayload: samplePayload,
     });
-    child.emit("close", 0);
-    await promise;
 
-    // Without an explicit stdin source, claude waits 3s for piped data
-    // before printing a "no stdin received" warning and proceeding. With no
-    // secrets to feed the entrypoint, we close stdin via 'ignore'.
-    const opts = spawnMock.mock.calls[0][2] as { stdio?: unknown };
-    expect(opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
+    expect(result.success).toBe(false);
+    expect(result.output).toBe(missingClaudeTokenError());
+    expect(result.output).toMatch(/claude setup-token/);
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 
   it("does not pass secret values via -e (would expose them in `docker inspect`)", async () => {
@@ -236,6 +230,8 @@ describe("runClaudeOnTask log capture", () => {
     // would surface in `docker inspect` and is the bug we're guarding against.
     expect(joined).not.toContain("ghp_secret_value");
     expect(args).not.toContain("GH_PAT");
+    // The Claude auth token rides the same stdin channel — never argv.
+    expect(joined).not.toContain("sk-ant-oat01-test-token");
   });
 
   it("mounts a tmpfs at /run/grunt-secrets and signals the entrypoint via -e GRUNT_SECRETS_FROM_STDIN=1", async () => {
@@ -279,7 +275,9 @@ describe("runClaudeOnTask log capture", () => {
     expect(child.stdin.write).toHaveBeenCalledTimes(1);
     const payload = child.stdin.write.mock.calls[0][0] as string;
     expect(payload).toContain("GH_PAT=ghp_def");
-    // ANTHROPIC_API_KEY is not forwarded — auth is via the host Claude mount.
+    // The auth token is delivered as a KEY=value line on the same channel.
+    expect(payload).toContain(`${CLAUDE_TOKEN_ENV}=sk-ant-oat01-test-token`);
+    // ANTHROPIC_API_KEY is not forwarded — auth is via the setup-token.
     expect(payload).not.toContain("ANTHROPIC_API_KEY");
     // Final newline so the entrypoint's `read` loop captures the last line.
     expect(payload.endsWith("\n")).toBe(true);
@@ -290,7 +288,7 @@ describe("runClaudeOnTask log capture", () => {
     expect(opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
   });
 
-  it("omits the tmpfs/-i/-e plumbing when no secrets are provided", async () => {
+  it("keeps the tmpfs/-i/-e plumbing even without a GH_PAT — the auth token always rides stdin", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
 
@@ -302,10 +300,12 @@ describe("runClaudeOnTask log capture", () => {
     await promise;
 
     const args = spawnMock.mock.calls[0][1] as string[];
-    expect(args).not.toContain("--tmpfs");
-    expect(args).not.toContain("-i");
-    expect(args).not.toContain("-e");
-    expect(child.stdin.write).not.toHaveBeenCalled();
+    expect(args).toContain("--tmpfs");
+    expect(args).toContain("-i");
+    expect(child.stdin.write).toHaveBeenCalledTimes(1);
+    const payload = child.stdin.write.mock.calls[0][0] as string;
+    expect(payload).toContain(`${CLAUDE_TOKEN_ENV}=sk-ant-oat01-test-token`);
+    expect(payload).not.toContain("GH_PAT");
   });
 
   // -------------------------------------------------------------------------
@@ -329,14 +329,13 @@ describe("runClaudeOnTask log capture", () => {
     await promise;
 
     const args = spawnMock.mock.calls[0][1] as string[];
-    // The workspace mount is the FIRST -v. The second -v is the Claude auth
-    // mount (prepareHostClaudeMount). No further -v without contextMounts.
+    // The workspace mount is the ONLY -v without contextMounts — auth is a
+    // token over stdin, not a ~/.claude bind mount.
     const vIdx = args.indexOf("-v");
     expect(vIdx).toBeGreaterThan(-1);
     expect(args[vIdx + 1]).toBe(`${tmpRoot}:/workspace:rw`);
     const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
-    expect(vIndices).toHaveLength(2);
-    expect(args[vIndices[1] + 1]).toMatch(/\/home\/node\/.claude:rw$/);
+    expect(vIndices).toHaveLength(1);
   });
 
   it("sets the container working directory to /workspace via -w", async () => {
@@ -449,14 +448,14 @@ describe("runClaudeOnTask log capture", () => {
     child.emit("close", 0);
     await promise;
 
-    // With secrets in play, the workspace bind mount is the first -v; the
-    // claude auth mount is the second -v. Secrets add --tmpfs, not a third -v.
+    // With secrets in play, the workspace bind mount is the only -v.
+    // Secrets add --tmpfs, not another -v.
     const args = spawnMock.mock.calls[0][1] as string[];
     const vIdx = args.indexOf("-v");
     expect(vIdx).toBeGreaterThan(-1);
     expect(args[vIdx + 1]).toBe(`${tmpRoot}:/workspace:rw`);
     const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
-    expect(vIndices).toHaveLength(2);
+    expect(vIndices).toHaveLength(1);
     expect(args).toContain("--tmpfs");
   });
 
@@ -486,12 +485,11 @@ describe("runClaudeOnTask log capture", () => {
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "-v") vIndices.push(i);
     }
-    // Four -v total: primary + claude auth + two context mounts.
-    expect(vIndices).toHaveLength(4);
+    // Three -v total: primary + two context mounts.
+    expect(vIndices).toHaveLength(3);
     expect(args[vIndices[0] + 1]).toBe(`${tmpRoot}:/workspace:rw`);
-    expect(args[vIndices[1] + 1]).toMatch(/\/home\/node\/.claude:rw$/);
-    expect(args[vIndices[2] + 1]).toBe("/repos/acme/lib-a:/context/lib-a:ro");
-    expect(args[vIndices[3] + 1]).toBe("/repos/acme/lib-b:/context/lib-b:rw");
+    expect(args[vIndices[1] + 1]).toBe("/repos/acme/lib-a:/context/lib-a:ro");
+    expect(args[vIndices[2] + 1]).toBe("/repos/acme/lib-b:/context/lib-b:rw");
   });
 
   it("places every context -v before the image positional (docker won't accept flags after it)", async () => {
@@ -517,7 +515,7 @@ describe("runClaudeOnTask log capture", () => {
     }
   });
 
-  it("emits exactly two -v (primary + claude auth) when contextMounts is omitted — Phase 10 is opt-in via the manifest", async () => {
+  it("emits exactly one -v (the primary workspace) when contextMounts is omitted — Phase 10 is opt-in via the manifest", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
 
@@ -530,12 +528,11 @@ describe("runClaudeOnTask log capture", () => {
 
     const args = spawnMock.mock.calls[0][1] as string[];
     const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
-    expect(vIndices).toHaveLength(2);
+    expect(vIndices).toHaveLength(1);
     expect(args[vIndices[0] + 1]).toBe(`${tmpRoot}:/workspace:rw`);
-    expect(args[vIndices[1] + 1]).toMatch(/\/home\/node\/.claude:rw$/);
   });
 
-  it("emits exactly two -v (primary + claude auth) when contextMounts is an empty array (no links → no extra mounts)", async () => {
+  it("emits exactly one -v (the primary workspace) when contextMounts is an empty array (no links → no extra mounts)", async () => {
     const child = new FakeChild();
     spawnMock.mockReturnValue(child);
 
@@ -549,7 +546,7 @@ describe("runClaudeOnTask log capture", () => {
 
     const args = spawnMock.mock.calls[0][1] as string[];
     const vIndices = args.reduce<number[]>((acc, a, i) => (a === "-v" ? [...acc, i] : acc), []);
-    expect(vIndices).toHaveLength(2);
+    expect(vIndices).toHaveLength(1);
   });
 
   it("renders read-link mounts as :ro (the host repo is not writable from inside the container)", async () => {
@@ -614,11 +611,10 @@ describe("runClaudeOnTask log capture", () => {
     const vEntries = args
       .map((a, i) => (a === "-v" ? args[i + 1] : null))
       .filter((v): v is string => v !== null);
-    // Three -v entries: primary + claude auth + one context. The tmpfs is a separate flag.
-    expect(vEntries).toHaveLength(3);
+    // Two -v entries: primary + one context. The tmpfs is a separate flag.
+    expect(vEntries).toHaveLength(2);
     expect(vEntries[0]).toBe(`${tmpRoot}:/workspace:rw`);
-    expect(vEntries[1]).toMatch(/\/home\/node\/.claude:rw$/);
-    expect(vEntries[2]).toBe("/repos/acme/lib:/context/lib:rw");
+    expect(vEntries[1]).toBe("/repos/acme/lib:/context/lib:rw");
   });
 
   // -------------------------------------------------------------------------
@@ -1412,61 +1408,13 @@ describe("runClaudeOnTask --model wiring", () => {
 });
 
 // ---------------------------------------------------------------------------
-// prepareHostClaudeMount — unit tests for the function that stages the host's
-// Claude Code auth into a per-run temp dir for container bind-mounting.
+// missingClaudeTokenError — the fail-fast setup message shown when the
+// long-lived `claude setup-token` token is absent from the environment.
 // ---------------------------------------------------------------------------
-describe("prepareHostClaudeMount", () => {
-  it("returns ok=false with a descriptive error when ~/.claude does not exist", () => {
-    // Use a bare temp dir that has no .claude subdirectory (beforeEach creates
-    // .claude inside tmpRoot, so we need a fresh directory for this test).
-    const bareHome = fs.mkdtempSync(path.join(os.tmpdir(), "grunt-bare-home-"));
-    try {
-      (os.homedir as jest.Mock).mockReturnValue(bareHome);
-      const result = prepareHostClaudeMount();
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toMatch(/not found/i);
-      }
-    } finally {
-      fs.rmSync(bareHome, { recursive: true, force: true });
-    }
-  });
-
-  it("returns ok=false when ~/.claude exists but .credentials.json is absent", () => {
-    const claudeDir = path.join(tmpRoot, ".claude-nocreds");
-    fs.mkdirSync(claudeDir, { recursive: true });
-    // no .credentials.json inside
-    (os.homedir as jest.Mock).mockReturnValue(path.join(tmpRoot, "..no-such-home"));
-    // Override: point to a dir that has .claude but no .credentials.json
-    const fakeHome = path.join(tmpRoot, "fakehome");
-    fs.mkdirSync(path.join(fakeHome, ".claude"), { recursive: true });
-    (os.homedir as jest.Mock).mockReturnValue(fakeHome);
-    const result = prepareHostClaudeMount();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/not logged in|credentials/i);
-    }
-  });
-
-  it("returns ok=true with a mountPath that contains .credentials.json", () => {
-    // beforeEach already set up ~/.claude/.credentials.json at tmpRoot
-    (os.homedir as jest.Mock).mockReturnValue(tmpRoot);
-    const result = prepareHostClaudeMount();
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(fs.existsSync(result.mountPath)).toBe(true);
-      expect(fs.existsSync(path.join(result.mountPath, ".credentials.json"))).toBe(true);
-      result.cleanup();
-    }
-  });
-
-  it("cleanup() removes the temp dir that was created for the mount", () => {
-    (os.homedir as jest.Mock).mockReturnValue(tmpRoot);
-    const result = prepareHostClaudeMount();
-    if (!result.ok) throw new Error("Expected ok=true");
-    const { mountPath, cleanup } = result;
-    expect(fs.existsSync(mountPath)).toBe(true);
-    cleanup();
-    expect(fs.existsSync(mountPath)).toBe(false);
+describe("missingClaudeTokenError", () => {
+  it("names the env var and the command that produces the token", () => {
+    const msg = missingClaudeTokenError();
+    expect(msg).toContain(CLAUDE_TOKEN_ENV);
+    expect(msg).toMatch(/claude setup-token/);
   });
 });

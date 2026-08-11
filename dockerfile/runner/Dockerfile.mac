@@ -1,0 +1,113 @@
+# syntax=docker/dockerfile:1.6
+#
+# Runner image for grunt's task execution layer (Phase 9) — Apple Silicon hosts.
+#
+# Docker Desktop on an Apple Silicon Mac runs linux/arm64 containers natively,
+# so this variant installs arm64 toolchain binaries (notably the Go tarball —
+# the amd64 one in Dockerfile.windows would only run under slow emulation
+# here). The Windows/amd64 variant lives beside this file as
+# Dockerfile.windows; grunt picks the right one at boot based on the host
+# platform.
+#
+# Each grunt task runs inside a fresh container of this image with the primary
+# repo bind-mounted at /workspace. The image is internal-only — it is never
+# pushed to a registry and exposes no ports.
+
+FROM node:20-slim
+
+# git: required for the repo work the agent performs (status/diff/branch/commit).
+# openssh-client: lets git use SSH remotes when a key is mounted in.
+# ca-certificates: TLS roots for the Anthropic API and the npm registry.
+# curl: used below to fetch the official Go release tarball.
+# python3/make/g++: node-gyp fallback toolchain, so `npm install` can compile
+#   packages that ship no prebuilt binary for this platform instead of failing.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        g++ \
+        git \
+        make \
+        openssh-client \
+        python3 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install the Claude CLI globally so `claude` is on PATH for the runtime user.
+# Default to `latest` so a fresh build picks up new releases; release builds
+# can pin via `--build-arg CLAUDE_CLI_VERSION=x.y.z` for reproducibility.
+ARG CLAUDE_CLI_VERSION=latest
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
+ && npm cache clean --force
+
+# Run as the unprivileged `node` user (uid/gid 1000) that ships with the
+# official image. Pre-create the workspace and chown it so a bind-mount from
+# a uid-1000 host user is writable without further setup.
+RUN mkdir -p /workspace && chown -R node:node /workspace
+
+# Install the Go toolchain so task agents can build and test Go projects.
+# Fetch the official linux/arm64 release and extract it into /usr/local so the
+# binary lands at /usr/local/go/bin/go. Installed as root before `USER node`
+# so the unprivileged runtime user can use it from a system path.
+ARG GO_VERSION=1.22.5
+RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz \
+        -o /tmp/go.tar.gz \
+ && tar -C /usr/local -xzf /tmp/go.tar.gz \
+ && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:$PATH
+
+# Install the .NET 8 SDK so task agents can build and test .NET projects (e.g.
+# wisper-api, which pins .NET 8 via global.json). libicu provides the ICU
+# globalization libraries .NET needs at runtime. Fetch the SDK with Microsoft's
+# official install script into /usr/local/dotnet and expose it on PATH — the
+# script detects the container's arm64 architecture on its own. Installed as
+# root before `USER node` so the unprivileged runtime user can use it from a
+# system path.
+ARG DOTNET_CHANNEL=8.0
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libicu-dev \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+ && bash /tmp/dotnet-install.sh --channel ${DOTNET_CHANNEL} --install-dir /usr/local/dotnet \
+ && rm /tmp/dotnet-install.sh
+ENV DOTNET_ROOT=/usr/local/dotnet
+ENV PATH=/usr/local/dotnet:$PATH
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+
+# Install the PostgreSQL server + client so task agents can verify database
+# work (knex migrations, service tests) against a real Postgres. The server is
+# NOT started by the image: a task that needs it initializes a throwaway
+# cluster as the unprivileged runtime user, e.g.
+#   initdb -D /tmp/pg && pg_ctl -D /tmp/pg -o "-k /tmp" start \
+#     && createdb -h /tmp app_test
+# The versioned server binaries (initdb, pg_ctl, postgres) live outside the
+# default PATH, so expose them explicitly.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql postgresql-client \
+ && rm -rf /var/lib/apt/lists/*
+ENV PATH=/usr/lib/postgresql/15/bin:$PATH
+
+# Mark every repo path as a git "safe.directory" system-wide. /workspace is a
+# bind-mount owned by the host checkout user, which usually differs from the
+# runtime `node` user; without this git aborts with "detected dubious
+# ownership", which breaks tools that shell out to git — notably `go build`'s
+# VCS stamping. Writing --system (/etc/gitconfig) applies to ALL users
+# (including node) for ANY mounted repo path. Done as root before `USER node`.
+RUN git config --system --add safe.directory '*'
+
+# Entrypoint shim: when invoked with GRUNT_SECRETS_FROM_STDIN=1, it reads
+# KEY=value lines from stdin into a tmpfs-mounted file at /run/grunt-secrets,
+# exports them into the environment for the subsequent command, and unlinks
+# the file. Secrets never appear in `docker inspect` and never touch disk.
+COPY entrypoint.sh /usr/local/bin/grunt-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/grunt-entrypoint.sh
+
+ENV HOME=/home/node
+USER node
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/local/bin/grunt-entrypoint.sh"]
+# Default command doubles as a smoke test: `docker run grunt/runner` prints
+# the CLI version. The task runner overrides this with the real invocation.
+CMD ["claude", "--version"]

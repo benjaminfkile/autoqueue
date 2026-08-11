@@ -26,6 +26,7 @@ import {
   getRunnerImageState,
   imageExists,
   resolveRunnerDockerfile,
+  runnerDockerfileName,
   runnerImageTag,
   _resetRunnerImageStateForTest,
 } from "../src/services/imageBuilder";
@@ -52,6 +53,30 @@ beforeEach(() => {
   _resetRunnerImageStateForTest();
 });
 
+describe("runnerDockerfileName", () => {
+  it("selects the Apple Silicon variant on macOS", () => {
+    expect(runnerDockerfileName("darwin", "arm64")).toBe("Dockerfile.mac");
+    expect(runnerDockerfileName("darwin", "x64")).toBe("Dockerfile.mac");
+  });
+
+  it("selects the Windows variant on win32", () => {
+    expect(runnerDockerfileName("win32", "x64")).toBe("Dockerfile.windows");
+  });
+
+  it("falls back by CPU architecture on Linux hosts", () => {
+    expect(runnerDockerfileName("linux", "x64")).toBe("Dockerfile.windows");
+    expect(runnerDockerfileName("linux", "arm64")).toBe("Dockerfile.mac");
+  });
+});
+
+describe("resolveRunnerDockerfile", () => {
+  it("resolves the platform-specific Dockerfile that exists on disk", () => {
+    const { dockerfile, context } = resolveRunnerDockerfile();
+    expect(dockerfile.startsWith(context)).toBe(true);
+    expect(dockerfile).toMatch(/Dockerfile\.(mac|windows)$/);
+  });
+});
+
 describe("computeDockerfileHash", () => {
   it("returns a stable 12-char hex prefix of the file's sha256", () => {
     const { dockerfile } = resolveRunnerDockerfile();
@@ -59,6 +84,14 @@ describe("computeDockerfileHash", () => {
     const b = computeDockerfileHash(dockerfile);
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it("hashes the two platform variants to different tags", () => {
+    const { context } = resolveRunnerDockerfile();
+    const path = require("path");
+    const mac = computeDockerfileHash(path.join(context, "Dockerfile.mac"));
+    const win = computeDockerfileHash(path.join(context, "Dockerfile.windows"));
+    expect(mac).not.toBe(win);
   });
 });
 
@@ -134,6 +167,14 @@ describe("ensureRunnerImage", () => {
       expect.arrayContaining([
         "-t",
         expect.stringMatching(/^grunt\/runner:[0-9a-f]{12}$/),
+      ])
+    );
+    // The build must name the platform-specific Dockerfile explicitly — the
+    // context dir contains both variants and no default `Dockerfile`.
+    expect(buildCall[1]).toEqual(
+      expect.arrayContaining([
+        "-f",
+        expect.stringMatching(/Dockerfile\.(mac|windows)$/),
       ])
     );
     expect(setSetting).toHaveBeenCalledWith(
