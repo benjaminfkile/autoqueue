@@ -2,7 +2,12 @@ import { Knex } from "knex";
 import * as os from "os";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
-import { claimNextPendingLeafTask, autoCompleteParentTasks, reclaimExpiredLeaseTasks } from "../db/tasks";
+import {
+  claimNextPendingLeafTask,
+  autoCompleteParentTasks,
+  reclaimExpiredLeaseTasks,
+  hasActiveLeasedTask,
+} from "../db/tasks";
 import { recordEvent } from "../db/taskEvents";
 import { runTask } from "./taskRunner";
 import { refreshDockerState } from "./dockerProbe";
@@ -43,35 +48,51 @@ export async function evaluateCapStatus(
   };
 }
 
+// Task #29: strict single-task execution. buildWorkQueue claims AT MOST ONE
+// task across ALL repos per cycle — never two. The return type stays an array
+// (0 or 1 entry) so the caller's serial loop needs no reshape, but semantics
+// have flipped from "one-per-repo, run serially" to "one-total, run it now,
+// leave the rest 'pending' with no lease". Multi-repo work therefore
+// round-robins one-at-a-time in repo order across cycles.
+//
+// A waiting task is never claimed and never leased — so its lease cannot
+// expire while it waits (task #29 AC #114). Combined with the pre-cycle
+// reclaim (task #27) and the leaf guard (task #28), the invariant "at no
+// instant are two tasks 'active' at once" holds even across worker restarts.
 export async function buildWorkQueue(
   db: Knex,
   workerId: string = WORKER_ID,
   leaseSeconds: number = LEASE_SECONDS
 ): Promise<Array<{ repoId: number; taskId: number }>> {
+  // If a task is already 'active' with a still-valid lease (own or foreign
+  // worker), a run is presumed in flight — don't stack a second one. Expired
+  // leases are handled by reclaimExpiredLeaseTasks before this runs.
+  if (await hasActiveLeasedTask(db)) {
+    return [];
+  }
+
   const repos = await getActiveRepos(db);
-  const queue: Array<{ repoId: number; taskId: number }> = [];
 
   for (const repo of repos) {
-    // Re-check the weekly cap before each claim so a cycle that crosses the
-    // threshold partway through stops claiming new work mid-loop. In-flight
-    // tasks are unaffected — runTask runs after this loop returns and we
-    // never preempt a running task here.
+    // Re-check the weekly cap before each candidate repo so a cycle that
+    // crosses the threshold partway through stops claiming new work mid-loop.
+    // In-flight tasks are unaffected — runTask runs after this returns.
     const status = await evaluateCapStatus(db);
     if (status.capped) {
       console.log(
         `[scheduler] capped — weekly tokens ${status.weekly_total} >= cap ${status.weekly_cap}. Skipping new claims until next cycle.`
       );
-      break;
+      return [];
     }
 
     const task = await claimNextPendingLeafTask(db, repo.id, workerId, leaseSeconds);
     if (task) {
       await recordEvent(db, task.id, "claimed", { worker_id: workerId });
-      queue.push({ repoId: repo.id, taskId: task.id });
+      return [{ repoId: repo.id, taskId: task.id }];
     }
   }
 
-  return queue;
+  return [];
 }
 
 let isRunning = false;

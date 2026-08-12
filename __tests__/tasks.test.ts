@@ -5,6 +5,7 @@ import {
   claimNextPendingLeafTask,
   renewTaskLease,
   reclaimExpiredLeaseTasks,
+  hasActiveLeasedTask,
   getTasksByRepoId,
   getTaskById,
   getChildTasks,
@@ -984,6 +985,59 @@ describe("claimNextPendingLeafTask", () => {
     expect(a).toBeDefined();
     expect(b).toBeDefined();
     expect(a!.id).not.toBe(b!.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasActiveLeasedTask — strict single-task guard used by the scheduler.
+// Task #29 hinges on this: buildWorkQueue claims nothing when it returns
+// true, so the query shape and the truthy/falsy mapping are contractual.
+// ---------------------------------------------------------------------------
+describe("hasActiveLeasedTask", () => {
+  it("returns true when a task exists with status='active' and leased_until >= now", async () => {
+    const { knex, chain } = createMockKnex();
+    // A row is returned → there's an in-flight active task.
+    chain.first.mockResolvedValueOnce({
+      id: 42,
+      status: "active",
+      leased_until: new Date(Date.now() + 60_000),
+    });
+
+    const result = await hasActiveLeasedTask(knex as any);
+
+    expect(knex).toHaveBeenCalledWith("tasks");
+    expect(chain.where).toHaveBeenCalledWith({ status: "active" });
+    // The lease-freshness predicate must be leased_until >= now, so a lease
+    // that is exactly at the current instant still counts as valid.
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      "leased_until",
+      ">=",
+      expect.any(String)
+    );
+    expect(result).toBe(true);
+  });
+
+  it("returns false when no row matches (every active task's lease has expired, or nothing is active at all)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce(undefined);
+
+    const result = await hasActiveLeasedTask(knex as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("uses the supplied `now` when checking freshness so tests can pin the instant deterministically", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.first.mockResolvedValueOnce(undefined);
+
+    const fixed = new Date("2026-08-12T12:00:00.000Z");
+    await hasActiveLeasedTask(knex as any, fixed);
+
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      "leased_until",
+      ">=",
+      fixed.toISOString()
+    );
   });
 });
 

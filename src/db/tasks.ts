@@ -108,6 +108,24 @@ export async function deleteTask(db: Knex, id: number): Promise<void> {
   await db<Task>("tasks").where({ id }).delete();
 }
 
+// Strict single-task guard (task #29). True when any task, in any repo, is
+// currently 'active' with a still-valid lease — i.e. some worker owns it and
+// is presumed alive. The scheduler uses this at the start of each cycle to
+// decide whether to claim new work: if a valid-lease active task exists, we
+// claim nothing else so at no instant are two tasks 'active' at once. Expired
+// leases are cleaned up beforehand by reclaimExpiredLeaseTasks (task #27),
+// so a survivor here is genuinely in-flight, not a crash residue.
+export async function hasActiveLeasedTask(
+  db: Knex,
+  now: Date = new Date()
+): Promise<boolean> {
+  const row = await db<Task>("tasks")
+    .where({ status: "active" })
+    .andWhere("leased_until", ">=", now.toISOString())
+    .first();
+  return row !== undefined;
+}
+
 export async function reconcileOrphanedTasks(
   db: Knex,
   workerId: string
