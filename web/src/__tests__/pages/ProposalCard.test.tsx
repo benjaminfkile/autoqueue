@@ -31,6 +31,13 @@ function makeRepo(id: number, owner = "alice", name = "alpha"): Repo {
     ordering_mode: "sequential",
     clone_status: "ready",
     clone_error: null,
+    task_total: 0,
+    task_done: 0,
+    last_activity_at: null,
+    branch_ahead: null,
+    branch_behind: null,
+    branch_sync_state: "unknown",
+    branch_sync_checked_at: null,
     created_at: new Date().toISOString(),
   };
 }

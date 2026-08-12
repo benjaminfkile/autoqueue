@@ -156,6 +156,13 @@ function installFetchMock(opts: MockOptions = {}) {
           clone_status: "ready",
           clone_error: null,
           created_at: "2026-04-26T00:00:00.000Z",
+          task_total: 0,
+          task_done: 0,
+          last_activity_at: null,
+          branch_ahead: null,
+          branch_behind: null,
+          branch_sync_state: "unknown",
+          branch_sync_checked_at: null,
         }))
       );
     }

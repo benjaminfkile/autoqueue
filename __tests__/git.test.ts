@@ -13,6 +13,7 @@ type GitMock = {
   clone: jest.Mock;
   merge: jest.Mock;
   status: jest.Mock;
+  raw: jest.Mock;
 };
 
 const mockState: {
@@ -28,6 +29,9 @@ const mockState: {
     renamed: string[];
     staged: string[];
   };
+  // Next value returned by simpleGit(dir).raw(). String → resolves; Error →
+  // rejects. Reset to null between tests so raw() defaults to an empty string.
+  nextRaw: string | Error | null;
 } = {
   instances: [],
   nextBranches: [],
@@ -41,6 +45,7 @@ const mockState: {
     renamed: [],
     staged: [],
   },
+  nextRaw: null,
 };
 
 jest.mock("../src/secrets", () => ({
@@ -87,6 +92,10 @@ jest.mock("simple-git", () => {
         status: jest
           .fn()
           .mockImplementation(async () => mockState.nextStatus),
+        raw: jest.fn().mockImplementation(async () => {
+          if (mockState.nextRaw instanceof Error) throw mockState.nextRaw;
+          return mockState.nextRaw ?? "";
+        }),
       };
       mockState.instances.push(git);
       return git;
@@ -137,6 +146,7 @@ import {
   commitAndPushTask,
   createIssueBranch,
   createTaskBranch,
+  getBranchAheadBehind,
   hasUncommittedChanges,
   mergeIntoBase,
   mergeTaskIntoBase,
@@ -156,6 +166,7 @@ beforeEach(() => {
     renamed: [],
     staged: [],
   };
+  mockState.nextRaw = null;
   fsMockState.existing = new Set();
   fsMockState.mkdirCalls = [];
   fsMockState.mkdtempCalls = [];
@@ -683,6 +694,108 @@ describe("mergeTaskIntoBase", () => {
     const git = mockState.instances[0];
     // The local cleanup still happened.
     expect(git.deleteLocalBranch).toHaveBeenCalledWith("grunt-task-7", true);
+  });
+});
+
+describe("getBranchAheadBehind", () => {
+  it("returns null when the clone directory doesn't exist (unfetched or deleted)", async () => {
+    // No paths in fsMockState.existing → existsSync returns false → helper
+    // short-circuits before touching git. The router surfaces this as
+    // branch_sync_state='unknown' so the UI shows an "unknown" chip rather
+    // than a spurious diverged badge.
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+    expect(result).toBeNull();
+    expect(mockState.instances).toHaveLength(0);
+  });
+
+  it("returns null when required branch names are empty", async () => {
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "",
+      "main"
+    );
+    expect(result).toBeNull();
+  });
+
+  it("parses `git rev-list --left-right --count parent...base` into {ahead, behind}", async () => {
+    // Parent has 3 commits base doesn't → base is 3 behind. Base has 5 commits
+    // parent doesn't → base is 5 ahead. rev-list prints "left\tright" with the
+    // left column being the parent-exclusive commits.
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    mockState.nextRaw = "3\t5\n";
+
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+
+    expect(result).toEqual({ ahead: 5, behind: 3 });
+    const git = mockState.instances[0];
+    expect(git.raw).toHaveBeenCalledWith([
+      "rev-list",
+      "--left-right",
+      "--count",
+      "main...grunt",
+    ]);
+  });
+
+  it("returns {ahead: 0, behind: 0} when both branches point at the same commit (synced)", async () => {
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    mockState.nextRaw = "0\t0\n";
+
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+
+    expect(result).toEqual({ ahead: 0, behind: 0 });
+  });
+
+  it("returns null when git errors out (unknown ref, corrupt repo, etc.) — degrades to 'unknown'", async () => {
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    mockState.nextRaw = new Error(
+      "fatal: bad revision 'main...grunt'"
+    );
+
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the raw output is malformed (missing counts)", async () => {
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    mockState.nextRaw = "bogus\n";
+
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+
+    expect(result).toBeNull();
   });
 });
 

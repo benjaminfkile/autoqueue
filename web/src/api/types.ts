@@ -26,7 +26,27 @@ export type TaskStatus =
   | "failed"
   | "interrupted";
 
-export interface Repo {
+// Collapsed sync verdict between base_branch and base_branch_parent.
+//   - 'synced'   → both branches point at the same commit
+//   - 'ahead'    → base_branch has commits not in base_branch_parent
+//   - 'behind'   → base_branch_parent has commits not in base_branch
+//   - 'diverged' → both sides have commits the other doesn't
+//   - 'unknown'  → cache miss, missing clone, or git error — counts are null
+export type BranchSyncState =
+  | "synced"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "unknown";
+
+export interface BranchSyncFields {
+  branch_ahead: number | null;
+  branch_behind: number | null;
+  branch_sync_state: BranchSyncState;
+  branch_sync_checked_at: string | null;
+}
+
+export interface Repo extends BranchSyncFields {
   id: number;
   owner: string | null;
   repo_name: string | null;
@@ -46,6 +66,13 @@ export interface Repo {
   clone_status: RepoCloneStatus;
   clone_error: string | null;
   created_at: string;
+  // Dashboard aggregates (task #31). `task_total` is every task on the repo;
+  // `task_done` is the completed subset — the default "cumulative work" sort
+  // key. `last_activity_at` is the newest of tasks.created_at / task_events.ts
+  // and null when the repo has no tasks yet.
+  task_total: number;
+  task_done: number;
+  last_activity_at: string | null;
 }
 
 export interface RepoInput {

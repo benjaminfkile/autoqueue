@@ -4,6 +4,7 @@ import type {
   AcceptanceCriterionUpdateInput,
   AppSettings,
   AppSettingsUpdateInput,
+  BranchSyncFields,
   CapStatus,
   ChatMessage,
   ChatStreamEvent,
@@ -100,6 +101,10 @@ export const reposApi = {
     apiFetch<RepoUsageResponse>(`/api/repos/${id}/usage`),
   clone: (id: number) =>
     apiFetch<Repo>(`/api/repos/${id}/clone`, { method: "POST" }),
+  refreshBranchSync: (id: number) =>
+    apiFetch<BranchSyncFields>(`/api/repos/${id}/branch-sync/refresh`, {
+      method: "POST",
+    }),
   listLinks: (id: number) =>
     apiFetch<RepoLink[]>(`/api/repos/${id}/links`),
   createLink: (id: number, input: RepoLinkCreateInput) =>
