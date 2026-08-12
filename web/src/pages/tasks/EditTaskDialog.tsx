@@ -265,7 +265,26 @@ export default function EditTaskDialog({
       aria-labelledby="edit-task-dialog-title"
     >
       <DialogTitle id="edit-task-dialog-title">
-        {task ? `Edit task: ${task.title}` : "Edit task"}
+        {task ? (
+          <>
+            Edit task:{" "}
+            <Box
+              component="span"
+              sx={{
+                color: "text.secondary",
+                fontFamily: "monospace",
+                fontSize: "0.85em",
+                mr: 0.5,
+              }}
+              data-testid={`edit-task-dialog-id-${task.id}`}
+            >
+              #{task.id}
+            </Box>
+            {task.title}
+          </>
+        ) : (
+          "Edit task"
+        )}
       </DialogTitle>
       <DialogContent>
         {loading && (
