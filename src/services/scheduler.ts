@@ -2,7 +2,7 @@ import { Knex } from "knex";
 import * as os from "os";
 import { IAppSecrets } from "../interfaces";
 import { getActiveRepos } from "../db/repos";
-import { claimNextPendingLeafTask, autoCompleteParentTasks } from "../db/tasks";
+import { claimNextPendingLeafTask, autoCompleteParentTasks, reclaimExpiredLeaseTasks } from "../db/tasks";
 import { recordEvent } from "../db/taskEvents";
 import { runTask } from "./taskRunner";
 import { refreshDockerState } from "./dockerProbe";
@@ -10,6 +10,7 @@ import { getWeeklyTokens } from "../db/usageAggregations";
 import { getSettings } from "../db/settings";
 
 const LEASE_SECONDS = 30 * 60;
+const MAX_ATTEMPTS = 3;
 
 export const WORKER_ID = `${os.hostname()}:${process.pid}`;
 
@@ -108,6 +109,12 @@ export function startScheduler(db: Knex, secrets: IAppSecrets): void {
       const repos = await getActiveRepos(db);
       for (const repo of repos) {
         await autoCompleteParentTasks(db, repo.id, repo.on_parent_child_fail);
+        const reclaimed = await reclaimExpiredLeaseTasks(db, repo.id, MAX_ATTEMPTS);
+        if (reclaimed.resetToPending > 0 || reclaimed.markedFailed > 0) {
+          console.log(
+            `[scheduler] Reclaimed expired-lease tasks for repo ${repo.id}: ${reclaimed.resetToPending} reset to pending, ${reclaimed.markedFailed} marked failed.`
+          );
+        }
       }
 
       const workQueue = await buildWorkQueue(db, WORKER_ID, LEASE_SECONDS);

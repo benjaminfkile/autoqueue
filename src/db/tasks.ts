@@ -1,6 +1,7 @@
 import { Knex } from "knex";
 import { OrderingMode, Repo, RepoOnParentChildFail, Task } from "../interfaces";
 import { getDefaultModel } from "./settings";
+import { recordEvent } from "./taskEvents";
 
 export async function getTasksByRepoId(
   db: Knex,
@@ -125,6 +126,65 @@ export async function reconcileOrphanedTasks(
       worker_id: null,
       leased_until: null,
     });
+}
+
+export interface ReclaimResult {
+  resetToPending: number;
+  markedFailed: number;
+}
+
+// Finds active tasks for a repo whose lease has expired (beyond the grace
+// period) and either resets them to pending (if retries remain) or marks them
+// failed (if MAX_ATTEMPTS is exhausted). Records a lease_expired_reclaimed
+// event for each reclaimed task.
+//
+// Called at the start of each scheduler cycle so a crashed or wedged worker
+// never leaves a task stranded 'active' indefinitely. A task whose lease is
+// still valid (leased_until >= now) is never touched.
+export async function reclaimExpiredLeaseTasks(
+  db: Knex,
+  repoId: number,
+  maxAttempts: number,
+  graceSeconds = 5
+): Promise<ReclaimResult> {
+  const cutoff = new Date(Date.now() - graceSeconds * 1000).toISOString();
+
+  const staleTasks = await db<Task>("tasks")
+    .where({ repo_id: repoId, status: "active" })
+    .andWhere((b) =>
+      b.whereNull("leased_until").orWhere("leased_until", "<", cutoff)
+    );
+
+  let resetToPending = 0;
+  let markedFailed = 0;
+
+  for (const task of staleTasks) {
+    const newRetryCount = task.retry_count + 1;
+    const exhausted = newRetryCount >= maxAttempts;
+    const newStatus = exhausted ? "failed" : "pending";
+
+    await db<Task>("tasks").where({ id: task.id }).update({
+      status: newStatus,
+      worker_id: null,
+      leased_until: null,
+      retry_count: newRetryCount,
+    });
+
+    await recordEvent(db, task.id, "lease_expired_reclaimed", {
+      action: exhausted ? "marked_failed" : "reset_to_pending",
+      old_retry_count: task.retry_count,
+      new_retry_count: newRetryCount,
+      previous_worker_id: task.worker_id,
+    });
+
+    if (exhausted) {
+      markedFailed++;
+    } else {
+      resetToPending++;
+    }
+  }
+
+  return { resetToPending, markedFailed };
 }
 
 // Single-process desktop port of the original Postgres recursive-CTE claim.
