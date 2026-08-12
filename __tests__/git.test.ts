@@ -21,6 +21,7 @@ const mockState: {
   nextBranches: string[];
   nextRemoteHeads: string;
   nextPushRejection: Error | null;
+  nextFetchRejection: Error | null;
   nextStatus: {
     modified: string[];
     created: string[];
@@ -37,6 +38,7 @@ const mockState: {
   nextBranches: [],
   nextRemoteHeads: "",
   nextPushRejection: null,
+  nextFetchRejection: null,
   nextStatus: {
     modified: [],
     created: [],
@@ -70,7 +72,13 @@ jest.mock("simple-git", () => {
         listRemote: jest
           .fn()
           .mockImplementation(async () => mockState.nextRemoteHeads),
-        fetch: jest.fn().mockResolvedValue(undefined),
+        fetch: jest.fn().mockImplementation(async () => {
+          if (mockState.nextFetchRejection) {
+            const err = mockState.nextFetchRejection;
+            mockState.nextFetchRejection = null;
+            throw err;
+          }
+        }),
         pull: jest.fn().mockResolvedValue(undefined),
         push: jest.fn().mockImplementation(async (args?: string[]) => {
           // The rejection latch only fires on a "delete this remote branch"
@@ -158,6 +166,7 @@ beforeEach(() => {
   mockState.nextBranches = [];
   mockState.nextRemoteHeads = "";
   mockState.nextPushRejection = null;
+  mockState.nextFetchRejection = null;
   mockState.nextStatus = {
     modified: [],
     created: [],
@@ -726,10 +735,11 @@ describe("getBranchAheadBehind", () => {
     expect(result).toBeNull();
   });
 
-  it("parses `git rev-list --left-right --count parent...base` into {ahead, behind}", async () => {
+  it("fetches then parses `git rev-list --left-right --count origin/parent...origin/base` into {ahead, behind}", async () => {
     // Parent has 3 commits base doesn't → base is 3 behind. Base has 5 commits
     // parent doesn't → base is 5 ahead. rev-list prints "left\tright" with the
-    // left column being the parent-exclusive commits.
+    // left column being the parent-exclusive commits. Compared against the
+    // origin/* refs because the persistent clone has no LOCAL parent branch.
     fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
     mockState.nextRaw = "3\t5\n";
 
@@ -743,12 +753,31 @@ describe("getBranchAheadBehind", () => {
 
     expect(result).toEqual({ ahead: 5, behind: 3 });
     const git = mockState.instances[0];
+    expect(git.fetch).toHaveBeenCalledWith(["--prune"]);
     expect(git.raw).toHaveBeenCalledWith([
       "rev-list",
       "--left-right",
       "--count",
-      "main...grunt",
+      "origin/main...origin/grunt",
     ]);
+  });
+
+  it("still computes counts when the pre-check fetch fails (best-effort, uses existing refs)", async () => {
+    // Offline/auth failure on fetch must NOT degrade the check to "unknown" —
+    // it falls through to whatever origin/* refs the clone already has.
+    fsMockState.existing.add(path.join("/repos", "octocat", "hello"));
+    mockState.nextFetchRejection = new Error("fatal: unable to access remote");
+    mockState.nextRaw = "0\t2\n";
+
+    const result = await getBranchAheadBehind(
+      "/repos",
+      "octocat",
+      "hello",
+      "grunt",
+      "main"
+    );
+
+    expect(result).toEqual({ ahead: 2, behind: 0 });
   });
 
   it("returns {ahead: 0, behind: 0} when both branches point at the same commit (synced)", async () => {

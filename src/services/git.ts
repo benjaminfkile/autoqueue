@@ -323,17 +323,33 @@ export async function getBranchAheadBehind(
   const dir = repoPath(reposPath, owner, repoName);
   if (!fs.existsSync(dir)) return null;
   const git = simpleGit(dir);
+  // Refresh remote-tracking refs first so the counts reflect the CURRENT
+  // remote, not whatever was last fetched during a task run. Best-effort: an
+  // offline/auth failure falls through to whatever origin/* refs the clone
+  // already has rather than degrading the whole check to "unknown".
   try {
+    await git.fetch(["--prune"]);
+  } catch {
+    // ignore — proceed with the existing refs
+  }
+  try {
+    // Compare REMOTE-tracking refs, not bare branch names. The persistent
+    // clone only ever checks out a LOCAL ref for base_branch (see
+    // checkoutBaseBranch) and NEVER one for the parent, so bare
+    // "<parent>...<base>" fails to resolve <parent> and errored the whole
+    // check to "unknown" for every repo. A full clone always has
+    // origin/<branch> for both, and comparing what's pushed is exactly the
+    // deploy-relevant signal the dashboard wants.
+    //
     // `git rev-list --left-right --count A...B` prints "<left>\t<right>":
     // left is commits reachable from A not in B (parent's exclusive commits
     // → "behind" for base_branch), right is commits from B not in A (base's
-    // exclusive commits → "ahead"). Using this shape (parent...base) keeps
-    // the mapping obvious: right column is what base_branch has extra.
+    // exclusive commits → "ahead").
     const raw = await git.raw([
       "rev-list",
       "--left-right",
       "--count",
-      `${baseBranchParent}...${baseBranch}`,
+      `origin/${baseBranchParent}...origin/${baseBranch}`,
     ]);
     const parts = raw.trim().split(/\s+/);
     if (parts.length < 2) return null;
