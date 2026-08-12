@@ -23,6 +23,7 @@ import {
   commitAndPushTask,
   mergeTaskIntoBase,
   hasUncommittedChanges,
+  isBranchMergedIntoBase,
 } from "./git";
 import { createPullRequest } from "./github";
 import { runClaudeOnTask } from "./claudeRunner";
@@ -272,69 +273,119 @@ async function runTaskBody(
         return "success";
       }
 
-      if (await hasUncommittedChanges(config.REPOS_PATH, repo.owner!, repo.repo_name!)) {
-        await commitAndPushTask(
-          config.REPOS_PATH,
-          repo.owner!,
-          repo.repo_name!,
-          branchName,
-          `feat: complete task #${task.id} - ${task.title}`,
-          repo.git_provider,
-          repo.ado_project,
-          repo.git_pat,
-        );
-        await recordEvent(db, task.id, "commit_pushed", { branch: branchName });
+      try {
+        if (await hasUncommittedChanges(config.REPOS_PATH, repo.owner!, repo.repo_name!)) {
+          await commitAndPushTask(
+            config.REPOS_PATH,
+            repo.owner!,
+            repo.repo_name!,
+            branchName,
+            `feat: complete task #${task.id} - ${task.title}`,
+            repo.git_provider,
+            repo.ado_project,
+            repo.git_pat,
+          );
+          await recordEvent(db, task.id, "commit_pushed", { branch: branchName });
+        }
+
+        if (repo.require_pr) {
+          if (task.pr_url) {
+            // PR was already created on a prior attempt (pr_url stored before
+            // status update failed). Skip creation and go straight to mark-done.
+            await updateTask(db, task.id, { status: "done" });
+            await recordEvent(db, task.id, "status_change", {
+              from: task.status,
+              to: "done",
+            });
+            triggerWebhooks(
+              db,
+              repo,
+              { ...task, status: "done", pr_url: task.pr_url },
+              "done"
+            );
+          } else {
+            const token = repo.git_pat ?? secrets.get("GH_PAT")!;
+            const criteriaList = criteria
+              .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
+              .join("\n");
+            const body = `${task.description}\n\n## Acceptance Criteria\n${criteriaList}`;
+
+            const pr = await createPullRequest({
+              token,
+              owner: repo.owner!,
+              repoName: repo.repo_name!,
+              head: branchName,
+              base: repo.base_branch,
+              title: task.title,
+              body,
+            });
+
+            // Store pr_url before updating status — if the status update fails,
+            // a retry can detect the existing pr_url and skip PR creation.
+            await updateTask(db, task.id, { pr_url: pr.url });
+            await recordEvent(db, task.id, "pr_opened", { url: pr.url });
+            await updateTask(db, task.id, { status: "done" });
+            await recordEvent(db, task.id, "status_change", {
+              from: task.status,
+              to: "done",
+            });
+            triggerWebhooks(
+              db,
+              repo,
+              { ...task, status: "done", pr_url: pr.url },
+              "done"
+            );
+          }
+        } else {
+          // Skip merge if the branch is already contained in base — handles the
+          // case where a prior run merged successfully but the status update failed.
+          const alreadyMerged = await isBranchMergedIntoBase(
+            config.REPOS_PATH,
+            repo.owner!,
+            repo.repo_name!,
+            repo.base_branch,
+            branchName,
+          );
+          if (!alreadyMerged) {
+            await mergeTaskIntoBase(
+              config.REPOS_PATH,
+              repo.owner!,
+              repo.repo_name!,
+              repo.base_branch,
+              branchName,
+              repo.git_provider,
+              repo.ado_project,
+              repo.git_pat,
+            );
+          }
+          await updateTask(db, task.id, { status: "done" });
+          await recordEvent(db, task.id, "status_change", {
+            from: task.status,
+            to: "done",
+          });
+          triggerWebhooks(db, repo, { ...task, status: "done" }, "done");
+        }
+
+        return "success";
+      } catch (finalizeErr) {
+        const errMsg = (finalizeErr as Error).message ?? String(finalizeErr);
+        console.error(`[taskRunner] Finalize failed for task #${task.id}:`, errMsg);
+        try {
+          await recordEvent(db, task.id, "finalize_failed", { error: errMsg });
+        } catch {
+          // best-effort
+        }
+        try {
+          await updateTask(db, task.id, { status: "failed" });
+          await recordEvent(db, task.id, "status_change", {
+            from: task.status,
+            to: "failed",
+          });
+        } catch {
+          // best-effort
+        }
+        return "failed";
       }
-
-      if (repo.require_pr) {
-        const token = repo.git_pat ?? secrets.get("GH_PAT")!;
-        const criteriaList = criteria
-          .map((c) => `- [${c.met ? "x" : " "}] ${c.description}`)
-          .join("\n");
-        const body = `${task.description}\n\n## Acceptance Criteria\n${criteriaList}`;
-
-        const pr = await createPullRequest({
-          token,
-          owner: repo.owner!,
-          repoName: repo.repo_name!,
-          head: branchName,
-          base: repo.base_branch,
-          title: task.title,
-          body,
-        });
-
-        await updateTask(db, task.id, { status: "done", pr_url: pr.url });
-        await recordEvent(db, task.id, "pr_opened", { url: pr.url });
-        await recordEvent(db, task.id, "status_change", {
-          from: task.status,
-          to: "done",
-        });
-        triggerWebhooks(
-          db,
-          repo,
-          { ...task, status: "done", pr_url: pr.url },
-          "done"
-        );
-      } else {
-        await mergeTaskIntoBase(
-          config.REPOS_PATH,
-          repo.owner!,
-          repo.repo_name!,
-          repo.base_branch,
-          branchName,
-          repo.git_provider,
-          repo.ado_project,
-          repo.git_pat,
-        );
-        await updateTask(db, task.id, { status: "done" });
-        await recordEvent(db, task.id, "status_change", {
-          from: task.status,
-          to: "done",
-        });
-        triggerWebhooks(db, repo, { ...task, status: "done" }, "done");
-      }
-
-      return "success";
     }
 
     // 11/12. On failure
