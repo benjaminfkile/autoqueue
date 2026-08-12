@@ -123,8 +123,13 @@ async function start() {
       });
     });
 
-    server.listen(port, "127.0.0.1", () => {
-      console.log(`⚡️[server]: Running at http://127.0.0.1:${port}`);
+    // Bind host: defaults to loopback-only (the documented security model —
+    // no auth layer, the OS user is the boundary). Set GRUNT_BIND_HOST=0.0.0.0
+    // in .env to expose the API/UI to other devices on the local network;
+    // anyone on that network can then drive the API.
+    const bindHost = process.env.GRUNT_BIND_HOST ?? "127.0.0.1";
+    server.listen(port, bindHost, () => {
+      console.log(`⚡️[server]: Running at http://${bindHost}:${port}`);
     });
   } catch (err) {
     console.error("Failed to start server:", err);
