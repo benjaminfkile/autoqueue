@@ -28,6 +28,13 @@ import {
 import { validateTaskTreeProposal } from "../services/chatService";
 import { materializeTaskTree } from "../services/taskTreeMaterializer";
 import { cloneRepoFresh } from "../services/git";
+import {
+  BranchSyncSnapshot,
+  forgetBranchSyncSnapshot,
+  getBranchSyncSnapshot,
+  refreshBranchSyncForRepo,
+} from "../services/branchSyncCache";
+import { getRepoTaskStatsMap, RepoTaskStats } from "../db/tasks";
 import { getTemplateById } from "../db/taskTemplates";
 import { getUsageTotalsForRepo } from "../db/taskUsage";
 import {
@@ -84,12 +91,27 @@ function isHttpUrl(url: unknown): url is string {
 
 const reposRouter = express.Router();
 
-// GET /api/repos — return all repos
+// GET /api/repos — return all repos, decorated with the per-repo dashboard
+// fields (task counts + last activity for the activity-heat cue and
+// cumulative-work sort, plus the latest cached base_branch/base_branch_parent
+// sync snapshot). The sync snapshot is read from the branchSyncCache — never
+// computed inline — because git ops are slow and the repos list polls.
 reposRouter.get("/", async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const repos = await getAllRepos(db);
-    return res.status(200).json(repos);
+    const stats = await getRepoTaskStatsMap(db);
+    const emptyStats: RepoTaskStats = {
+      task_total: 0,
+      task_done: 0,
+      last_activity_at: null,
+    };
+    const decorated = repos.map((repo) => {
+      const s = stats.get(repo.id) ?? emptyStats;
+      const sync: BranchSyncSnapshot = getBranchSyncSnapshot(repo.id);
+      return { ...repo, ...s, ...sync };
+    });
+    return res.status(200).json(decorated);
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
@@ -422,6 +444,37 @@ reposRouter.post("/:id/clone", async (req: Request, res: Response) => {
     return res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// POST /api/repos/:id/branch-sync/refresh — recompute the ahead/behind counts
+// between this repo's base_branch and base_branch_parent, update the shared
+// branch-sync cache, and return the refreshed snapshot. Callers use this to
+// force an immediate check from the GUI ("Refresh" button) without waiting
+// for the periodic background refresher. Always returns a snapshot — a
+// missing clone or a git failure degrades to state='unknown' with the counts
+// set to null so the caller doesn't have to differentiate error shapes.
+reposRouter.post(
+  "/:id/branch-sync/refresh",
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const db = getDb();
+      const repo = await getRepoById(db, id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repo not found" });
+      }
+
+      const reposPath = process.env.REPOS_PATH ?? "";
+      const snapshot = await refreshBranchSyncForRepo(reposPath, repo);
+      return res.status(200).json(snapshot);
+    } catch (err) {
+      return res.status(500).json({ error: (err as Error).message });
+    }
+  }
+);
 
 // POST /api/repos/:id/materialize-tree — atomically create a proposed task
 // tree (parents → children → acceptance criteria) under this repo. Top-level
@@ -877,6 +930,7 @@ reposRouter.delete("/:id", async (req: Request, res: Response) => {
     }
 
     await deleteRepo(db, id);
+    forgetBranchSyncSnapshot(id);
     return res.status(204).send();
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });

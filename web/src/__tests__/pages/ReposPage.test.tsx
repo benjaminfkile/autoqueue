@@ -35,6 +35,13 @@ function makeRepo(partial: Partial<Repo> & { id: number }): Repo {
     clone_status: "ready",
     clone_error: null,
     created_at: new Date("2026-01-01T00:00:00Z").toISOString(),
+    task_total: 0,
+    task_done: 0,
+    last_activity_at: null,
+    branch_ahead: null,
+    branch_behind: null,
+    branch_sync_state: "unknown",
+    branch_sync_checked_at: null,
     ...partial,
   };
 }

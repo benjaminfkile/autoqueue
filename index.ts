@@ -9,6 +9,7 @@ import { initDb, getDb } from "./src/db/db";
 import { reconcileOrphanedTasks } from "./src/db/tasks";
 import { startScheduler, WORKER_ID } from "./src/services/scheduler";
 import { startPullWorker } from "./src/services/pullWorker";
+import { startBranchSyncRefresher } from "./src/services/branchSyncCache";
 import { ensureRunnerImage } from "./src/services/imageBuilder";
 import { refreshDockerState } from "./src/services/dockerProbe";
 import * as secrets from "./src/secrets";
@@ -95,6 +96,7 @@ async function start() {
 
     startScheduler(getDb(), appConfig);
     startPullWorker(getDb(), appConfig);
+    startBranchSyncRefresher(getDb(), appConfig.REPOS_PATH);
 
     // Kick off the runner image build in the background. Don't await — the
     // server should listen even while the (possibly multi-minute) first-time

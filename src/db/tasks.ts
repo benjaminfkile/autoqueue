@@ -3,6 +3,101 @@ import { OrderingMode, Repo, RepoOnParentChildFail, Task } from "../interfaces";
 import { getDefaultModel } from "./settings";
 import { recordEvent } from "./taskEvents";
 
+// Per-repo dashboard aggregates: total task count (all statuses), completed
+// count ("done" tasks — used as the default "cumulative work" sort key), and
+// the most recent activity timestamp across tasks + task_events. Returned as
+// a map keyed by repo id so a single query batch feeds the whole repos list.
+export interface RepoTaskStats {
+  task_total: number;
+  task_done: number;
+  // ISO string of the latest activity across:
+  //   - tasks.created_at
+  //   - task_events.ts (task_events cascade-delete with tasks, so restricting
+  //     the join to tasks.repo_id keeps rows attributable to a repo)
+  // Null when the repo has no tasks yet — the UI renders "no activity".
+  last_activity_at: string | null;
+}
+
+export async function getRepoTaskStatsMap(
+  db: Knex
+): Promise<Map<number, RepoTaskStats>> {
+  const result = new Map<number, RepoTaskStats>();
+
+  // Task counts + max(created_at) come straight off tasks. Raw SELECT
+  // expressions instead of the knex helpers because the "done" column is a
+  // conditional aggregate — SUM(CASE WHEN ... END) — which knex's `.sum()`
+  // helper doesn't compose cleanly. Raw expressions stay portable
+  // (SQLite/Postgres both understand SUM(CASE...) and MAX(created_at)) and
+  // avoid a per-repo N+1.
+  const totals = await db("tasks")
+    .select("repo_id")
+    .select(
+      db.raw("COUNT(*) as total"),
+      db.raw("SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done"),
+      db.raw("MAX(created_at) as max_created")
+    )
+    .groupBy("repo_id");
+
+  for (const row of totals as Array<{
+    repo_id: number;
+    total: string | number;
+    done: string | number;
+    max_created: string | Date | null;
+  }>) {
+    result.set(row.repo_id, {
+      task_total: Number(row.total),
+      task_done: Number(row.done),
+      last_activity_at: toIso(row.max_created),
+    });
+  }
+
+  // Fold in the latest task_events timestamp per repo. A repo may have events
+  // more recent than its newest task (retries, status flips, notes) — the
+  // "activity heat" cue should track those too, not just when the task row
+  // was inserted.
+  const eventTotals = await db("task_events as e")
+    .join("tasks as t", "t.id", "e.task_id")
+    .select("t.repo_id as repo_id")
+    .max("e.ts as max_ts")
+    .groupBy("t.repo_id");
+
+  for (const row of eventTotals as Array<{
+    repo_id: number;
+    max_ts: string | Date | null;
+  }>) {
+    const existing = result.get(row.repo_id);
+    const eventIso = toIso(row.max_ts);
+    if (!existing) {
+      // Should not happen (event without a task) but degrade gracefully.
+      result.set(row.repo_id, {
+        task_total: 0,
+        task_done: 0,
+        last_activity_at: eventIso,
+      });
+      continue;
+    }
+    if (eventIso && (!existing.last_activity_at || eventIso > existing.last_activity_at)) {
+      existing.last_activity_at = eventIso;
+    }
+  }
+
+  return result;
+}
+
+function toIso(value: string | Date | null | undefined): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  }
+  // SQLite returns timestamps as strings. Normalize via Date so callers get
+  // a predictable ISO 8601 shape (Postgres/pg also returns Date objects, so
+  // both backends land on the same string form).
+  const parsed = new Date(value);
+  const t = parsed.getTime();
+  return Number.isFinite(t) ? parsed.toISOString() : null;
+}
+
 export async function getTasksByRepoId(
   db: Knex,
   repoId: number

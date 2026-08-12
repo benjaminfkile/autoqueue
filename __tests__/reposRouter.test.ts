@@ -28,6 +28,18 @@ import {
   deleteRepo,
 } from "../src/db/repos";
 
+// Mock only the per-repo dashboard aggregation from db/tasks so GET /api/repos
+// route tests stay focused on HTTP plumbing — the aggregation contract is
+// covered by tasks.test.ts. The rest of db/tasks is left real because other
+// mocks in this file may transitively rely on it.
+jest.mock("../src/db/tasks", () => {
+  const actual = jest.requireActual("../src/db/tasks");
+  return {
+    ...actual,
+    getRepoTaskStatsMap: jest.fn().mockResolvedValue(new Map()),
+  };
+});
+
 // Mock the task-tree materializer service so the route tests stay focused on
 // HTTP plumbing — the materializer's atomicity contract is unit-tested
 // separately.
@@ -593,6 +605,83 @@ describe("reposRouter", () => {
 
       expect(res.status).toBe(200);
       expect(res.body[0]).toHaveProperty("base_branch_parent", "main");
+    });
+
+    it("decorates every repo with the dashboard fields — task counts, last-activity, and the branch-sync snapshot", async () => {
+      (getAllRepos as jest.Mock).mockResolvedValue([mockRepo]);
+
+      const { getRepoTaskStatsMap } = jest.requireMock("../src/db/tasks");
+      (getRepoTaskStatsMap as jest.Mock).mockResolvedValueOnce(
+        new Map([
+          [
+            mockRepo.id,
+            {
+              task_total: 8,
+              task_done: 5,
+              last_activity_at: "2026-08-11T00:00:00.000Z",
+            },
+          ],
+        ])
+      );
+
+      const res = await request(app).get("/api/repos");
+
+      expect(res.status).toBe(200);
+      // Aggregation fields feed the "most-worked" sort and the activity-heat
+      // cue on the repos dashboard.
+      expect(res.body[0]).toHaveProperty("task_total", 8);
+      expect(res.body[0]).toHaveProperty("task_done", 5);
+      expect(res.body[0]).toHaveProperty(
+        "last_activity_at",
+        "2026-08-11T00:00:00.000Z"
+      );
+      // Branch sync starts 'unknown' before the background refresher (or an
+      // explicit /branch-sync/refresh call) has produced a snapshot — the
+      // cache miss must not leak into a 'synced' badge.
+      expect(res.body[0]).toHaveProperty("branch_sync_state", "unknown");
+      expect(res.body[0]).toHaveProperty("branch_ahead", null);
+      expect(res.body[0]).toHaveProperty("branch_behind", null);
+    });
+
+    it("degrades to zero counts / null activity for repos with no tasks yet", async () => {
+      (getAllRepos as jest.Mock).mockResolvedValue([mockRepo]);
+      const { getRepoTaskStatsMap } = jest.requireMock("../src/db/tasks");
+      (getRepoTaskStatsMap as jest.Mock).mockResolvedValueOnce(new Map());
+
+      const res = await request(app).get("/api/repos");
+
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toHaveProperty("task_total", 0);
+      expect(res.body[0]).toHaveProperty("task_done", 0);
+      expect(res.body[0]).toHaveProperty("last_activity_at", null);
+    });
+  });
+
+  describe("POST /api/repos/:id/branch-sync/refresh", () => {
+    it("returns 400 for a non-numeric id", async () => {
+      const res = await request(app).post("/api/repos/abc/branch-sync/refresh");
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 when the repo is missing", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue(undefined);
+      const res = await request(app).post("/api/repos/9/branch-sync/refresh");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns an 'unknown' snapshot for a local-folder repo (nothing to compare) without erroring", async () => {
+      (getRepoById as jest.Mock).mockResolvedValue({
+        ...mockRepo,
+        is_local_folder: true,
+      });
+      const res = await request(app).post("/api/repos/1/branch-sync/refresh");
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("branch_sync_state", "unknown");
+      expect(res.body).toHaveProperty("branch_ahead", null);
+      expect(res.body).toHaveProperty("branch_behind", null);
+      // checked_at is set so the UI can show "checked N minutes ago,
+      // unknown" — the check ran, it just had nothing to compute.
+      expect(res.body.branch_sync_checked_at).not.toBeNull();
     });
   });
 

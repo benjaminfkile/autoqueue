@@ -300,6 +300,54 @@ export async function hasUncommittedChanges(
   );
 }
 
+// How base_branch relates to base_branch_parent in the local clone. `ahead`
+// is the number of commits on base_branch not yet on base_branch_parent;
+// `behind` is the number of commits on base_branch_parent not yet on
+// base_branch. Both counts are computed against the local refs (fetch
+// currency is the caller's responsibility). Returns null when the clone is
+// missing, the refs can't be resolved, or the branch names are unset — so
+// the GUI can fall back to "unknown" without a spurious diverged badge.
+export interface BranchAheadBehind {
+  ahead: number;
+  behind: number;
+}
+
+export async function getBranchAheadBehind(
+  reposPath: string,
+  owner: string,
+  repoName: string,
+  baseBranch: string,
+  baseBranchParent: string,
+): Promise<BranchAheadBehind | null> {
+  if (!owner || !repoName || !baseBranch || !baseBranchParent) return null;
+  const dir = repoPath(reposPath, owner, repoName);
+  if (!fs.existsSync(dir)) return null;
+  const git = simpleGit(dir);
+  try {
+    // `git rev-list --left-right --count A...B` prints "<left>\t<right>":
+    // left is commits reachable from A not in B (parent's exclusive commits
+    // → "behind" for base_branch), right is commits from B not in A (base's
+    // exclusive commits → "ahead"). Using this shape (parent...base) keeps
+    // the mapping obvious: right column is what base_branch has extra.
+    const raw = await git.raw([
+      "rev-list",
+      "--left-right",
+      "--count",
+      `${baseBranchParent}...${baseBranch}`,
+    ]);
+    const parts = raw.trim().split(/\s+/);
+    if (parts.length < 2) return null;
+    const behind = parseInt(parts[0], 10);
+    const ahead = parseInt(parts[1], 10);
+    if (!Number.isFinite(behind) || !Number.isFinite(ahead)) return null;
+    return { ahead, behind };
+  } catch {
+    // Missing ref, ambiguous name, or any other git failure → let the caller
+    // fall through to "unknown" instead of surfacing a hard error to the UI.
+    return null;
+  }
+}
+
 // Returns true when all commits on branchName are already reachable from
 // baseBranch — i.e. the branch is already merged. Used by the finalize step
 // to skip a redundant merge on retry (idempotency guard).

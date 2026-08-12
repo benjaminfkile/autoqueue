@@ -24,6 +24,9 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import ReplayIcon from "@mui/icons-material/Replay";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { reposApi, tasksApi } from "../api/client";
 import type { Repo, RepoInput, TaskDetail, TaskSummary, TokenUsageTotals } from "../api/types";
 import { useGlobalSnackbar } from "../hooks/useGlobalSnackbar";
@@ -38,12 +41,17 @@ import EditTaskDialog from "./tasks/EditTaskDialog";
 import NewTaskDialog from "./tasks/NewTaskDialog";
 import NewPhaseDialog from "./tasks/NewPhaseDialog";
 import {
+  branchSyncDisplay,
+  computeActivityHeat,
   countTasksByStatus,
   emptyCounts,
   formatLastActivity,
   lastActivityIso,
   repoDisplayName,
+  REPO_SORT_LABEL,
+  RepoSortMode,
   RepoStatusCounts,
+  sortRepos,
   TASK_STATUS_CHIP_COLOR,
   TASK_STATUSES,
 } from "./repos/repoDisplay";
@@ -65,6 +73,8 @@ export default function ReposPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingToggleId, setPendingToggleId] = useState<number | null>(null);
   const [pendingCloneId, setPendingCloneId] = useState<number | null>(null);
+  const [pendingSyncRefreshId, setPendingSyncRefreshId] = useState<number | null>(null);
+  const [sortMode, setSortMode] = useState<RepoSortMode>("work");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [formRepo, setFormRepo] = useState<Repo | null>(null);
@@ -176,11 +186,8 @@ export default function ReposPage() {
   useVisibilityAwarePolling(pollFetcher);
 
   const sortedRepos = useMemo(
-    () =>
-      [...repos].sort((a, b) =>
-        repoDisplayName(a).localeCompare(repoDisplayName(b))
-      ),
-    [repos]
+    () => sortRepos(repos, sortMode),
+    [repos, sortMode]
   );
 
   function openNewTask(repoId: number | null, parentId: number | null = null) {
@@ -301,6 +308,23 @@ export default function ReposPage() {
     }
   }
 
+  async function handleRefreshBranchSync(repo: Repo) {
+    setActionError(null);
+    setPendingSyncRefreshId(repo.id);
+    try {
+      const snap = await reposApi.refreshBranchSync(repo.id);
+      setRepos((prev) =>
+        prev.map((r) => (r.id === repo.id ? { ...r, ...snap } : r))
+      );
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to refresh branch sync"
+      );
+    } finally {
+      setPendingSyncRefreshId(null);
+    }
+  }
+
   async function handleDeleteConfirm(repo: Repo) {
     await reposApi.delete(repo.id);
     setRepos((prev) => prev.filter((r) => r.id !== repo.id));
@@ -410,6 +434,40 @@ export default function ReposPage() {
 
       {!loading && repos.length > 0 && (
         <>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="flex-end"
+          spacing={1}
+          sx={{ mb: 1 }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Sort:
+          </Typography>
+          <ToggleButtonGroup
+            size="small"
+            value={sortMode}
+            exclusive
+            onChange={(_e, next) => {
+              // ToggleButtonGroup emits null when the active button is clicked
+              // again — swallow that so the sort mode can't be silently
+              // cleared and leave the table in an implementation-defined
+              // order.
+              if (next) setSortMode(next as RepoSortMode);
+            }}
+            aria-label="Sort repos"
+          >
+            <ToggleButton value="work" aria-label={REPO_SORT_LABEL.work}>
+              {REPO_SORT_LABEL.work}
+            </ToggleButton>
+            <ToggleButton
+              value="alphabetical"
+              aria-label={REPO_SORT_LABEL.alphabetical}
+            >
+              {REPO_SORT_LABEL.alphabetical}
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
         <TableContainer component={Paper} variant="outlined">
           <Table aria-label="Repos">
             <TableHead>
@@ -427,25 +485,98 @@ export default function ReposPage() {
               {sortedRepos.map((repo) => {
                 const stats = repoStats[repo.id];
                 const counts = stats?.counts ?? emptyCounts();
+                // Prefer the API's server-side last_activity_at (covers task
+                // events too) and fall back to the client-derived value
+                // (task.created_at only) so the row still lights up on the
+                // first paint before the per-repo stats fetch lands.
+                const lastActivity =
+                  repo.last_activity_at ?? stats?.lastActivity ?? null;
+                const heat = computeActivityHeat(lastActivity);
+                const sync = branchSyncDisplay(repo);
                 return (
                   <TableRow key={repo.id} hover>
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {repoDisplayName(repo)}
-                      </Typography>
-                      {repo.is_local_folder && (
-                        <Typography variant="caption" color="text.secondary">
-                          local folder
-                        </Typography>
-                      )}
-                      <CloneStatusIndicator
-                        repo={repo}
-                        retrying={pendingCloneId === repo.id}
-                        onRetry={() => void handleRetryClone(repo)}
-                      />
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Tooltip title={heat.tooltip}>
+                          <Box
+                            role="img"
+                            aria-label={`Activity heat: ${heat.label} (${heat.tooltip})`}
+                            data-testid={`repo-heat-${repo.id}`}
+                            data-heat-level={heat.level}
+                            sx={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: "50%",
+                              flexShrink: 0,
+                              backgroundColor: heat.color,
+                              boxShadow:
+                                heat.level === "very-hot" || heat.level === "hot"
+                                  ? `0 0 6px ${heat.color}`
+                                  : "none",
+                            }}
+                          />
+                        </Tooltip>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {repoDisplayName(repo)}
+                          </Typography>
+                          {repo.is_local_folder && (
+                            <Typography variant="caption" color="text.secondary">
+                              local folder
+                            </Typography>
+                          )}
+                          <CloneStatusIndicator
+                            repo={repo}
+                            retrying={pendingCloneId === repo.id}
+                            onRetry={() => void handleRetryClone(repo)}
+                          />
+                        </Box>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <code>{repo.base_branch}</code>
+                      <Stack spacing={0.5} alignItems="flex-start">
+                        <code>{repo.base_branch}</code>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Tooltip title={sync.tooltip}>
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color={sync.color}
+                              label={sync.label}
+                              data-testid={`repo-branch-sync-${repo.id}`}
+                              data-sync-state={repo.branch_sync_state}
+                              aria-label={`Branch sync for ${repoDisplayName(repo)}: ${sync.tooltip}`}
+                            />
+                          </Tooltip>
+                          <Tooltip
+                            title={
+                              repo.branch_sync_checked_at
+                                ? `Refresh (last checked ${formatLastActivity(
+                                    repo.branch_sync_checked_at
+                                  )})`
+                                : "Refresh branch sync"
+                            }
+                          >
+                            <span>
+                              <IconButton
+                                size="small"
+                                aria-label={`Refresh branch sync for ${repoDisplayName(repo)}`}
+                                onClick={() =>
+                                  void handleRefreshBranchSync(repo)
+                                }
+                                disabled={pendingSyncRefreshId === repo.id}
+                                data-testid={`repo-branch-sync-refresh-${repo.id}`}
+                              >
+                                {pendingSyncRefreshId === repo.id ? (
+                                  <CircularProgress size={14} />
+                                ) : (
+                                  <RefreshIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </Stack>
+                      </Stack>
                     </TableCell>
                     <TableCell>
                       <Switch
@@ -512,9 +643,11 @@ export default function ReposPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">
-                        {formatLastActivity(stats?.lastActivity ?? null)}
-                      </Typography>
+                      <Tooltip title={heat.tooltip}>
+                        <Typography variant="body2">
+                          {formatLastActivity(lastActivity)}
+                        </Typography>
+                      </Tooltip>
                     </TableCell>
                     <TableCell align="right">
                       <Tooltip title="Add phase">
