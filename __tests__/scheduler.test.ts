@@ -7,6 +7,7 @@ jest.mock("../src/db/repos", () => ({
 jest.mock("../src/db/tasks", () => ({
   claimNextPendingLeafTask: jest.fn(),
   autoCompleteParentTasks: jest.fn(),
+  hasActiveLeasedTask: jest.fn(),
 }));
 
 jest.mock("../src/db/taskEvents", () => ({
@@ -34,7 +35,7 @@ jest.mock("../src/db/settings", () => ({
 }));
 
 import { getActiveRepos } from "../src/db/repos";
-import { claimNextPendingLeafTask } from "../src/db/tasks";
+import { claimNextPendingLeafTask, hasActiveLeasedTask } from "../src/db/tasks";
 import { recordEvent } from "../src/db/taskEvents";
 import { getWeeklyTokens } from "../src/db/usageAggregations";
 import { getSettings } from "../src/db/settings";
@@ -49,6 +50,7 @@ const claimMock = claimNextPendingLeafTask as jest.Mock;
 const recordEventMock = recordEvent as jest.Mock;
 const getWeeklyTokensMock = getWeeklyTokens as jest.Mock;
 const getSettingsMock = getSettings as jest.Mock;
+const hasActiveLeasedTaskMock = hasActiveLeasedTask as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -68,6 +70,17 @@ beforeEach(() => {
     cache_read: 0,
     total: 0,
   });
+  // Default: no valid-lease active task in flight, so buildWorkQueue is free
+  // to claim. Individual tests override when they need the single-task guard
+  // to trip.
+  hasActiveLeasedTaskMock.mockResolvedValue(false);
+  // clearAllMocks does NOT clear mockResolvedValueOnce queues in Jest 29 —
+  // leftover once-values from a prior test would surface in the next call
+  // and silently corrupt assertions. Fully reset the mocks whose per-call
+  // return values these tests exercise.
+  claimMock.mockReset();
+  getActiveReposMock.mockReset();
+  recordEventMock.mockReset();
 });
 
 describe("WORKER_ID", () => {
@@ -77,27 +90,32 @@ describe("WORKER_ID", () => {
 });
 
 describe("buildWorkQueue", () => {
-  it("calls claimNextPendingLeafTask for each active repo with the worker id and lease", async () => {
-    getActiveReposMock.mockResolvedValueOnce([
-      { id: 1 },
-      { id: 2 },
-    ]);
+  // -------------------------------------------------------------------------
+  // Task #29 — strict single-task execution. buildWorkQueue must claim AT
+  // MOST ONE task across all repos per cycle. The tests below pin down every
+  // face of that invariant (multi-repo one-at-a-time, waiting tasks stay
+  // pending, active-in-flight guard, repo order, cap gate, default arg
+  // wiring).
+  // -------------------------------------------------------------------------
+
+  it("claims AT MOST ONE task across all repos per cycle — a second repo with a runnable task is left untouched (AC #112, #113, #116)", async () => {
+    getActiveReposMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     claimMock
       .mockResolvedValueOnce({ id: 100 })
+      // A second call would return a task, but it must NEVER be made — the
+      // first successful claim ends the cycle so only one task is ever
+      // marked 'active' at a time.
       .mockResolvedValueOnce({ id: 200 });
 
     const fakeDb = {} as any;
     const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
 
+    expect(claimMock).toHaveBeenCalledTimes(1);
     expect(claimMock).toHaveBeenNthCalledWith(1, fakeDb, 1, "worker-abc", 1800);
-    expect(claimMock).toHaveBeenNthCalledWith(2, fakeDb, 2, "worker-abc", 1800);
-    expect(queue).toEqual([
-      { repoId: 1, taskId: 100 },
-      { repoId: 2, taskId: 200 },
-    ]);
+    expect(queue).toEqual([{ repoId: 1, taskId: 100 }]);
   });
 
-  it("skips repos that have no claimable task", async () => {
+  it("skips over a repo with no claimable task and claims the first eligible task from the next repo in order (AC #116)", async () => {
     getActiveReposMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     claimMock
       .mockResolvedValueOnce(undefined)
@@ -106,6 +124,44 @@ describe("buildWorkQueue", () => {
     const fakeDb = {} as any;
     const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
 
+    expect(claimMock).toHaveBeenCalledTimes(2);
+    expect(queue).toEqual([{ repoId: 2, taskId: 200 }]);
+  });
+
+  it("claims nothing when a task is already 'active' with a valid lease (AC #112, #114) — waiting work stays pending", async () => {
+    // A task from a prior cycle or another worker is still in flight. The
+    // single-task guard must trip and no new claims may happen — even though
+    // repos have runnable tasks. Waiting work stays 'pending' with no lease
+    // (so no lease can expire while it queues).
+    hasActiveLeasedTaskMock.mockResolvedValueOnce(true);
+    // getActiveRepos and claim would return work if consulted — they must
+    // NOT be consulted at all.
+    getActiveReposMock.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    claimMock.mockResolvedValue({ id: 999 });
+
+    const fakeDb = {} as any;
+    const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+
+    expect(queue).toEqual([]);
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(recordEventMock).not.toHaveBeenCalled();
+  });
+
+  it("iterates active repos in the order returned by getActiveRepos when picking the single task to claim (AC #116)", async () => {
+    // First repo has nothing, second repo has work — claim the second, do
+    // not consult the third even though it would also return a task.
+    getActiveReposMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    claimMock
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 200 })
+      .mockResolvedValueOnce({ id: 300 });
+
+    const fakeDb = {} as any;
+    const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+
+    expect(claimMock).toHaveBeenCalledTimes(2);
+    expect(claimMock).toHaveBeenNthCalledWith(1, fakeDb, 1, "worker-abc", 1800);
+    expect(claimMock).toHaveBeenNthCalledWith(2, fakeDb, 2, "worker-abc", 1800);
     expect(queue).toEqual([{ repoId: 2, taskId: 200 }]);
   });
 
@@ -119,7 +175,7 @@ describe("buildWorkQueue", () => {
     expect(claimMock).toHaveBeenCalledWith(fakeDb, 1, WORKER_ID, 30 * 60);
   });
 
-  it("records a 'claimed' event for each task that is successfully claimed", async () => {
+  it("records exactly one 'claimed' event for the single task claimed this cycle", async () => {
     getActiveReposMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     claimMock
       .mockResolvedValueOnce({ id: 100 })
@@ -128,39 +184,85 @@ describe("buildWorkQueue", () => {
     const fakeDb = {} as any;
     await buildWorkQueue(fakeDb, "worker-abc", 1800);
 
-    expect(recordEventMock).toHaveBeenCalledTimes(2);
-    expect(recordEventMock).toHaveBeenNthCalledWith(
-      1,
+    expect(recordEventMock).toHaveBeenCalledTimes(1);
+    expect(recordEventMock).toHaveBeenCalledWith(
       fakeDb,
       100,
       "claimed",
       { worker_id: "worker-abc" }
     );
-    expect(recordEventMock).toHaveBeenNthCalledWith(
-      2,
-      fakeDb,
-      200,
-      "claimed",
-      { worker_id: "worker-abc" }
-    );
   });
 
-  it("does not record a 'claimed' event for repos that have no claimable task", async () => {
+  it("does not record a 'claimed' event when the first-eligible-repo scan yields no claim (all repos empty)", async () => {
     getActiveReposMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     claimMock
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ id: 200 });
+      .mockResolvedValueOnce(undefined);
 
     const fakeDb = {} as any;
-    await buildWorkQueue(fakeDb, "worker-abc", 1800);
+    const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
 
-    expect(recordEventMock).toHaveBeenCalledTimes(1);
-    expect(recordEventMock).toHaveBeenCalledWith(
-      fakeDb,
-      200,
-      "claimed",
-      { worker_id: "worker-abc" }
-    );
+    expect(queue).toEqual([]);
+    expect(recordEventMock).not.toHaveBeenCalled();
+  });
+
+  it("multi-cycle: three runnable tasks across three repos surface one-at-a-time in repo order across successive cycles (AC #112, #116)", async () => {
+    // The invariant "at no instant are two tasks 'active' at once" implies
+    // that runnable work in a multi-repo setup drains one task per cycle,
+    // in the order getActiveRepos returns them. Between cycles we simulate
+    // the just-run task finishing (no in-flight active) and it moving out
+    // of the eligible pool (next repo's task surfaces).
+    const fakeDb = {} as any;
+
+    // getActiveRepos is called once per cycle — configure a stable value.
+    getActiveReposMock.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+
+    // Cycle 1: repo 1 has a task, cycle stops as soon as it's claimed.
+    claimMock.mockResolvedValueOnce({ id: 101 });
+    const cycle1 = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+    expect(cycle1).toEqual([{ repoId: 1, taskId: 101 }]);
+    expect(claimMock).toHaveBeenLastCalledWith(fakeDb, 1, "worker-abc", 1800);
+
+    // Cycle 2: repo 1 is now empty (task 101 finished), repo 2's task is
+    // next in the round-robin. Repo 3 is never consulted this cycle.
+    claimMock
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 202 });
+    const cycle2 = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+    expect(cycle2).toEqual([{ repoId: 2, taskId: 202 }]);
+
+    // Cycle 3: repos 1 and 2 empty, repo 3's task is next.
+    claimMock
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 303 });
+    const cycle3 = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+    expect(cycle3).toEqual([{ repoId: 3, taskId: 303 }]);
+
+    // Every cycle produced a queue of length ≤ 1 — the single-task invariant.
+    // Together the three cycles drained three tasks, in strict repo order.
+    expect(cycle1.length + cycle2.length + cycle3.length).toBe(3);
+    for (const q of [cycle1, cycle2, cycle3]) {
+      expect(q.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("in-flight guard trips across all repos: even if repo 2 has a runnable task, an active-leased task in repo 1 blocks all new claims (AC #112, #114)", async () => {
+    // The single-task invariant is repo-agnostic: an in-flight task in ANY
+    // repo blocks new claims in EVERY repo. This is what keeps a queued
+    // task in a second repo from being marked 'active' (and leased) while
+    // the first repo's task is still running — its lease can never expire
+    // while it waits, because it isn't leased at all.
+    hasActiveLeasedTaskMock.mockResolvedValueOnce(true);
+    getActiveReposMock.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    claimMock.mockResolvedValue({ id: 999 });
+
+    const fakeDb = {} as any;
+    const queue = await buildWorkQueue(fakeDb, "worker-abc", 1800);
+
+    expect(queue).toEqual([]);
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(recordEventMock).not.toHaveBeenCalled();
   });
 
   // ---------------------------------------------------------------------

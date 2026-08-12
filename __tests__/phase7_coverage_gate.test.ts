@@ -185,6 +185,9 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.doMock("../src/db/tasks", () => ({
       claimNextPendingLeafTask: claimMock,
       autoCompleteParentTasks: jest.fn(),
+      // Task #29 added a single-task guard before claim. No in-flight task
+      // here → guard is a no-op and the approval-skip behavior is unchanged.
+      hasActiveLeasedTask: jest.fn().mockResolvedValue(false),
     }));
     const recordEventMock = jest.fn();
     jest.doMock("../src/db/taskEvents", () => ({
@@ -269,6 +272,9 @@ describe("Phase 7 — approval gate skip in scheduler (AC #874)", () => {
     jest.doMock("../src/db/tasks", () => ({
       claimNextPendingLeafTask: claimMock,
       autoCompleteParentTasks: jest.fn(),
+      // Task #29: single-task guard is a no-op here (no in-flight active
+      // task) so both cycles proceed to the claim step.
+      hasActiveLeasedTask: jest.fn().mockResolvedValue(false),
     }));
     const recordEventMock = jest.fn();
     jest.doMock("../src/db/taskEvents", () => ({
