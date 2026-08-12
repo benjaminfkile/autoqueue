@@ -1,3 +1,4 @@
+import knex, { Knex } from "knex";
 import {
   getUsageRowsForTask,
   getUsageTotalsForRepo,
@@ -193,6 +194,174 @@ describe("getUsageTotalsForRepo", () => {
       cache_creation_input_tokens: 500,
       cache_read_input_tokens: 5000,
       run_count: 10,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration tests against real SQLite — pins the dialect-portability of the
+// aggregation SQL. The Postgres-only `::bigint` shorthand blew up on
+// better-sqlite3 with "unrecognized token: ':'", breaking the Token Usage
+// panel on every task. These tests would fail if that regression came back.
+// ---------------------------------------------------------------------------
+describe("sumUsage — real SQLite (dialect portability)", () => {
+  let db: Knex;
+
+  beforeAll(async () => {
+    db = knex({
+      client: "better-sqlite3",
+      connection: { filename: ":memory:" },
+      useNullAsDefault: true,
+    });
+    await db.schema.createTable("task_usage", (table) => {
+      table.increments("id").primary();
+      table.integer("task_id").notNullable();
+      table.integer("repo_id").notNullable();
+      table.integer("input_tokens").notNullable().defaultTo(0);
+      table.integer("output_tokens").notNullable().defaultTo(0);
+      table
+        .integer("cache_creation_input_tokens")
+        .notNullable()
+        .defaultTo(0);
+      table
+        .integer("cache_read_input_tokens")
+        .notNullable()
+        .defaultTo(0);
+      table.text("created_at").notNullable().defaultTo(db.fn.now());
+    });
+  });
+
+  afterAll(async () => {
+    await db.destroy();
+  });
+
+  beforeEach(async () => {
+    await db("task_usage").delete();
+  });
+
+  async function insert(
+    task_id: number,
+    repo_id: number,
+    u: Partial<{
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_input_tokens: number;
+      cache_read_input_tokens: number;
+    }>
+  ) {
+    await db("task_usage").insert({
+      task_id,
+      repo_id,
+      input_tokens: u.input_tokens ?? 0,
+      output_tokens: u.output_tokens ?? 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+    });
+  }
+
+  it("getUsageTotalsForTask runs without a SQL error on SQLite (regression: ::bigint blew up with 'unrecognized token: :')", async () => {
+    await insert(42, 1, { input_tokens: 100, output_tokens: 200 });
+
+    // The crux: this call previously threw on SQLite because of ::bigint.
+    // If the portable CAST form isn't used, this rejects and the assertion
+    // below never runs.
+    const result = await getUsageTotalsForTask(db, 42);
+    expect(result).toEqual({
+      input_tokens: 100,
+      output_tokens: 200,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      run_count: 1,
+    });
+  });
+
+  it("sums all four token columns and run_count scoped by task_id, ignoring rows for other tasks", async () => {
+    await insert(1, 10, {
+      input_tokens: 100,
+      output_tokens: 200,
+      cache_creation_input_tokens: 50,
+      cache_read_input_tokens: 1000,
+    });
+    await insert(1, 10, {
+      input_tokens: 25,
+      output_tokens: 75,
+      cache_creation_input_tokens: 5,
+      cache_read_input_tokens: 250,
+    });
+    // Different task — must not bleed into the task 1 totals.
+    await insert(2, 10, {
+      input_tokens: 9999,
+      output_tokens: 9999,
+      cache_creation_input_tokens: 9999,
+      cache_read_input_tokens: 9999,
+    });
+
+    const result = await getUsageTotalsForTask(db, 1);
+    expect(result).toEqual({
+      input_tokens: 125,
+      output_tokens: 275,
+      cache_creation_input_tokens: 55,
+      cache_read_input_tokens: 1250,
+      run_count: 2,
+    });
+  });
+
+  it("getUsageTotalsForRepo sums across all tasks in a repo, ignoring rows from other repos", async () => {
+    await insert(1, 7, { input_tokens: 10, output_tokens: 20 });
+    await insert(2, 7, { input_tokens: 30, output_tokens: 40 });
+    // Different repo — must be excluded.
+    await insert(3, 8, { input_tokens: 500 });
+
+    const result = await getUsageTotalsForRepo(db, 7);
+    expect(result).toEqual({
+      input_tokens: 40,
+      output_tokens: 60,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      run_count: 2,
+    });
+  });
+
+  it("returns zeroed totals (and run_count: 0) when no rows match — COALESCE collapses the SUM NULL", async () => {
+    const result = await getUsageTotalsForTask(db, 999);
+    expect(result).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      run_count: 0,
+    });
+  });
+
+  it("recordTaskUsage + getUsageTotalsForTask round-trip: what's inserted is what's summed", async () => {
+    await recordTaskUsage(db, {
+      task_id: 55,
+      repo_id: 9,
+      usage: {
+        input_tokens: 111,
+        output_tokens: 222,
+        cache_creation_input_tokens: 33,
+        cache_read_input_tokens: 444,
+      },
+    });
+    await recordTaskUsage(db, {
+      task_id: 55,
+      repo_id: 9,
+      usage: {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_creation_input_tokens: 3,
+        cache_read_input_tokens: 4,
+      },
+    });
+
+    const result = await getUsageTotalsForTask(db, 55);
+    expect(result).toEqual({
+      input_tokens: 112,
+      output_tokens: 224,
+      cache_creation_input_tokens: 36,
+      cache_read_input_tokens: 448,
+      run_count: 2,
     });
   });
 });
