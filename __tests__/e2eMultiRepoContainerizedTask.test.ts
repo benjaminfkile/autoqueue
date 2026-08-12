@@ -90,6 +90,7 @@ jest.mock("../src/services/git", () => ({
   commitAndPushTask: jest.fn().mockResolvedValue(undefined),
   mergeTaskIntoBase: jest.fn().mockResolvedValue(undefined),
   hasUncommittedChanges: jest.fn().mockResolvedValue(true),
+  isBranchMergedIntoBase: jest.fn().mockResolvedValue(false),
 }));
 
 // Stub PR creation; record args so the happy-path test can assert on owner /

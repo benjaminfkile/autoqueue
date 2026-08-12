@@ -52,6 +52,7 @@ jest.mock("../src/services/git", () => ({
   commitAndPushTask: jest.fn(),
   mergeTaskIntoBase: jest.fn(),
   hasUncommittedChanges: jest.fn(),
+  isBranchMergedIntoBase: jest.fn(),
 }));
 
 jest.mock("../src/services/github", () => ({
@@ -111,6 +112,7 @@ import {
   commitAndPushTask,
   mergeTaskIntoBase,
   hasUncommittedChanges,
+  isBranchMergedIntoBase,
 } from "../src/services/git";
 import { createPullRequest } from "../src/services/github";
 import { runClaudeOnTask } from "../src/services/claudeRunner";
@@ -139,6 +141,7 @@ const createTaskBranchMock = createTaskBranch as jest.Mock;
 const commitAndPushTaskMock = commitAndPushTask as jest.Mock;
 const mergeTaskIntoBaseMock = mergeTaskIntoBase as jest.Mock;
 const hasUncommittedChangesMock = hasUncommittedChanges as jest.Mock;
+const isBranchMergedIntoBaseMock = isBranchMergedIntoBase as jest.Mock;
 const createPullRequestMock = createPullRequest as jest.Mock;
 const triggerWebhooksMock = triggerWebhooks as jest.Mock;
 
@@ -154,6 +157,7 @@ beforeEach(() => {
   createNoteMock.mockResolvedValue({ id: 1 });
   recordTaskUsageMock.mockResolvedValue({ id: 1 });
   resolveTaskModelMock.mockResolvedValue("claude-opus-4-7");
+  isBranchMergedIntoBaseMock.mockResolvedValue(false);
   // Default manifest mirrors the on-disk path the pre-Phase-10 taskRunner
   // computed inline, so existing assertions keep working unchanged.
   buildMountManifestMock.mockImplementation(async (_db, repo, reposPath) => ({
@@ -1579,5 +1583,190 @@ describe("runTask resolves and forwards the effective model", () => {
     );
     expect(claudeStarted).toBeDefined();
     expect(claudeStarted![3]).toMatchObject({ model: "claude-haiku-4-5" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task #26: Finalize error handling — a push/merge/PR/mark-done failure after
+// claude_finished must never leave the task wedged at status='active'. The
+// finalize block is wrapped in try/catch; on any error it records a
+// finalize_failed event and transitions the task to 'failed'. Finalize is also
+// idempotent: if the branch is already merged into base (detected via
+// isBranchMergedIntoBase), the merge step is skipped so a retry converges
+// to 'done' without a double-merge or conflict.
+// ---------------------------------------------------------------------------
+describe("runTask finalize error handling (task #26)", () => {
+  const baseTask = {
+    id: 42,
+    repo_id: 2,
+    parent_id: null,
+    title: "Fix login",
+    description: "Fix it",
+    order_position: 0,
+    status: "active",
+    retry_count: 0,
+    pr_url: null,
+    worker_id: "host:123",
+    leased_until: new Date(),
+    created_at: new Date(),
+  };
+  const githubRepo = {
+    id: 2,
+    owner: "acme",
+    repo_name: "widgets",
+    active: true,
+    base_branch: "main",
+    base_branch_parent: "main",
+    require_pr: false,
+    git_pat: null,
+    git_provider: "github" as const,
+    ado_project: null,
+    is_local_folder: false,
+    local_path: null,
+    created_at: new Date(),
+  };
+
+  beforeEach(() => {
+    getTaskByIdMock.mockResolvedValue(baseTask);
+    getRepoByIdMock.mockResolvedValue(githubRepo);
+    getCriteriaMock.mockResolvedValue([]);
+    cloneOrPullMock.mockResolvedValue(undefined);
+    checkoutBaseBranchMock.mockResolvedValue(undefined);
+    createTaskBranchMock.mockResolvedValue("grunt-task-42");
+    runClaudeMock.mockResolvedValue({ success: true, output: "ok" });
+    hasUncommittedChangesMock.mockResolvedValue(false);
+    isBranchMergedIntoBaseMock.mockResolvedValue(false);
+    mergeTaskIntoBaseMock.mockResolvedValue(undefined);
+    updateTaskMock.mockResolvedValue(undefined);
+  });
+
+  it("records finalize_failed and sets status=failed when commitAndPushTask throws (push rejected)", async () => {
+    hasUncommittedChangesMock.mockResolvedValue(true);
+    commitAndPushTaskMock.mockRejectedValue(
+      new Error("push rejected: remote requires workflow scope")
+    );
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    const result = await runTask({} as any, secrets, 2, 42);
+
+    expect(result).toBe("failed");
+
+    const finalizeFailed = recordEventMock.mock.calls.find(
+      (c) => c[1] === 42 && c[2] === "finalize_failed"
+    );
+    expect(finalizeFailed).toBeDefined();
+    expect(finalizeFailed![3]).toMatchObject({
+      error: expect.stringContaining("push rejected"),
+    });
+
+    const setFailed = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "failed"
+    );
+    expect(setFailed).toBeDefined();
+
+    // Task must NOT have been left at status='active' by omission.
+    const setActive = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "active"
+    );
+    expect(setActive).toBeUndefined();
+  });
+
+  it("records finalize_failed and sets status=failed when mergeTaskIntoBase throws (merge conflict)", async () => {
+    mergeTaskIntoBaseMock.mockRejectedValue(
+      new Error("CONFLICT (content): Merge conflict in src/auth.ts")
+    );
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    const result = await runTask({} as any, secrets, 2, 42);
+
+    expect(result).toBe("failed");
+
+    const finalizeFailed = recordEventMock.mock.calls.find(
+      (c) => c[1] === 42 && c[2] === "finalize_failed"
+    );
+    expect(finalizeFailed).toBeDefined();
+    expect(finalizeFailed![3]).toMatchObject({
+      error: expect.stringContaining("Merge conflict"),
+    });
+
+    const setFailed = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "failed"
+    );
+    expect(setFailed).toBeDefined();
+  });
+
+  it("records finalize_failed and sets status=failed when updateTask(status=done) throws after a successful merge", async () => {
+    mergeTaskIntoBaseMock.mockResolvedValue(undefined);
+    updateTaskMock.mockImplementation(async (_db: any, _id: number, data: any) => {
+      if (data?.status === "done") throw new Error("DB connection lost");
+      return undefined;
+    });
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    const result = await runTask({} as any, secrets, 2, 42);
+
+    expect(result).toBe("failed");
+
+    const finalizeFailed = recordEventMock.mock.calls.find(
+      (c) => c[1] === 42 && c[2] === "finalize_failed"
+    );
+    expect(finalizeFailed).toBeDefined();
+    expect(finalizeFailed![3]).toMatchObject({
+      error: expect.stringContaining("DB connection lost"),
+    });
+
+    // The catch block must still attempt to set status=failed.
+    const setFailed = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "failed"
+    );
+    expect(setFailed).toBeDefined();
+  });
+
+  it("skips mergeTaskIntoBase and converges to done when branch is already merged into base", async () => {
+    isBranchMergedIntoBaseMock.mockResolvedValue(true);
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    const result = await runTask({} as any, secrets, 2, 42);
+
+    expect(result).toBe("success");
+    expect(mergeTaskIntoBaseMock).not.toHaveBeenCalled();
+
+    const setDone = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "done"
+    );
+    expect(setDone).toBeDefined();
+  });
+
+  it("does not wedge the task at active when finalize throws — scheduler never sees an uncaught exception", async () => {
+    commitAndPushTaskMock.mockRejectedValue(new Error("network timeout"));
+    hasUncommittedChangesMock.mockResolvedValue(true);
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    // runTask must not throw — the scheduler's try/catch must not be the
+    // last line of defense.
+    await expect(runTask({} as any, secrets, 2, 42)).resolves.toBe("failed");
+
+    // Verify the task was explicitly moved out of active.
+    const activeAtEnd = updateTaskMock.mock.calls.filter(
+      ([, id, data]) => id === 42 && data?.status === "active"
+    );
+    expect(activeAtEnd).toHaveLength(0);
+  });
+
+  it("skips PR creation and marks done when task already has pr_url set (retry after pr_url stored but status update failed)", async () => {
+    const taskWithPrUrl = { ...baseTask, pr_url: "https://gh/pr/99" };
+    getTaskByIdMock.mockResolvedValue(taskWithPrUrl);
+    getRepoByIdMock.mockResolvedValue({ ...githubRepo, require_pr: true });
+
+    const secrets: any = { REPOS_PATH: "/tmp", GH_PAT: "tok" };
+    const result = await runTask({} as any, secrets, 2, 42);
+
+    expect(result).toBe("success");
+    expect(createPullRequestMock).not.toHaveBeenCalled();
+
+    const setDone = updateTaskMock.mock.calls.find(
+      ([, id, data]) => id === 42 && data?.status === "done"
+    );
+    expect(setDone).toBeDefined();
   });
 });

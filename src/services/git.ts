@@ -299,3 +299,22 @@ export async function hasUncommittedChanges(
     status.staged.length > 0
   );
 }
+
+// Returns true when all commits on branchName are already reachable from
+// baseBranch — i.e. the branch is already merged. Used by the finalize step
+// to skip a redundant merge on retry (idempotency guard).
+export async function isBranchMergedIntoBase(
+  reposPath: string,
+  owner: string,
+  repoName: string,
+  baseBranch: string,
+  branchName: string,
+): Promise<boolean> {
+  const git = simpleGit(repoPath(reposPath, owner, repoName));
+  try {
+    const result = await git.branch(["--merged", baseBranch]);
+    return result.all.some((b) => b.trim() === branchName);
+  } catch {
+    return false;
+  }
+}
