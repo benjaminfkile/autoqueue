@@ -299,10 +299,10 @@ export async function claimNextPendingLeafTask(
       if (t.status !== "pending") return false;
       if (t.requires_approval) return false;
 
+      // A task with ANY children is a phase parent — never claim it directly.
+      // Parents reach done/failed only via autoCompleteParentTasks.
       const kids = childrenOf.get(t.id) ?? [];
-      if (kids.some((k) => k.status === "pending" || k.status === "active")) {
-        return false;
-      }
+      if (kids.length > 0) return false;
 
       if (onFailure === "halt_subtree") {
         const siblings = childrenOf.get(t.parent_id ?? null) ?? [];
