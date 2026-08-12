@@ -47,18 +47,26 @@ async function sumUsage(
   db: Knex,
   where: Partial<{ task_id: number; repo_id: number }>
 ): Promise<UsageTotals> {
+  // ANSI CAST(<expr> AS BIGINT) works on both SQLite (BIGINT → INTEGER
+  // affinity) and Postgres (native BIGINT). The Postgres-only `::bigint`
+  // shorthand throws "unrecognized token: ':'" on SQLite, so a single
+  // portable form is used across dialects.
   const rows = await db<TaskUsage>("task_usage")
     .where(where)
     .select(
-      db.raw("COALESCE(SUM(input_tokens), 0)::bigint as input_tokens"),
-      db.raw("COALESCE(SUM(output_tokens), 0)::bigint as output_tokens"),
       db.raw(
-        "COALESCE(SUM(cache_creation_input_tokens), 0)::bigint as cache_creation_input_tokens"
+        "CAST(COALESCE(SUM(input_tokens), 0) AS BIGINT) as input_tokens"
       ),
       db.raw(
-        "COALESCE(SUM(cache_read_input_tokens), 0)::bigint as cache_read_input_tokens"
+        "CAST(COALESCE(SUM(output_tokens), 0) AS BIGINT) as output_tokens"
       ),
-      db.raw("COUNT(*)::bigint as run_count")
+      db.raw(
+        "CAST(COALESCE(SUM(cache_creation_input_tokens), 0) AS BIGINT) as cache_creation_input_tokens"
+      ),
+      db.raw(
+        "CAST(COALESCE(SUM(cache_read_input_tokens), 0) AS BIGINT) as cache_read_input_tokens"
+      ),
+      db.raw("CAST(COUNT(*) AS BIGINT) as run_count")
     );
   const r = rows[0] as Record<string, string | number> | undefined;
   return {
