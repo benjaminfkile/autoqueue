@@ -710,6 +710,17 @@ function TaskTreeNode({
           variant="body2"
           sx={{ flexGrow: 1, fontWeight: hasChildren ? 500 : 400 }}
         >
+          <Box
+            component="span"
+            sx={{
+              color: "text.secondary",
+              fontFamily: "monospace",
+              mr: 0.75,
+            }}
+            data-testid={`task-id-${task.id}`}
+          >
+            #{task.id}
+          </Box>
           {task.title}
         </Typography>
         {noteCount > 0 && (

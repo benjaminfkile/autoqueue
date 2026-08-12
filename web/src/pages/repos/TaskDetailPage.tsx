@@ -448,6 +448,18 @@ export default function TaskDetailPage({ taskId, onClose }: TaskDetailPageProps)
             {!editingTitle ? (
               <>
                 <Typography variant="h5" component="h2" sx={{ flexGrow: 1 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      color: "text.secondary",
+                      fontFamily: "monospace",
+                      fontSize: "0.85em",
+                      mr: 1,
+                    }}
+                    data-testid={`task-detail-id-${task.id}`}
+                  >
+                    #{task.id}
+                  </Box>
                   {task.title}
                 </Typography>
                 <Tooltip title="Edit title">
