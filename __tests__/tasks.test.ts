@@ -4,6 +4,7 @@ import {
   autoCompleteParentTasks,
   claimNextPendingLeafTask,
   renewTaskLease,
+  reclaimExpiredLeaseTasks,
   getTasksByRepoId,
   getTaskById,
   getChildTasks,
@@ -175,6 +176,141 @@ describe("reconcileOrphanedTasks", () => {
     expect(sub.where).toHaveBeenCalledWith("worker_id", "host:123");
     expect(sub.orWhereNull).toHaveBeenCalledWith("leased_until");
     expect(sub.orWhere).toHaveBeenCalledWith("leased_until", "<", expect.any(String));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reclaimExpiredLeaseTasks — lease-expiry recovery
+// ---------------------------------------------------------------------------
+describe("reclaimExpiredLeaseTasks", () => {
+  it("resets a stale-active task to pending and bumps retry_count", async () => {
+    const { knex, chain } = createMockKnex();
+
+    const staleTask = makeTask(1, null, 0, "active", {
+      retry_count: 0,
+      worker_id: "worker-1",
+      leased_until: new Date(Date.now() - 10 * 60 * 1000), // 10 min ago
+    });
+    const mockEvent = {
+      id: 1,
+      task_id: 1,
+      event: "lease_expired_reclaimed",
+      data: null,
+      ts: new Date(),
+    };
+
+    chain.andWhere.mockResolvedValueOnce([staleTask]);
+    chain.update.mockResolvedValueOnce(1);
+    chain.returning.mockResolvedValueOnce([mockEvent]);
+
+    const result = await reclaimExpiredLeaseTasks(knex as any, 1, 3);
+
+    expect(result.resetToPending).toBe(1);
+    expect(result.markedFailed).toBe(0);
+    expect(chain.update).toHaveBeenCalledWith({
+      status: "pending",
+      worker_id: null,
+      leased_until: null,
+      retry_count: 1,
+    });
+  });
+
+  it("does not reclaim any task when all active tasks have a valid lease", async () => {
+    const { knex, chain } = createMockKnex();
+
+    // andWhere returns empty array — no stale tasks
+    chain.andWhere.mockResolvedValueOnce([]);
+
+    const result = await reclaimExpiredLeaseTasks(knex as any, 1, 3);
+
+    expect(result.resetToPending).toBe(0);
+    expect(result.markedFailed).toBe(0);
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  it("marks a stale-active task as failed when retries are exhausted (retry_count + 1 >= maxAttempts)", async () => {
+    const { knex, chain } = createMockKnex();
+
+    const exhaustedTask = makeTask(1, null, 0, "active", {
+      retry_count: 2,  // 2 + 1 = 3 >= maxAttempts (3) → exhausted
+      worker_id: "worker-1",
+      leased_until: new Date(Date.now() - 10 * 60 * 1000),
+    });
+    const mockEvent = {
+      id: 1,
+      task_id: 1,
+      event: "lease_expired_reclaimed",
+      data: null,
+      ts: new Date(),
+    };
+
+    chain.andWhere.mockResolvedValueOnce([exhaustedTask]);
+    chain.update.mockResolvedValueOnce(1);
+    chain.returning.mockResolvedValueOnce([mockEvent]);
+
+    const result = await reclaimExpiredLeaseTasks(knex as any, 1, 3);
+
+    expect(result.markedFailed).toBe(1);
+    expect(result.resetToPending).toBe(0);
+    expect(chain.update).toHaveBeenCalledWith({
+      status: "failed",
+      worker_id: null,
+      leased_until: null,
+      retry_count: 3,
+    });
+  });
+
+  it("handles multiple stale tasks in one sweep — some reset, some failed", async () => {
+    const { knex, chain } = createMockKnex();
+
+    const freshTask = makeTask(1, null, 0, "active", {
+      retry_count: 0,
+      worker_id: "w1",
+      leased_until: new Date(Date.now() - 5 * 60 * 1000),
+    });
+    const exhaustedTask = makeTask(2, null, 1, "active", {
+      retry_count: 2,
+      worker_id: "w2",
+      leased_until: new Date(Date.now() - 40 * 60 * 1000),
+    });
+    const mockEvent = { id: 1, task_id: 1, event: "lease_expired_reclaimed", data: null, ts: new Date() };
+
+    chain.andWhere.mockResolvedValueOnce([freshTask, exhaustedTask]);
+    // update + event for freshTask
+    chain.update.mockResolvedValueOnce(1);
+    chain.returning.mockResolvedValueOnce([mockEvent]);
+    // update + event for exhaustedTask
+    chain.update.mockResolvedValueOnce(1);
+    chain.returning.mockResolvedValueOnce([{ ...mockEvent, task_id: 2 }]);
+
+    const result = await reclaimExpiredLeaseTasks(knex as any, 1, 3);
+
+    expect(result.resetToPending).toBe(1);
+    expect(result.markedFailed).toBe(1);
+    // First update: reset freshTask to pending
+    expect(chain.update).toHaveBeenNthCalledWith(1, {
+      status: "pending",
+      worker_id: null,
+      leased_until: null,
+      retry_count: 1,
+    });
+    // Second update: mark exhaustedTask failed
+    expect(chain.update).toHaveBeenNthCalledWith(2, {
+      status: "failed",
+      worker_id: null,
+      leased_until: null,
+      retry_count: 3,
+    });
+  });
+
+  it("returns {0, 0} when there are no active tasks at all (repo is idle)", async () => {
+    const { knex, chain } = createMockKnex();
+    chain.andWhere.mockResolvedValueOnce([]);
+
+    const result = await reclaimExpiredLeaseTasks(knex as any, 99, 3);
+
+    expect(result).toEqual({ resetToPending: 0, markedFailed: 0 });
+    expect(chain.update).not.toHaveBeenCalled();
   });
 });
 
