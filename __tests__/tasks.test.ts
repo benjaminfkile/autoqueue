@@ -858,6 +858,105 @@ describe("claimNextPendingLeafTask", () => {
     expect(result).toBeUndefined();
   });
 
+  // ---------------------------------------------------------------------------
+  // Leaf guard: tasks with children (phase parents) must never be claimed
+  // ---------------------------------------------------------------------------
+  it("never claims a parent task whose children are ALL done (leaf guard)", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    // parent has two done children — all terminal, but parent is NOT a leaf
+    const parent = makeTask(1, null, 0, "pending");
+    const child1 = makeTask(2, 1, 0, "done");
+    const child2 = makeTask(3, 1, 1, "done");
+    const tasks = [parent, child1, child2];
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // The parent must not be claimed — autoCompleteParentTasks handles it
+    expect(result).toBeUndefined();
+  });
+
+  it("never claims a parent task whose children are ALL failed (leaf guard)", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const parent = makeTask(1, null, 0, "pending");
+    const child1 = makeTask(2, 1, 0, "failed");
+    const child2 = makeTask(3, 1, 1, "failed");
+    const tasks = [parent, child1, child2];
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
+  });
+
+  it("never claims a parent task with a mix of done and failed children (leaf guard)", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "parallel" });
+    const parent = makeTask(1, null, 0, "pending");
+    const child1 = makeTask(2, 1, 0, "done");
+    const child2 = makeTask(3, 1, 1, "failed");
+    const tasks = [parent, child1, child2];
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    expect(result).toBeUndefined();
+  });
+
+  it("single-task phase: claims the one child leaf, never the parent", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // Phase parent (id=1) has exactly one child (id=2). Both pending.
+    const parent = makeTask(1, null, 0, "pending");
+    const child = makeTask(2, 1, 0, "pending");
+    const tasks = [parent, child];
+    const claimed = { ...child, status: "active", worker_id: "host:123" };
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // The leaf child is claimed, not the parent
+    expect(result).toEqual(claimed);
+    expect(result!.id).toBe(2);
+    // The update targeted the child (id=2), not the parent (id=1)
+    const whereCalls = (chain.where as jest.Mock).mock.calls;
+    expect(whereCalls[whereCalls.length - 1][0]).toEqual({ id: 2 });
+  });
+
+  it("last-task-of-phase: claims the final pending child leaf, never the parent", async () => {
+    const { knex, chain } = createMockKnex();
+    const repo = makeRepo({ on_failure: "continue", ordering_mode: "sequential" });
+    // Phase parent (id=1), two children: first is done, second is still pending
+    const parent = makeTask(1, null, 0, "pending");
+    const child1 = makeTask(2, 1, 0, "done");
+    const child2 = makeTask(3, 1, 1, "pending");
+    const tasks = [parent, child1, child2];
+    const claimed = { ...child2, status: "active", worker_id: "host:123" };
+
+    chain.where.mockReturnValueOnce(chain).mockResolvedValueOnce(tasks);
+    chain.first.mockResolvedValueOnce(repo);
+    chain.returning.mockResolvedValueOnce([claimed]);
+
+    const result = await claimNextPendingLeafTask(knex as any, 1, "host:123", 1800);
+
+    // The last pending child is claimed, not the parent
+    expect(result).toEqual(claimed);
+    expect(result!.id).toBe(3);
+    const whereCalls = (chain.where as jest.Mock).mock.calls;
+    expect(whereCalls[whereCalls.length - 1][0]).toEqual({ id: 3 });
+  });
+
   it("two concurrent claim calls never return the same task (FOR UPDATE SKIP LOCKED contract)", async () => {
     // Each worker gets its own mock knex so they pick different tasks.
     const { knex: knexA, chain: chainA } = createMockKnex();
