@@ -13,7 +13,7 @@
 # repo bind-mounted at /workspace. The image is internal-only — it is never
 # pushed to a registry and exposes no ports.
 
-FROM node:20-slim
+FROM node:22-slim
 
 # git: required for the repo work the agent performs (status/diff/branch/commit).
 # openssh-client: lets git use SSH remotes when a key is mounted in.
